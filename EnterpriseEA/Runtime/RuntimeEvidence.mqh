@@ -137,6 +137,26 @@ struct EEA_RuntimeStatus
    bool   new_entries_blocked;
    long   previous_deal_watermark;
    long   previous_deal_watermark_time;
+   
+   long   runtime_instance_id;
+   long   refresh_sequence;
+   long   refresh_generation;
+   long   selection_revision;
+   long   checkpoint_written_at_utc;
+   long   broker_observed_at_utc;
+   string selected_symbols_fingerprint;
+   long   timer_tick_count;
+   long   refresh_attempt_count;
+   long   refresh_success_count;
+   long   refresh_failure_count;
+   long   last_timer_at_utc;
+   long   last_refresh_duration_ms;
+   long   max_refresh_duration_ms;
+   long   consecutive_refresh_failures;
+   long   transaction_callback_count;
+   long   transaction_invalidation_generation;
+   bool   pending_refresh;
+   bool   refresh_in_progress;
   };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +170,45 @@ void EEA_RuntimeDefaults(EEA_RuntimeStatus &s)
    s.new_entries_blocked        = true;
    s.previous_deal_watermark    = -1;
    s.previous_deal_watermark_time = -1;
+  }
+
+bool EEA_RuntimeTelemetryValidate(const EEA_RuntimeStatus &status, string &reason)
+  {
+   if(status.refresh_attempt_count < 0 || status.refresh_success_count < 0 ||
+      status.refresh_failure_count < 0 || status.max_refresh_duration_ms < 0 ||
+      status.last_refresh_duration_ms < 0 || status.consecutive_refresh_failures < 0 ||
+      status.refresh_generation < 0 || status.refresh_sequence < 0)
+     {
+      reason = "RUNTIME_TELEMETRY_INVALID";
+      return false;
+     }
+
+   if(status.refresh_success_count + status.refresh_failure_count > status.refresh_attempt_count)
+     {
+      reason = "RUNTIME_TELEMETRY_INVALID";
+      return false;
+     }
+
+   if(status.last_refresh_duration_ms > status.max_refresh_duration_ms)
+     {
+      reason = "RUNTIME_TELEMETRY_INVALID";
+      return false;
+     }
+
+   if(status.consecutive_refresh_failures > status.refresh_failure_count)
+     {
+      reason = "RUNTIME_TELEMETRY_INVALID";
+      return false;
+     }
+
+   if(status.refresh_sequence > status.refresh_generation)
+     {
+      reason = "RUNTIME_TELEMETRY_INVALID";
+      return false;
+     }
+     
+   reason = "";
+   return true;
   }
 
 // FNV-1a 32-bit hash helper used to build the opaque account fingerprint.

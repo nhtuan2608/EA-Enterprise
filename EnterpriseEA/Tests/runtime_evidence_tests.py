@@ -408,6 +408,22 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         out3 = selection_load_policy(doc, "v1", "abc", ["FALLBACK"])
         self.assertEqual(out3.get("canonical_symbols"), ["FALLBACK"])
         self.assertEqual(out3.get("reason"), "RUNTIME_SELECTION_INCOMPATIBLE")
+    def test_mql_telemetry_and_selection_functions_exist(self):
+        mqh = (ROOT / 'Runtime/RuntimeEvidence.mqh').read_text(encoding='utf-8')
+        self.assertIn('EEA_RuntimeTelemetryValidate', mqh)
+        self.assertIn('runtime_instance_id', mqh)
+        self.assertIn('refresh_sequence', mqh)
+        self.assertIn('refresh_generation', mqh)
+        self.assertIn('selection_revision', mqh)
+
+        store = (ROOT / 'Storage/RuntimeEvidenceStore.mqh').read_text(encoding='utf-8')
+        self.assertIn('EEA_RuntimeStoreWriteSymbolSelection', store)
+        self.assertIn('EEA_RuntimeStoreCheckSymbolSelection', store)
+        self.assertIn('symbol_selection.json', store)
+        self.assertNotIn('ACCOUNT_LOGIN', store)
+        self.assertNotIn('ACCOUNT_NAME', store)
+
 if __name__ == "__main__":
     unittest.main()
+
 

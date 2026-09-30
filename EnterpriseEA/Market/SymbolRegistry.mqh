@@ -159,3 +159,4 @@ int EEA_ResolveSymbolsBatch(const string &canonicals[], const EEA_SymbolDiscover
   {
    return 0; // Stub
   }
+
