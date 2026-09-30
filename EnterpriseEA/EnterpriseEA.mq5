@@ -25,20 +25,6 @@ CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
 
-bool EEA_ParseSymbolBindings(const string canonical_csv,
-                             string &canonical[],string &broker[],int &count)
-  {
-   count=StringSplit(canonical_csv,',',canonical);
-   if(count<1 || count>EEA_RUNTIME_MAX_SYMBOLS) return false;
-   for(int i=0;i<count;i++)
-     {
-      StringTrimLeft(canonical[i]); StringTrimRight(canonical[i]);
-      broker[i]=canonical[i]; // Default fallback if not resolved
-      if(canonical[i]=="") return false;
-     }
-   return true;
-  }
-
 int OnInit()
   {
    if(!EAConfig_LoadDefaults(g_config))
@@ -103,13 +89,13 @@ int OnInit()
       return INIT_FAILED;
    if(InpRuntimeEvidenceEnabled)
      {
-      string canonical[],broker[];
-      int binding_count=0;
-      if(!EEA_ParseSymbolBindings(InpCanonicalSymbols,canonical,broker,binding_count))
-         return INIT_PARAMETERS_INCORRECT;
+      string canonical[];
+      int count = EEA_NormalizeCanonicalCsv(InpCanonicalSymbols, canonical);
+      if(count <= 0) return INIT_PARAMETERS_INCORRECT;
+
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
-                                  canonical,broker,binding_count))
+                                  canonical,count))
          return INIT_FAILED;
       if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
@@ -173,3 +159,4 @@ void OnChartEvent(const int id,
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
      }
   }
+
