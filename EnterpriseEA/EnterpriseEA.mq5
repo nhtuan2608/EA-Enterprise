@@ -9,35 +9,21 @@
 #include "Storage/AuditLog.mqh"
 #include "Storage/SharedStateStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
+#include "Runtime/SymbolSelectionPanel.mqh"
 
 input bool   InpObserverOnly           = true;
 input string InpDataRoot               = "EnterpriseEA";
 input bool   InpRuntimeEvidenceEnabled = true;
 input int    InpRuntimeRefreshSeconds  = 30;
 input int    InpHistoryLookbackDays    = 7;
-input string InpCanonicalSymbols       = "EURUSD";
-input string InpBrokerSymbols          = "EURUSD-VIP";
+input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD";
+input bool   InpShowSymbolPanel        = true;
 
 CEAConfig g_config;
 CSharedState g_state;
 CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
-
-bool EEA_ParseSymbolBindings(const string canonical_csv,const string broker_csv,
-                             string &canonical[],string &broker[],int &count)
-  {
-   count=StringSplit(canonical_csv,',',canonical);
-   int broker_count=StringSplit(broker_csv,',',broker);
-   if(count<1 || count!=broker_count || count>EEA_RUNTIME_MAX_SYMBOLS) return false;
-   for(int i=0;i<count;i++)
-     {
-      StringTrimLeft(canonical[i]); StringTrimRight(canonical[i]);
-      StringTrimLeft(broker[i]); StringTrimRight(broker[i]);
-      if(canonical[i]=="" || broker[i]=="") return false;
-     }
-   return true;
-  }
 
 int OnInit()
   {
@@ -103,15 +89,19 @@ int OnInit()
       return INIT_FAILED;
    if(InpRuntimeEvidenceEnabled)
      {
-      string canonical[],broker[];
-      int binding_count=0;
-      if(!EEA_ParseSymbolBindings(InpCanonicalSymbols,InpBrokerSymbols,canonical,broker,binding_count))
-         return INIT_PARAMETERS_INCORRECT;
+      string canonical[];
+      int count = EEA_NormalizeCanonicalCsv(InpCanonicalSymbols, canonical);
+      if(count <= 0) return INIT_PARAMETERS_INCORRECT;
+
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
-                                  canonical,broker,binding_count))
+                                  canonical,count))
          return INIT_FAILED;
       if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
+     }
+   if(InpShowSymbolPanel)
+     {
+      EEA_SymbolPanelInit(0, 0);
      }
    Print("EnterpriseEA observer runtime initialized without execution authority.");
    return INIT_SUCCEEDED;
@@ -119,6 +109,10 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
+   if(InpShowSymbolPanel)
+     {
+      EEA_SymbolPanelDestroy(0);
+     }
    EventKillTimer();
    if(InpRuntimeEvidenceEnabled)
       EEA_ObserverRuntimeShutdown(g_runtime,g_audit);
@@ -154,3 +148,15 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(InpRuntimeEvidenceEnabled)
       EEA_ObserverRuntimeMarkStale(g_runtime,"BROKER_TRANSACTION_OBSERVED");
   }
+
+void OnChartEvent(const int id,
+                  const long &lparam,
+                  const double &dparam,
+                  const string &sparam)
+  {
+   if(InpShowSymbolPanel)
+     {
+      EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
+     }
+  }
+

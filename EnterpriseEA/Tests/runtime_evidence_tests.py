@@ -277,5 +277,171 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
             self.assertNotIn(token, handler)
 
 
+
+    def test_symbol_panel_existence_and_apis(self):
+        panel_path = ROOT / "Runtime/SymbolSelectionPanel.mqh"
+        self.assertTrue(panel_path.exists())
+        src = panel_path.read_text(encoding="utf-8")
+        self.assertIn("ObjectCreate", src)
+        self.assertIn("ObjectSetInteger", src)
+        self.assertIn("ObjectSetString", src)
+        self.assertIn("ChartRedraw", src)
+        self.assertIn("EEA_SymbolPanelInit", src)
+        self.assertIn("EEA_SymbolPanelRefresh", src)
+        self.assertIn("EEA_SymbolPanelHandleChartEvent", src)
+        self.assertIn("EEA_SymbolPanelDestroy", src)
+        self.assertIn("EEA_ObserverRuntimeApplySelection", src)
+
+    def test_shell_chart_event_integration(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("OnChartEvent", shell)
+        self.assertIn("InpShowSymbolPanel", shell)
+        self.assertNotIn("InpBrokerSymbols", shell)
+        self.assertIn("EEA_SymbolPanelHandleChartEvent", shell)
+        self.assertIn("EEA_SymbolPanelInit", shell)
+        self.assertIn("EEA_SymbolPanelDestroy", shell)
+
+
+class RuntimeTelemetryValidationTests(unittest.TestCase):
+    def test_validate_runtime_telemetry(self):
+        from runtime_evidence_oracle import validate_runtime_telemetry
+
+        valid = {
+            "refresh_attempt_count": 10,
+            "refresh_success_count": 8,
+            "refresh_failure_count": 2,
+            "max_refresh_duration_ms": 100,
+            "last_refresh_duration_ms": 50,
+            "consecutive_refresh_failures": 1,
+            "refresh_generation": 5,
+            "refresh_sequence": 5,
+            "pending_refresh": False,
+            "refresh_in_progress": False
+        }
+        ok, reason = validate_runtime_telemetry(valid)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
+
+        # negative counters
+        neg = dict(valid, refresh_attempt_count=-1)
+        ok, reason = validate_runtime_telemetry(neg)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "RUNTIME_TELEMETRY_INVALID")
+
+        # successes+failures > attempts
+        bad_sum = dict(valid, refresh_attempt_count=5)
+        ok, reason = validate_runtime_telemetry(bad_sum)
+        self.assertFalse(ok)
+
+        # durations
+        bad_dur = dict(valid, last_refresh_duration_ms=200)
+        ok, reason = validate_runtime_telemetry(bad_dur)
+        self.assertFalse(ok)
+
+        bad_dur2 = dict(valid, max_refresh_duration_ms=-1)
+        ok, reason = validate_runtime_telemetry(bad_dur2)
+        self.assertFalse(ok)
+
+        # consecutive
+        bad_cons = dict(valid, consecutive_refresh_failures=3)
+        ok, reason = validate_runtime_telemetry(bad_cons)
+        self.assertFalse(ok)
+
+        # generation/sequence
+        bad_gen = dict(valid, refresh_sequence=6)
+        ok, reason = validate_runtime_telemetry(bad_gen)
+        self.assertFalse(ok)
+
+        bad_gen2 = dict(valid, refresh_generation=-1)
+        ok, reason = validate_runtime_telemetry(bad_gen2)
+        self.assertFalse(ok)
+
+    def test_audit_invariants(self):
+        from runtime_evidence_oracle import audit_invariants
+
+        # Valid sequence: missing-checkpoint -> startup-attempt -> startup-completion
+        records = [
+            {"event": "missing-checkpoint", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 0},
+            {"event": "startup-attempt", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 0},
+            {"event": "startup-completion", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 1},
+        ]
+        ok, reason = audit_invariants(records)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
+
+        # Duplicate completion
+        bad_dup = records + [{"event": "startup-completion", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 2}]
+        ok, reason = audit_invariants(bad_dup)
+        self.assertFalse(ok)
+
+        # Decreasing generation
+        bad_dec = records + [{"event": "startup-attempt", "runtime_instance_id": 1, "refresh_generation": 0, "refresh_sequence": 2}]
+        ok, reason = audit_invariants(bad_dec)
+        self.assertFalse(ok)
+
+        # Completion without attempt
+        bad_no_att = [
+            {"event": "startup-completion", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 1}
+        ]
+        ok, reason = audit_invariants(bad_no_att)
+        self.assertFalse(ok)
+
+    def test_selection_load_policy(self):
+        from runtime_evidence_oracle import selection_load_policy
+        doc = {
+            "config_version": "v1",
+            "account_fingerprint": "xyz",
+            "canonical_symbols": ["EURUSD", "GBPUSD"],
+            "broker_symbols": ["EURUSD.r", "GBPUSD.r"]
+        }
+        # Compatible
+        out = selection_load_policy(doc, "v1", "xyz", ["FALLBACK"])
+        self.assertEqual(out.get("canonical_symbols"), ["EURUSD", "GBPUSD"])
+        self.assertNotIn("broker_symbols", out)
+
+        # Incompatible config_version
+        out2 = selection_load_policy(doc, "v2", "xyz", ["FALLBACK"])
+        self.assertEqual(out2.get("canonical_symbols"), ["FALLBACK"])
+        self.assertEqual(out2.get("reason"), "RUNTIME_SELECTION_INCOMPATIBLE")
+
+        # Incompatible fingerprint
+        out3 = selection_load_policy(doc, "v1", "abc", ["FALLBACK"])
+        self.assertEqual(out3.get("canonical_symbols"), ["FALLBACK"])
+        self.assertEqual(out3.get("reason"), "RUNTIME_SELECTION_INCOMPATIBLE")
+    def test_mql_telemetry_and_selection_functions_exist(self):
+        mqh = (ROOT / 'Runtime/RuntimeEvidence.mqh').read_text(encoding='utf-8')
+        self.assertIn('EEA_RuntimeTelemetryValidate', mqh)
+        self.assertIn('runtime_instance_id', mqh)
+        self.assertIn('refresh_sequence', mqh)
+        self.assertIn('refresh_generation', mqh)
+        self.assertIn('selection_revision', mqh)
+
+        store = (ROOT / 'Storage/RuntimeEvidenceStore.mqh').read_text(encoding='utf-8')
+        self.assertIn('EEA_RuntimeStoreWriteSymbolSelection', store)
+        self.assertIn('EEA_RuntimeStoreCheckSymbolSelection', store)
+        self.assertIn('symbol_selection.json', store)
+        self.assertNotIn('ACCOUNT_LOGIN', store)
+        self.assertNotIn('ACCOUNT_NAME', store)
+
+    def test_task5_runtime_status_initialization_and_telemetry(self):
+        ev_mqh = (ROOT / 'Runtime/RuntimeEvidence.mqh').read_text(encoding='utf-8')
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+
+        for field in ("runtime_instance_id", "refresh_sequence", "refresh_generation",
+                      "selection_revision", "checkpoint_written_at_utc", "broker_observed_at_utc",
+                      "timer_tick_count", "refresh_attempt_count", "refresh_success_count",
+                      "refresh_failure_count", "last_timer_at_utc", "last_refresh_duration_ms",
+                      "max_refresh_duration_ms", "consecutive_refresh_failures",
+                      "transaction_callback_count", "transaction_invalidation_generation",
+                      "pending_refresh", "refresh_in_progress"):
+            self.assertIn(field, ev_mqh)
+
+        self.assertIn("EEA_RuntimeStoreWriteSymbolSelection", obs_mqh)
+        self.assertIn("selection_revision++", obs_mqh)
+        self.assertIn("old_revision", obs_mqh)
+
+        for token in ("OrderSend", "OrderSendAsync", "CTrade", "PositionClose", "PositionModify", "OrderDelete"):
+            self.assertNotIn(token, obs_mqh)
+
 if __name__ == "__main__":
     unittest.main()

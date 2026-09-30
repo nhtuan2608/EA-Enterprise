@@ -134,7 +134,27 @@ bool EEA_RuntimeStoreWriteStatus(const string root,const EEA_RuntimeStatus &stat
       EEA_JsonEscape(account_fingerprint)+"\",\"runtime_state\":\""+
       EEA_JsonEscape(status.runtime_state)+"\",\"reason_code\":\""+
       EEA_JsonEscape(status.reason_code)+"\",\"new_entries_blocked\":"+
-      EEA_RuntimeBoolJson(status.new_entries_blocked)+"}";
+      EEA_RuntimeBoolJson(status.new_entries_blocked)+
+      ",\"runtime_instance_id\":"+IntegerToString(status.runtime_instance_id)+
+      ",\"refresh_sequence\":"+IntegerToString(status.refresh_sequence)+
+      ",\"refresh_generation\":"+IntegerToString(status.refresh_generation)+
+      ",\"selection_revision\":"+IntegerToString(status.selection_revision)+
+      ",\"checkpoint_written_at_utc\":"+IntegerToString(status.checkpoint_written_at_utc)+
+      ",\"broker_observed_at_utc\":"+IntegerToString(status.broker_observed_at_utc)+
+      ",\"selected_symbols_fingerprint\":\""+EEA_JsonEscape(status.selected_symbols_fingerprint)+
+      "\",\"timer_tick_count\":"+IntegerToString(status.timer_tick_count)+
+      ",\"refresh_attempt_count\":"+IntegerToString(status.refresh_attempt_count)+
+      ",\"refresh_success_count\":"+IntegerToString(status.refresh_success_count)+
+      ",\"refresh_failure_count\":"+IntegerToString(status.refresh_failure_count)+
+      ",\"last_timer_at_utc\":"+IntegerToString(status.last_timer_at_utc)+
+      ",\"last_refresh_duration_ms\":"+IntegerToString(status.last_refresh_duration_ms)+
+      ",\"max_refresh_duration_ms\":"+IntegerToString(status.max_refresh_duration_ms)+
+      ",\"consecutive_refresh_failures\":"+IntegerToString(status.consecutive_refresh_failures)+
+      ",\"transaction_callback_count\":"+IntegerToString(status.transaction_callback_count)+
+      ",\"transaction_invalidation_generation\":"+IntegerToString(status.transaction_invalidation_generation)+
+      ",\"pending_refresh\":"+EEA_RuntimeBoolJson(status.pending_refresh)+
+      ",\"refresh_in_progress\":"+EEA_RuntimeBoolJson(status.refresh_in_progress)+
+      "}";
    return EEA_WriteAtomicText(root+"/current/runtime_status.json",json);
   }
 
@@ -159,4 +179,59 @@ EEAStateLoadResult EEA_RuntimeStoreCheckStatus(const string path,const string co
    return EEA_STATE_COMPATIBLE;
   }
 
+bool EEA_RuntimeStoreWriteSymbolSelection(const string root, const string config_version, const string account_fingerprint,
+                                          const string broker_server, const long selection_revision,
+                                          const string &canonical[], const string &broker[], const int count)
+  {
+   string canonical_array = "[";
+   for(int i=0; i<count; i++)
+     {
+      if(i>0) canonical_array += ",";
+      canonical_array += "\"" + EEA_JsonEscape(canonical[i]) + "\"";
+     }
+   canonical_array += "]";
+
+   string broker_array = "[";
+   for(int i=0; i<count; i++)
+     {
+      if(i>0) broker_array += ",";
+      broker_array += "\"" + EEA_JsonEscape(broker[i]) + "\"";
+     }
+   broker_array += "]";
+
+   string json="{\"document_version\":\"runtime-selection-v0.1.0\",\"config_version\":\""+
+      EEA_JsonEscape(config_version)+"\",\"account_fingerprint\":\""+
+      EEA_JsonEscape(account_fingerprint)+"\",\"broker_server\":\""+
+      EEA_JsonEscape(broker_server)+"\",\"selection_revision\":"+
+      IntegerToString(selection_revision)+",\"canonical_symbols\":"+
+      canonical_array+",\"broker_symbols\":"+broker_array+"}";
+      
+   return EEA_WriteAtomicText(root+"/current/symbol_selection.json",json);
+  }
+
+EEAStateLoadResult EEA_RuntimeStoreCheckSymbolSelection(const string path, const string config_version, const string account_fingerprint)
+  {
+   if(!FileIsExist(path,0)) return EEA_STATE_MISSING;
+   int h=FileOpen(path,FILE_READ|FILE_BIN);
+   if(h==INVALID_HANDLE) return EEA_STATE_INCOMPATIBLE;
+   ulong size=FileSize(h);
+   if(size==0 || size>1048576) { FileClose(h); return EEA_STATE_INCOMPATIBLE; }
+   uchar bytes[];
+   if(ArrayResize(bytes,(int)size)!=(int)size) { FileClose(h); return EEA_STATE_INCOMPATIBLE; }
+   uint read=FileReadArray(h,bytes,0,(int)size);
+   FileClose(h);
+   if(read!=(uint)size) return EEA_STATE_INCOMPATIBLE;
+   string json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
+   
+   if(StringFind(json,"\"document_version\":\"runtime-selection-v0.1.0\"")<0 ||
+      StringFind(json,"\"config_version\":\""+EEA_JsonEscape(config_version)+"\"")<0 ||
+      StringFind(json,"\"account_fingerprint\":\""+EEA_JsonEscape(account_fingerprint)+"\"")<0)
+      return EEA_STATE_INCOMPATIBLE;
+      
+   // Never returning broker mappings as truth is a business logic trait handled by the Oracle logic,
+   // here we just return the compatibility state.
+   return EEA_STATE_COMPATIBLE;
+  }
+
 #endif
+

@@ -205,3 +205,77 @@ def material_spec_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
         if left.get(field) != right.get(field):
             return False
     return True
+def validate_runtime_telemetry(telemetry: dict) -> tuple[bool, str]:
+    for key in ("refresh_attempt_count", "refresh_success_count", "refresh_failure_count",
+                "max_refresh_duration_ms", "last_refresh_duration_ms", 
+                "consecutive_refresh_failures", "refresh_generation", "refresh_sequence"):
+        if telemetry.get(key, -1) < 0:
+            return False, "RUNTIME_TELEMETRY_INVALID"
+
+    if telemetry["refresh_success_count"] + telemetry["refresh_failure_count"] > telemetry["refresh_attempt_count"]:
+        return False, "RUNTIME_TELEMETRY_INVALID"
+    if telemetry["last_refresh_duration_ms"] > telemetry["max_refresh_duration_ms"]:
+        return False, "RUNTIME_TELEMETRY_INVALID"
+    if telemetry["consecutive_refresh_failures"] > telemetry["refresh_failure_count"]:
+        return False, "RUNTIME_TELEMETRY_INVALID"
+    if telemetry["refresh_sequence"] > telemetry["refresh_generation"]:
+        return False, "RUNTIME_TELEMETRY_INVALID"
+
+    if not isinstance(telemetry.get("pending_refresh"), bool) or not isinstance(telemetry.get("refresh_in_progress"), bool):
+        return False, "RUNTIME_TELEMETRY_INVALID"
+    
+    return True, ""
+
+
+def audit_invariants(records: list[dict]) -> tuple[bool, str]:
+    seen_completions = set()
+    seen_records = []
+    
+    attempts = set()
+    invalidations = set()
+
+    last_gen = -1
+    last_seq = -1
+
+    for r in records:
+        if not isinstance(r, dict):
+            return False, "RUNTIME_AUDIT_INVALID"
+        if r in seen_records:
+            return False, "RUNTIME_AUDIT_INVALID"
+        seen_records.append(r)
+
+        event = r.get("event")
+        inst = r.get("runtime_instance_id")
+        gen = r.get("refresh_generation", -1)
+        seq = r.get("refresh_sequence", -1)
+
+        if gen < last_gen:
+            return False, "RUNTIME_AUDIT_INVALID"
+        if gen == last_gen and seq < last_seq:
+            return False, "RUNTIME_AUDIT_INVALID"
+        last_gen = gen
+        last_seq = seq
+
+        key = (inst, gen)
+
+        if event in ("startup-completion", "refresh-completion"):
+            if key in seen_completions:
+                return False, "RUNTIME_AUDIT_INVALID"
+            if key not in attempts:
+                return False, "RUNTIME_AUDIT_INVALID"
+            seen_completions.add(key)
+        elif event in ("startup-attempt", "refresh-attempt"):
+            attempts.add(key)
+        elif event == "transaction-invalidation":
+            invalidations.add(key)
+        elif event == "transaction-invalidation-completion":
+            if key not in invalidations:
+                return False, "RUNTIME_AUDIT_INVALID"
+
+    return True, ""
+
+
+def selection_load_policy(document: dict, config_version: str, account_fingerprint: str, csv_symbols: list[str]) -> dict:
+    if document.get("config_version") != config_version or document.get("account_fingerprint") != account_fingerprint:
+        return {"canonical_symbols": csv_symbols, "reason": "RUNTIME_SELECTION_INCOMPATIBLE"}
+    return {"canonical_symbols": document.get("canonical_symbols", [])}
