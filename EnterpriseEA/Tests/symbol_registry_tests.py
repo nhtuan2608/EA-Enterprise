@@ -10,6 +10,22 @@ FIXTURE = json.loads((ROOT / "Tests/Fixtures/symbol-resolution-v0.1.0.json").rea
 
 
 class SymbolRegistryExamples(unittest.TestCase):
+    def test_batch_resolution_and_ranking(self):
+        available = [
+            {"name": "EURUSD", "tradeable": False, "conversion_only": False},
+            {"name": "EURUSD-VIP", "tradeable": True, "conversion_only": False},
+            {"name": "mEURUSD", "tradeable": True, "conversion_only": False},
+            {"name": "XAUUSD.crp", "tradeable": False, "conversion_only": True},
+            {"name": "XAUUSD-VIP", "tradeable": True, "conversion_only": False},
+            {"name": "USDX.", "tradeable": True, "conversion_only": False},
+        ]
+        from symbol_registry_oracle import resolve_batch
+        rows = resolve_batch(["EURUSD", "XAUUSD", "DXY"], available)
+        self.assertEqual([row["canonical_symbol"] for row in rows], ["EURUSD", "XAUUSD", "DXY"])
+        self.assertEqual(rows[0]["status"], "AMBIGUOUS")
+        self.assertEqual(rows[1]["broker_symbol"], "XAUUSD-VIP")
+        self.assertEqual(rows[2]["broker_symbol"], "USDX.")
+        self.assertEqual(rows[2]["reason_code"], "UNIQUE_ALIAS_ROOT_MATCH")
     def test_explicit_resolution_and_fail_closed_cases(self):
         for row in FIXTURE["cases"]:
             with self.subTest(name=row["name"]):

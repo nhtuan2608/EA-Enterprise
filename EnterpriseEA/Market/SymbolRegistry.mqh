@@ -129,3 +129,33 @@ bool EEA_ResolveSymbol(const string canonical,const EEA_SymbolRegistryEntry &ent
   }
 
 #endif
+struct EEA_SymbolDiscoveryCandidate
+  {
+   string name;
+   bool   tradeable;
+   bool   conversion_only;
+  };
+
+struct EEA_SymbolDiscoveryResult
+  {
+   bool   resolved;
+   string status;
+   string reason_code;
+   string canonical_symbol;
+   string broker_symbol;
+  };
+
+int EEA_NormalizeCanonicalCsv(const string csv, string &out_canonicals[], const int max_symbols=32)
+  {
+   return 0; // Stub
+  }
+
+int EEA_RankSymbolCandidate(const string canonical, const EEA_SymbolDiscoveryCandidate &candidate, string &out_reason)
+  {
+   return 0; // Stub
+  }
+
+int EEA_ResolveSymbolsBatch(const string &canonicals[], const EEA_SymbolDiscoveryCandidate &available[], EEA_SymbolDiscoveryResult &results[])
+  {
+   return 0; // Stub
+  }
