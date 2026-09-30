@@ -170,6 +170,25 @@ void EEA_RuntimeDefaults(EEA_RuntimeStatus &s)
    s.new_entries_blocked        = true;
    s.previous_deal_watermark    = -1;
    s.previous_deal_watermark_time = -1;
+   s.runtime_instance_id        = 0;
+   s.refresh_sequence           = 0;
+   s.refresh_generation         = 0;
+   s.selection_revision         = 1;
+   s.checkpoint_written_at_utc  = 0;
+   s.broker_observed_at_utc     = 0;
+   s.selected_symbols_fingerprint = "";
+   s.timer_tick_count           = 0;
+   s.refresh_attempt_count      = 0;
+   s.refresh_success_count      = 0;
+   s.refresh_failure_count      = 0;
+   s.last_timer_at_utc          = 0;
+   s.last_refresh_duration_ms   = 0;
+   s.max_refresh_duration_ms    = 0;
+   s.consecutive_refresh_failures = 0;
+   s.transaction_callback_count = 0;
+   s.transaction_invalidation_generation = 0;
+   s.pending_refresh            = false;
+   s.refresh_in_progress        = false;
   }
 
 bool EEA_RuntimeTelemetryValidate(const EEA_RuntimeStatus &status, string &reason)

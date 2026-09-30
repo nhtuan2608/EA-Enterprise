@@ -423,6 +423,26 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         self.assertNotIn('ACCOUNT_LOGIN', store)
         self.assertNotIn('ACCOUNT_NAME', store)
 
+    def test_task5_runtime_status_initialization_and_telemetry(self):
+        ev_mqh = (ROOT / 'Runtime/RuntimeEvidence.mqh').read_text(encoding='utf-8')
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        
+        for field in ("runtime_instance_id", "refresh_sequence", "refresh_generation",
+                      "selection_revision", "checkpoint_written_at_utc", "broker_observed_at_utc",
+                      "timer_tick_count", "refresh_attempt_count", "refresh_success_count",
+                      "refresh_failure_count", "last_timer_at_utc", "last_refresh_duration_ms",
+                      "max_refresh_duration_ms", "consecutive_refresh_failures",
+                      "transaction_callback_count", "transaction_invalidation_generation",
+                      "pending_refresh", "refresh_in_progress"):
+            self.assertIn(field, ev_mqh)
+            
+        self.assertIn("EEA_RuntimeStoreWriteSymbolSelection", obs_mqh)
+        self.assertIn("selection_revision++", obs_mqh)
+        self.assertIn("old_revision", obs_mqh)
+        
+        for token in ("OrderSend", "OrderSendAsync", "CTrade", "PositionClose", "PositionModify", "OrderDelete"):
+            self.assertNotIn(token, obs_mqh)
+
 if __name__ == "__main__":
     unittest.main()
 
