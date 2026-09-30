@@ -305,7 +305,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
 class RuntimeTelemetryValidationTests(unittest.TestCase):
     def test_validate_runtime_telemetry(self):
         from runtime_evidence_oracle import validate_runtime_telemetry
-        
+
         valid = {
             "refresh_attempt_count": 10,
             "refresh_success_count": 8,
@@ -337,7 +337,7 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         bad_dur = dict(valid, last_refresh_duration_ms=200)
         ok, reason = validate_runtime_telemetry(bad_dur)
         self.assertFalse(ok)
-        
+
         bad_dur2 = dict(valid, max_refresh_duration_ms=-1)
         ok, reason = validate_runtime_telemetry(bad_dur2)
         self.assertFalse(ok)
@@ -351,14 +351,14 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         bad_gen = dict(valid, refresh_sequence=6)
         ok, reason = validate_runtime_telemetry(bad_gen)
         self.assertFalse(ok)
-        
+
         bad_gen2 = dict(valid, refresh_generation=-1)
         ok, reason = validate_runtime_telemetry(bad_gen2)
         self.assertFalse(ok)
 
     def test_audit_invariants(self):
         from runtime_evidence_oracle import audit_invariants
-        
+
         # Valid sequence: missing-checkpoint -> startup-attempt -> startup-completion
         records = [
             {"event": "missing-checkpoint", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 0},
@@ -373,7 +373,7 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         bad_dup = records + [{"event": "startup-completion", "runtime_instance_id": 1, "refresh_generation": 1, "refresh_sequence": 2}]
         ok, reason = audit_invariants(bad_dup)
         self.assertFalse(ok)
-        
+
         # Decreasing generation
         bad_dec = records + [{"event": "startup-attempt", "runtime_instance_id": 1, "refresh_generation": 0, "refresh_sequence": 2}]
         ok, reason = audit_invariants(bad_dec)
@@ -398,12 +398,12 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         out = selection_load_policy(doc, "v1", "xyz", ["FALLBACK"])
         self.assertEqual(out.get("canonical_symbols"), ["EURUSD", "GBPUSD"])
         self.assertNotIn("broker_symbols", out)
-        
+
         # Incompatible config_version
         out2 = selection_load_policy(doc, "v2", "xyz", ["FALLBACK"])
         self.assertEqual(out2.get("canonical_symbols"), ["FALLBACK"])
         self.assertEqual(out2.get("reason"), "RUNTIME_SELECTION_INCOMPATIBLE")
-        
+
         # Incompatible fingerprint
         out3 = selection_load_policy(doc, "v1", "abc", ["FALLBACK"])
         self.assertEqual(out3.get("canonical_symbols"), ["FALLBACK"])
@@ -426,7 +426,7 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
     def test_task5_runtime_status_initialization_and_telemetry(self):
         ev_mqh = (ROOT / 'Runtime/RuntimeEvidence.mqh').read_text(encoding='utf-8')
         obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
-        
+
         for field in ("runtime_instance_id", "refresh_sequence", "refresh_generation",
                       "selection_revision", "checkpoint_written_at_utc", "broker_observed_at_utc",
                       "timer_tick_count", "refresh_attempt_count", "refresh_success_count",
@@ -435,15 +435,13 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
                       "transaction_callback_count", "transaction_invalidation_generation",
                       "pending_refresh", "refresh_in_progress"):
             self.assertIn(field, ev_mqh)
-            
+
         self.assertIn("EEA_RuntimeStoreWriteSymbolSelection", obs_mqh)
         self.assertIn("selection_revision++", obs_mqh)
         self.assertIn("old_revision", obs_mqh)
-        
+
         for token in ("OrderSend", "OrderSendAsync", "CTrade", "PositionClose", "PositionModify", "OrderDelete"):
             self.assertNotIn(token, obs_mqh)
 
 if __name__ == "__main__":
     unittest.main()
-
-

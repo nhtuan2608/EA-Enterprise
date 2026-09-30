@@ -51,7 +51,7 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    out_reason = "";
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS)
      { out_reason="RUNTIME_CONFIGURATION_INVALID"; return false; }
-   
+
    int total = SymbolsTotal(false);
    EEA_SymbolDiscoveryCandidate candidates[];
    ArrayResize(candidates, total);
@@ -62,10 +62,10 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
       candidates[i].tradeable = (SymbolInfoInteger(name, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED);
       candidates[i].conversion_only = false;
      }
-   
+
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
-   
+
    ArrayResize(brokers, count);
    for(int i = 0; i < count; i++)
      {
@@ -75,7 +75,7 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
          return false;
         }
       brokers[i] = results[i].broker_symbol;
-      
+
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
       if(!EEA_ReadRuntimeSymbolSpec(canonicals[i], brokers[i], server, spec, spec_reason))
@@ -98,7 +98,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    ulong start_tick = GetTickCount64();
    string reason="";
    EEA_RuntimeStatus prior=ctx.status;
-   
+
    ctx.status.runtime_state="BLOCKED";
    ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
    ctx.status.new_entries_blocked=true;
@@ -137,7 +137,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
      }
    ctx.reconciliation.symbol_count=ctx.symbol_count;
    for(int i=0;i<ctx.symbol_count;i++) ctx.reconciliation.symbols[i]=ctx.symbol_specs[i];
-   
+
    EEA_RuntimeStatus val_status;
    EEA_RuntimeValidate(ctx.reconciliation,(long)TimeGMT(),ctx.previous_deal_watermark,val_status);
    ctx.status.runtime_state = val_status.runtime_state;
@@ -271,7 +271,7 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
 bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLog &audit, const string &canonical[], const int count)
   {
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS) return false;
-   
+
    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
@@ -287,7 +287,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
       old_canons[i] = ctx.canonical_symbols[i];
       old_brokers[i] = ctx.broker_symbols[i];
      }
-      
+
    for(int i=0; i<count; i++)
      {
       ctx.canonical_symbols[i] = canonical[i];
@@ -295,9 +295,9 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
      }
    ctx.symbol_count = count;
    ctx.status.selection_revision++;
-   
+
    EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED");
-   
+
    if(EEA_ObserverRuntimeRefresh(ctx, audit))
      {
       return true;
