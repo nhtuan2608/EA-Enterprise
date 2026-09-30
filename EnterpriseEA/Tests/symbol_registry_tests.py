@@ -1,4 +1,4 @@
-"""Synthetic tests for explicit canonical-to-broker symbol resolution."""
+﻿"""Synthetic tests for explicit canonical-to-broker symbol resolution."""
 import json
 import unittest
 from pathlib import Path
@@ -55,7 +55,14 @@ class SymbolRegistryExamples(unittest.TestCase):
         self.assertNotIn("OrderSend", source)
         self.assertNotIn("CTrade", source)
         self.assertNotIn("SymbolRegistry.mqh", shell)
+        self.assertIn("EEA_SymbolDiscoveryCandidate", source)
+        self.assertIn("EEA_SymbolDiscoveryResult", source)
+        self.assertIn("EEA_NormalizeCanonicalCsv", source)
+        self.assertIn("EEA_RankSymbolCandidate", source)
+        self.assertIn("EEA_ResolveSymbolsBatch", source)
+        self.assertNotIn("return 0; // Stub", source)
 
 
 if __name__ == "__main__":
     unittest.main()
+
