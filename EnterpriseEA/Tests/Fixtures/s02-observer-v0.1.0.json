@@ -1,0 +1,114 @@
+{
+  "fixture_version": "s02-offline-research-v0.1.0",
+  "source": "Synthetic fixed data derived from Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx sections 4.4, 4.7, TC-003/TC-004, executed per EnterpriseEA/OFFLINE_WORKFLOW.md.",
+  "assumptions": [
+    "All bars are already closed. No real symbol, broker, spread, session, timeframe, or account is represented.",
+    "Key level and ATR are supplied inputs; the fixture uses key_level=100 and ATR=10 only to make transitions reproducible.",
+    "Every threshold below is a PROPOSED research seed for this offline prototype, not a live or approved setting.",
+    "A successful setup stops at TRIGGERED candidate status. No target/space/risk checks are present, so it is never ELIGIBLE or orderable."
+  ],
+  "config": {
+    "config_version": "s02-offline-research-v0.1.0",
+    "break_buffer_atr": 0.10,
+    "acceptance_buffer_atr": 0.00,
+    "retest_tolerance_atr": 0.15,
+    "invalidation_buffer_atr": 0.10,
+    "hold_buffer_atr": 0.05,
+    "max_bars_to_accept": 2,
+    "max_bars_to_retest": 3,
+    "max_bars_for_reaction": 2,
+    "candidate_ttl_bars": 3
+  },
+  "identity": {"canonical_symbol": "FIXTURE_XYZ", "timeframe": "FIXTURE"},
+  "key_level": 100.0,
+  "atr": 10.0,
+  "cases": {
+    "valid_sequence_and_candidate_ttl": {
+      "bars": [
+        {"time": 1000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2},
+        {"time": 1060, "open": 101.2, "high": 101.8, "low": 101.0, "close": 101.5},
+        {"time": 1120, "open": 101.0, "high": 101.3, "low": 99.5, "close": 100.2},
+        {"time": 1180, "open": 100.4, "high": 102.0, "low": 100.3, "close": 101.8},
+        {"time": 1240, "open": 101.8, "high": 102.1, "low": 101.5, "close": 101.9},
+        {"time": 1300, "open": 101.9, "high": 102.2, "low": 101.7, "close": 102.0},
+        {"time": 1360, "open": 102.0, "high": 102.3, "low": 101.8, "close": 102.1}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_ABOVE_KEY"},
+        {"event": "BREAK_ACCEPTED", "state": "ARMED", "reason": "ACCEPTANCE_CLOSED_BEYOND_KEY"},
+        {"event": "RETEST_TOUCHED", "state": "RETESTING", "reason": "RETEST_ZONE_TOUCHED"},
+        {"event": "CANDIDATE_TRIGGERED", "state": "TRIGGERED", "reason": "RETEST_HOLD_REACTION_CONFIRMED"},
+        {"event": "CANDIDATE_PENDING", "state": "TRIGGERED", "reason": "CANDIDATE_TTL_ACTIVE"},
+        {"event": "CANDIDATE_PENDING", "state": "TRIGGERED", "reason": "CANDIDATE_TTL_ACTIVE"},
+        {"event": "CANDIDATE_EXPIRED", "state": "EXPIRED", "reason": "CANDIDATE_TTL_REACHED"}
+      ],
+      "candidate_at_trigger": {"setup_id": "S02", "direction": "LONG", "key_level": 100.0, "invalidation_price": 99.0, "state": "TRIGGERED", "eligible": false}
+    },
+    "missing_retest_expires": {
+      "bars": [
+        {"time": 2000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2},
+        {"time": 2060, "open": 101.2, "high": 101.8, "low": 101.0, "close": 101.5},
+        {"time": 2120, "open": 102.0, "high": 103.0, "low": 101.8, "close": 102.7},
+        {"time": 2180, "open": 102.5, "high": 103.1, "low": 102.2, "close": 102.8},
+        {"time": 2240, "open": 102.6, "high": 103.0, "low": 102.1, "close": 102.7}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_ABOVE_KEY"},
+        {"event": "BREAK_ACCEPTED", "state": "ARMED", "reason": "ACCEPTANCE_CLOSED_BEYOND_KEY"},
+        {"event": "NO_TRANSITION", "state": "ARMED", "reason": "WAITING_FOR_RETEST"},
+        {"event": "NO_TRANSITION", "state": "ARMED", "reason": "WAITING_FOR_RETEST"},
+        {"event": "SETUP_EXPIRED", "state": "EXPIRED", "reason": "NO_RETEST_WITHIN_WINDOW"}
+      ]
+    },
+    "failed_hold_invalidates": {
+      "bars": [
+        {"time": 3000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2},
+        {"time": 3060, "open": 101.2, "high": 101.8, "low": 101.0, "close": 101.5},
+        {"time": 3120, "open": 101.0, "high": 101.3, "low": 99.5, "close": 100.2},
+        {"time": 3180, "open": 100.0, "high": 100.2, "low": 98.7, "close": 98.8}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_ABOVE_KEY"},
+        {"event": "BREAK_ACCEPTED", "state": "ARMED", "reason": "ACCEPTANCE_CLOSED_BEYOND_KEY"},
+        {"event": "RETEST_TOUCHED", "state": "RETESTING", "reason": "RETEST_ZONE_TOUCHED"},
+        {"event": "RETEST_INVALIDATED", "state": "INVALIDATED", "reason": "RETEST_CLOSED_THROUGH_INVALIDATION"}
+      ]
+    },
+    "short_sequence_triggers": {
+      "bars": [
+        {"time": 5000, "open": 99.8, "high": 99.9, "low": 98.4, "close": 98.8},
+        {"time": 5060, "open": 98.8, "high": 99.0, "low": 98.2, "close": 98.5},
+        {"time": 5120, "open": 99.0, "high": 100.5, "low": 98.7, "close": 99.8},
+        {"time": 5180, "open": 99.6, "high": 99.7, "low": 97.9, "close": 98.2}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_BELOW_KEY"},
+        {"event": "BREAK_ACCEPTED", "state": "ARMED", "reason": "ACCEPTANCE_CLOSED_BEYOND_KEY"},
+        {"event": "RETEST_TOUCHED", "state": "RETESTING", "reason": "RETEST_ZONE_TOUCHED"},
+        {"event": "CANDIDATE_TRIGGERED", "state": "TRIGGERED", "reason": "RETEST_HOLD_REACTION_CONFIRMED"}
+      ]
+    },
+    "acceptance_not_confirmed": {
+      "bars": [
+        {"time": 6000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2},
+        {"time": 6060, "open": 100.4, "high": 100.5, "low": 99.5, "close": 99.8},
+        {"time": 6120, "open": 100.0, "high": 100.3, "low": 99.5, "close": 99.8}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_ABOVE_KEY"},
+        {"event": "NO_TRANSITION", "state": "DETECTED", "reason": "WAITING_FOR_ACCEPTANCE"},
+        {"event": "SETUP_EXPIRED", "state": "EXPIRED", "reason": "ACCEPTANCE_NOT_CONFIRMED"}
+      ]
+    },
+    "duplicate_closed_bar_is_ignored": {
+      "bars": [
+        {"time": 4000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2},
+        {"time": 4000, "open": 100.8, "high": 101.4, "low": 100.7, "close": 101.2}
+      ],
+      "expected": [
+        {"event": "BREAK_DETECTED", "state": "DETECTED", "reason": "BREAK_CLOSED_ABOVE_KEY"},
+        {"event": "BAR_IGNORED", "state": "DETECTED", "reason": "DUPLICATE_CLOSED_BAR"}
+      ]
+    }
+  }
+}

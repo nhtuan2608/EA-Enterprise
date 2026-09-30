@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "fixture-portfolio-0001",
+  "as_of_utc": "2026-09-30T00:00:00Z",
+  "account_scope": "UNKNOWN",
+  "equity": 0,
+  "realized_pnl": 0,
+  "floating_pnl": 0,
+  "commission": 0,
+  "swap": 0,
+  "fee": 0,
+  "initial_risk_money": 0,
+  "projected_loss_to_sl": 0,
+  "remaining_loss_to_sl": 0,
+  "locked_profit": 0,
+  "daily_floor_headroom": null,
+  "overall_floor_headroom": null,
+  "reconciliation_status": "UNKNOWN",
+  "risk_status": "POLICY_DATA_UNKNOWN",
+  "data_quality": "UNKNOWN"
+}

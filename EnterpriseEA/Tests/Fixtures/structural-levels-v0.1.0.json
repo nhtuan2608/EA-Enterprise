@@ -1,0 +1,11 @@
+{
+  "purpose": "Synthetic structural price geometry, not broker-validated SL/TP",
+  "source": "Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx Appendix B RISK-01/RISK-02",
+  "assumptions": "Entry, invalidation and target are externally evidenced prices. Tick size and stop buffer are synthetic inputs; no spread, broker stop/freeze level, fee, slippage, margin or instrument profile is represented.",
+  "cases": [
+    {"name": "long_conservative_rounding", "direction": 1, "entry": 101.23, "invalidation": 99.87, "target": 105.18, "stop_buffer": 0.12, "tick_size": 0.05, "expected_sl": 99.75, "expected_tp": 105.15},
+    {"name": "short_conservative_rounding", "direction": -1, "entry": 101.23, "invalidation": 102.11, "target": 97.83, "stop_buffer": 0.12, "tick_size": 0.05, "expected_sl": 102.25, "expected_tp": 97.85},
+    {"name": "long_target_collapses_to_entry", "direction": 1, "entry": 100.00, "invalidation": 99.00, "target": 100.01, "stop_buffer": 0.10, "tick_size": 0.05, "expected_reason": "LEVELS_COLLAPSED_AFTER_TICK_ROUNDING"},
+    {"name": "short_target_wrong_side", "direction": -1, "entry": 100.00, "invalidation": 101.00, "target": 101.50, "stop_buffer": 0.10, "tick_size": 0.05, "expected_reason": "INVALID_SHORT_GEOMETRY"}
+  ]
+}

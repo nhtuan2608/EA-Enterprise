@@ -1,0 +1,6 @@
+{
+  "fixture_version": "pending-order-audit-offline-v1.0.0",
+  "purpose": "Synthetic append-chain examples for one pending order; not broker history or durable JSONL evidence.",
+  "source_fingerprint": "synthetic-source-content-1",
+  "observed_at_utc": 1061
+}

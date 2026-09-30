@@ -1,0 +1,7 @@
+# Volume sizing prototype (offline)
+
+`VolumeSizing.mqh` is an isolated calculation. It uses a caller-supplied, broker-validated `loss_per_lot_at_sl` in account currency to derive candidate volume from a positive risk budget, floors to the caller-supplied volume step without an upward epsilon, caps at maximum volume, and rejects a result below minimum volume. It verifies the rounded result remains within maximum volume.
+
+After rounding, the caller must provide a separate broker-validated final-volume loss quote calculated at the selected structural SL for exactly that volume, including the required cost/slippage allowance. Projected loss and the risk-budget check use this quote; loss-per-lot is only used to derive the candidate volume. The margin quote must also refer to the exact rounded volume. Missing/mismatched final-volume loss or margin quotes fail closed, requiring the caller to obtain fresh quotes for the candidate volume. Every quote must have explicit `OK` quality and matching config version/account currency. The calculation never infers pip value or treats raw tick value as universal.
+
+All fixture values are synthetic. The module does not query broker/instrument data, compute loss per lot, choose the stop, convert currencies, check portfolio or policy headroom, or grant entry permission. It has no order calls and is not included in the EA shell. The Python Decimal oracle and fixed tests are offline design checks only; MQL5 compilation/runtime and actual broker quote validation are unverified.

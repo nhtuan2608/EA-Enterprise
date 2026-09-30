@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Explicit, versioned FTMO policy selection for offline floor calculations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy_id", "status", "config_version", "source_version", "source_reference", "policy_timezone", "account_currency", "initial_capital", "safety_buffer_money"],
+  "properties": {
+    "policy_id": {"enum": ["UNSELECTED", "FTMO_1_STEP", "FTMO_2_STEP"]},
+    "status": {"enum": ["UNSELECTED", "ACTIVE", "POLICY_DATA_UNKNOWN"]},
+    "config_version": {"type": "string"},
+    "source_version": {"type": "string"},
+    "source_reference": {"type": "string"},
+    "policy_timezone": {"type": "string"},
+    "account_currency": {"type": "string"},
+    "initial_capital": {"type": "number", "minimum": 0},
+    "safety_buffer_money": {"type": "number", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ACTIVE"}}, "required": ["status"]},
+      "then": {
+        "required": ["policy_id", "config_version", "source_version", "source_reference", "policy_timezone", "account_currency", "initial_capital", "safety_buffer_money"],
+        "properties": {
+          "policy_id": {"enum": ["FTMO_1_STEP", "FTMO_2_STEP"]},
+          "config_version": {"type": "string", "minLength": 1},
+          "source_version": {"type": "string", "minLength": 1},
+          "source_reference": {"type": "string", "minLength": 1},
+          "policy_timezone": {"const": "Europe/Prague"},
+          "account_currency": {"type": "string", "minLength": 1},
+          "initial_capital": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "UNSELECTED"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "policy_id": {"const": "UNSELECTED"},
+          "config_version": {"const": ""},
+          "source_version": {"const": ""},
+          "source_reference": {"const": ""},
+          "policy_timezone": {"const": ""},
+          "account_currency": {"const": ""},
+          "initial_capital": {"const": 0},
+          "safety_buffer_money": {"const": 0}
+        }
+      }
+    }
+  ]
+}

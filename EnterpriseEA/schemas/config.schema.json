@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Enterprise EA configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "config_version", "mode", "source", "account_policy", "symbol_registry"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "config_version": {"type": "string", "minLength": 1},
+    "mode": {"const": "OBSERVER_ONLY"},
+    "source": {"type": "string", "minLength": 1},
+    "account_policy": {"$ref": "account-policy.schema.json"},
+    "symbol_registry": {"type": "array", "items": {"$ref": "symbol-registry.schema.json"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

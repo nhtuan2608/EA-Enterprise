@@ -1,0 +1,21 @@
+{
+  "fixture_version": "pending-order-checkpoint-offline-v1.1.0",
+  "purpose": "Synthetic restore and audit-tail binding contract for one pending order; not broker or durable file proof.",
+  "checkpoint_sequence": 7,
+  "captured_at_utc": 1050,
+  "max_age_seconds": 300,
+  "restore_at_utc": 1060,
+  "audit_anchor": {
+    "audit_sequence": 1,
+    "audit_fingerprint": "synthetic-audit-tail-1",
+    "audit_event_id": "audit-1",
+    "audit_observed_at_utc": 1001
+  },
+  "expected_identity": {
+    "intent_id": "intent-s02-1",
+    "config_version": "config-fixture-v1",
+    "broker_server": "SYNTHETIC-DEMO",
+    "account_fingerprint": "account-fixture-1",
+    "order_ticket": "ticket-fixture-100"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "purpose": "Synthetic net reward/risk and target-space examples; no broker execution proof",
+  "source": "Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx Appendix B RISK-01/02 and TC-031",
+  "assumptions": [
+    "Cash loss and gain quotes are externally calculated at the final volume in account currency, net of required fees, swap estimate and slippage allowance.",
+    "The example profile minimum of 1.5 is a test value, not a live default.",
+    "Execution constraints and target-space flags are caller attestations, not checks implemented by this module."
+  ],
+  "base": {
+    "config_version": "economics-fixture-v0.1.0",
+    "account_currency": "USD",
+    "quote_config_version": "economics-fixture-v0.1.0",
+    "quote_currency": "USD",
+    "quote_quality": "OK",
+    "pricing_snapshot_id": "synthetic-quote-1",
+    "loss_quote_valid": true,
+    "reward_quote_valid": true,
+    "target_space_confirmed": true,
+    "execution_constraints_confirmed": true,
+    "direction": 1,
+    "entry_reference": 100,
+    "stop_loss": 98,
+    "take_profit": 105,
+    "final_volume": 0.4,
+    "quote_volume": 0.4,
+    "net_loss_at_sl_money": 200,
+    "net_gain_at_tp_money": 450,
+    "minimum_net_rr": 1.5
+  },
+  "cases": [
+    {"name": "long_net_rr_passes", "overrides": {}, "expected": {"valid": true, "economics_status": "ECONOMICS_ACCEPTABLE", "net_reward_risk": 2.25}},
+    {"name": "short_net_rr_below_minimum", "overrides": {"direction": -1, "stop_loss": 102, "take_profit": 97, "net_loss_at_sl_money": 300, "net_gain_at_tp_money": 300}, "expected": {"valid": true, "economics_status": "REJECTED", "reason_code": "NET_REWARD_RISK_BELOW_PROFILE_MINIMUM", "net_reward_risk": 1}},
+    {"name": "target_space_rejected", "overrides": {"target_space_confirmed": false}, "expected": {"valid": true, "economics_status": "REJECTED", "reason_code": "TARGET_SPACE_INSUFFICIENT"}},
+    {"name": "fees_consume_target_reward", "overrides": {"net_gain_at_tp_money": -5}, "expected": {"valid": true, "economics_status": "REJECTED", "reason_code": "NONPOSITIVE_NET_REWARD"}},
+    {"name": "quote_quality_unknown", "overrides": {"quote_quality": "STALE"}, "expected": {"valid": false, "economics_status": "UNKNOWN", "reason_code": "PRICING_OR_EXECUTION_EVIDENCE_MISSING"}},
+    {"name": "wrong_price_geometry", "overrides": {"stop_loss": 101}, "expected": {"valid": false, "economics_status": "UNKNOWN", "reason_code": "INVALID_PRICE_GEOMETRY"}}
+  ]
+}

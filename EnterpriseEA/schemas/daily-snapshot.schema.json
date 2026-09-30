@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily account policy reset snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "snapshot_id", "reset_at_utc", "balance_at_reset", "equity_at_reset", "floating_at_reset", "commission", "swap", "fee", "daily_floor", "overall_floor", "floor_headroom", "policy_version", "snapshot_source", "reason_code", "data_quality"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "snapshot_id": {"type": "string", "minLength": 1}, "reset_at_utc": {"type": "string", "format": "date-time"},
+    "balance_at_reset": {"type": "number"}, "equity_at_reset": {"type": "number"}, "floating_at_reset": {"type": "number"},
+    "commission": {"type": "number"}, "swap": {"type": "number"}, "fee": {"type": "number"},
+    "daily_floor": {"type": ["number", "null"]}, "overall_floor": {"type": ["number", "null"]}, "floor_headroom": {"type": ["number", "null"]},
+    "policy_version": {"type": ["string", "null"]}, "snapshot_source": {"type": "string", "minLength": 1}, "reason_code": {"type": "string", "minLength": 1},
+    "data_quality": {"enum": ["OK", "DEGRADED", "STALE", "UNKNOWN"]}
+  }
+}

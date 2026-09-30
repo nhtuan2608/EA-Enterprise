@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "event_id": "fixture-start-0001",
+  "event_type": "EA_INITIALIZED",
+  "occurred_at_utc": "2026-09-30T00:00:00Z",
+  "observed_at_utc": "2026-09-30T00:00:00Z",
+  "symbol": "",
+  "entity_id": "",
+  "state_before": "",
+  "state_after": "",
+  "reason_codes": ["CORE_FOUNDATION_READY"],
+  "config_version": "observer-v1.0.0",
+  "data_quality": "UNKNOWN",
+  "source": "EA_CORE",
+  "details": {"mode": "OBSERVER_ONLY", "symbol_registry_count": 0, "policy_status": "UNSELECTED"}
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Account-wide portfolio risk observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "snapshot_id", "as_of_utc", "account_scope", "equity", "realized_pnl", "floating_pnl", "commission", "swap", "fee", "initial_risk_money", "projected_loss_to_sl", "remaining_loss_to_sl", "locked_profit", "daily_floor_headroom", "overall_floor_headroom", "reconciliation_status", "risk_status", "data_quality"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "snapshot_id": {"type": "string", "minLength": 1}, "as_of_utc": {"type": "string", "format": "date-time"},
+    "account_scope": {"enum": ["ACCOUNT_WIDE", "EA_ONLY", "UNKNOWN"]}, "equity": {"type": "number"}, "realized_pnl": {"type": "number"}, "floating_pnl": {"type": "number"},
+    "commission": {"type": "number"}, "swap": {"type": "number"}, "fee": {"type": "number"}, "initial_risk_money": {"type": "number", "minimum": 0},
+    "projected_loss_to_sl": {"type": "number", "minimum": 0}, "remaining_loss_to_sl": {"type": "number", "minimum": 0}, "locked_profit": {"type": "number"},
+    "daily_floor_headroom": {"type": ["number", "null"]}, "overall_floor_headroom": {"type": ["number", "null"]},
+    "reconciliation_status": {"enum": ["RECONCILED", "INCOMPLETE", "MISMATCH", "UNKNOWN"]},
+    "risk_status": {"enum": ["ALLOW", "REDUCE_OR_WAIT", "BLOCK_NEW_ENTRY", "PROTECT_EXISTING", "POLICY_DATA_UNKNOWN"]},
+    "data_quality": {"enum": ["OK", "DEGRADED", "STALE", "UNKNOWN"]}
+  }
+}

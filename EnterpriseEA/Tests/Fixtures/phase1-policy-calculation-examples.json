@@ -1,0 +1,25 @@
+{
+  "purpose": "Specification-derived arithmetic examples for Phase 3 implementation; not active account settings.",
+  "initial_capital": 100000,
+  "reset_balance": 101000,
+  "one_step_reset_balance_sequence": [101000, 99000],
+  "one_step_expected_overall_floor_sequence": [91000, 91000],
+  "examples": [
+    {
+      "policy_id": "FTMO_1_STEP",
+      "daily_loss_percent_of_initial": 3,
+      "overall_loss_percent_of_initial": 10,
+      "overall_floor_mode": "TRAILING_DAILY_BALANCE",
+      "daily_floor": 98000,
+      "overall_floor": 91000
+    },
+    {
+      "policy_id": "FTMO_2_STEP",
+      "daily_loss_percent_of_initial": 5,
+      "overall_loss_percent_of_initial": 10,
+      "overall_floor_mode": "STATIC_FROM_INITIAL",
+      "daily_floor": 96000,
+      "overall_floor": 90000
+    }
+  ]
+}

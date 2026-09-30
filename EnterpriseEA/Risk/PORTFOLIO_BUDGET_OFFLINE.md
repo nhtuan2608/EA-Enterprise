@@ -1,0 +1,7 @@
+# Account-wide pre-sizing budget (offline)
+
+`PortfolioBudget.mqh` takes verified account-wide aggregates from a future reconciler. It computes a preliminary cash risk budget as the minimum of equity-based base risk, per-trade cap, remaining portfolio limit, and policy headroom after safety buffer minus existing stressed loss. All amounts are in the selected account currency. A depleted limit yields `BLOCK`; missing or mismatched evidence yields `UNKNOWN`. `BUDGET_AVAILABLE` only authorizes the next sizing calculation, never an order.
+
+The caller must attest that manual orders and other EAs are included, the account's hedging/netting mode is reconciled, portfolio limits have been computed, and policy floor data match the same config version and currency. The module does not gather positions or orders, calculate correlation/currency exposure, derive policy floors, or decide whether an order is allowed. The policy headroom input is the available headroom **before** the proposed new trade's loss; existing account stress is subtracted once. After sizing, the final projected loss must be checked against refreshed policy and portfolio state.
+
+`Tests/Fixtures/portfolio-budget-v0.1.0.json` uses only synthetic values. `Tests/portfolio_budget_tests.py` verifies binding limits and fail-closed evidence flags with a Python design oracle. Neither test runs or compiles MQL5. Broker reconciliation and account-wide stress remain future runtime work.

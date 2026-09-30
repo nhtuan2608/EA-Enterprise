@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "fixture-daily-0001",
+  "reset_at_utc": "2026-09-30T00:00:00Z",
+  "balance_at_reset": 0,
+  "equity_at_reset": 0,
+  "floating_at_reset": 0,
+  "commission": 0,
+  "swap": 0,
+  "fee": 0,
+  "daily_floor": null,
+  "overall_floor": null,
+  "floor_headroom": null,
+  "policy_version": null,
+  "snapshot_source": "TEST_FIXTURE_ONLY",
+  "reason_code": "POLICY_UNSELECTED",
+  "data_quality": "UNKNOWN"
+}

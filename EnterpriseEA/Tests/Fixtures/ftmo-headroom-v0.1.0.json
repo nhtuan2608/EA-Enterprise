@@ -1,0 +1,60 @@
+{
+  "fixture_version": "ftmo-headroom-offline-v0.1.0",
+  "source": "Arithmetic cases from the v1.1 master specification PROP-01 through PROP-04 and TC-034/035; policy percentages are specification rules, but all account values below are synthetic fixtures.",
+  "assumptions": [
+    "USD, 100000 initial capital, balances, equity, stress losses, and safety buffers are test-only values, not account defaults.",
+    "floating_pnl_after_costs is already net of swap, commission, and fees exactly once; the module does not inspect broker accounting conventions.",
+    "daily_reset_at_utc is supplied by a caller that has verified 00:00 Europe/Prague including DST/reconnect; these fixtures do not test timezone conversion.",
+    "FTMO 1-Step prior high-water snapshots are required inputs; missing history is unknown and is never reconstructed from the current balance.",
+    "stress_loss is a caller-supplied account-currency estimate including any requested cost/slippage allowance; the module does not calculate instrument risk."
+  ],
+  "policy_defaults": {
+    "policy_id": "UNSELECTED",
+    "status": "UNSELECTED",
+    "config_version": "",
+    "source_version": "",
+    "source_reference": "",
+    "policy_timezone": "",
+    "account_currency": "",
+    "initial_capital": 0,
+    "safety_buffer_money": 0
+  },
+  "scenarios": [
+    {
+      "name": "one_step_available_headroom",
+      "policy": {"policy_id": "FTMO_1_STEP", "status": "ACTIVE", "config_version": "ftmo-fixture-v1", "source_version": "terms-v1.1-fixture", "source_reference": "https://ftmo.com/en/trading-objectives/", "policy_timezone": "Europe/Prague", "account_currency": "USD", "initial_capital": 100000, "safety_buffer_money": 1000},
+      "input": {"daily_snapshot_config_version": "ftmo-fixture-v1", "daily_snapshot_currency": "USD", "daily_snapshot_quality": "OK", "daily_snapshot_id": "fixture-day-1", "daily_reset_at_utc": 1000, "daily_snapshot_valid": true, "reset_window_confirmed_by_caller": true, "balance_at_daily_reset": 110000, "current_balance": 115000, "floating_pnl_after_costs": -1000, "proposed_stress_loss": 5000, "stress_loss_currency": "USD", "high_water_snapshot_valid": true, "high_water_snapshot_quality": "OK", "high_water_config_version": "ftmo-fixture-v1", "high_water_as_of_utc": 900, "prior_overall_high_water_balance": 105000},
+      "expected": {"valid": true, "equity_after_costs": 114000, "daily_loss_amount": 3000, "daily_floor": 107000, "overall_high_water_balance": 110000, "overall_floor": 100000, "daily_floor_headroom": 7000, "overall_floor_headroom": 14000, "available_headroom": 6000, "stress_equity": 109000, "post_stress_available_headroom": 1000, "headroom_status": "SUFFICIENT", "reason_code": "STRESS_LOSS_WITHIN_AVAILABLE_HEADROOM"}
+    },
+    {
+      "name": "one_step_trailing_floor_does_not_fall",
+      "policy": {"policy_id": "FTMO_1_STEP", "status": "ACTIVE", "config_version": "ftmo-fixture-v1", "source_version": "terms-v1.1-fixture", "source_reference": "https://ftmo.com/en/trading-objectives/", "policy_timezone": "Europe/Prague", "account_currency": "USD", "initial_capital": 100000, "safety_buffer_money": 0},
+      "input": {"daily_snapshot_config_version": "ftmo-fixture-v1", "daily_snapshot_currency": "USD", "daily_snapshot_quality": "OK", "daily_snapshot_id": "fixture-day-2", "daily_reset_at_utc": 2000, "daily_snapshot_valid": true, "reset_window_confirmed_by_caller": true, "balance_at_daily_reset": 105000, "current_balance": 111000, "floating_pnl_after_costs": 0, "proposed_stress_loss": 100, "stress_loss_currency": "USD", "high_water_snapshot_valid": true, "high_water_snapshot_quality": "OK", "high_water_config_version": "ftmo-fixture-v1", "high_water_as_of_utc": 1900, "prior_overall_high_water_balance": 110000},
+      "expected": {"valid": true, "daily_floor": 102000, "overall_high_water_balance": 110000, "overall_floor": 100000, "headroom_status": "SUFFICIENT"}
+    },
+    {
+      "name": "two_step_reduce_or_wait",
+      "policy": {"policy_id": "FTMO_2_STEP", "status": "ACTIVE", "config_version": "ftmo-fixture-v1", "source_version": "terms-v1.1-fixture", "source_reference": "https://ftmo.com/en/trading-objectives/", "policy_timezone": "Europe/Prague", "account_currency": "USD", "initial_capital": 100000, "safety_buffer_money": 500},
+      "input": {"daily_snapshot_config_version": "ftmo-fixture-v1", "daily_snapshot_currency": "USD", "daily_snapshot_quality": "OK", "daily_snapshot_id": "fixture-day-3", "daily_reset_at_utc": 3000, "daily_snapshot_valid": true, "reset_window_confirmed_by_caller": true, "balance_at_daily_reset": 105000, "current_balance": 102000, "floating_pnl_after_costs": -1000, "proposed_stress_loss": 800, "stress_loss_currency": "USD", "high_water_snapshot_valid": false, "high_water_snapshot_quality": "UNKNOWN", "high_water_config_version": "", "high_water_as_of_utc": 0, "prior_overall_high_water_balance": 0},
+      "expected": {"valid": true, "equity_after_costs": 101000, "daily_loss_amount": 5000, "daily_floor": 100000, "overall_floor": 90000, "daily_floor_headroom": 1000, "overall_floor_headroom": 11000, "available_headroom": 500, "stress_equity": 100200, "post_stress_available_headroom": -300, "headroom_status": "REDUCE_OR_WAIT", "reason_code": "STRESS_LOSS_EXCEEDS_AVAILABLE_HEADROOM"}
+    },
+    {
+      "name": "equity_at_floor_blocks_new_entry",
+      "policy": {"policy_id": "FTMO_2_STEP", "status": "ACTIVE", "config_version": "ftmo-fixture-v1", "source_version": "terms-v1.1-fixture", "source_reference": "https://ftmo.com/en/trading-objectives/", "policy_timezone": "Europe/Prague", "account_currency": "USD", "initial_capital": 100000, "safety_buffer_money": 500},
+      "input": {"daily_snapshot_config_version": "ftmo-fixture-v1", "daily_snapshot_currency": "USD", "daily_snapshot_quality": "OK", "daily_snapshot_id": "fixture-day-4", "daily_reset_at_utc": 4000, "daily_snapshot_valid": true, "reset_window_confirmed_by_caller": true, "balance_at_daily_reset": 105000, "current_balance": 102000, "floating_pnl_after_costs": -2000, "proposed_stress_loss": 100, "stress_loss_currency": "USD", "high_water_snapshot_valid": false, "high_water_snapshot_quality": "UNKNOWN", "high_water_config_version": "", "high_water_as_of_utc": 0, "prior_overall_high_water_balance": 0},
+      "expected": {"valid": true, "daily_floor": 100000, "daily_floor_headroom": 0, "available_headroom": -500, "headroom_status": "BLOCK_NEW_ENTRY", "reason_code": "FLOOR_OR_SAFETY_BUFFER_EXHAUSTED"}
+    },
+    {
+      "name": "unselected_default_fails_closed",
+      "policy": {"policy_id": "UNSELECTED", "status": "UNSELECTED", "config_version": "", "source_version": "", "source_reference": "", "policy_timezone": "", "account_currency": "", "initial_capital": 0, "safety_buffer_money": 0},
+      "input": {"daily_snapshot_config_version": "", "daily_snapshot_currency": "", "daily_snapshot_quality": "UNKNOWN", "daily_snapshot_id": "", "daily_reset_at_utc": 0, "daily_snapshot_valid": false, "reset_window_confirmed_by_caller": false, "balance_at_daily_reset": 0, "current_balance": 0, "floating_pnl_after_costs": 0, "proposed_stress_loss": 0, "stress_loss_currency": "", "high_water_snapshot_valid": false, "high_water_snapshot_quality": "UNKNOWN", "high_water_config_version": "", "high_water_as_of_utc": 0, "prior_overall_high_water_balance": 0},
+      "expected": {"valid": false, "headroom_status": "POLICY_DATA_UNKNOWN", "reason_code": "POLICY_NOT_SELECTED_OR_UNSUPPORTED"}
+    },
+    {
+      "name": "one_step_missing_trailing_snapshot_stays_unknown",
+      "policy": {"policy_id": "FTMO_1_STEP", "status": "ACTIVE", "config_version": "ftmo-fixture-v1", "source_version": "terms-v1.1-fixture", "source_reference": "https://ftmo.com/en/trading-objectives/", "policy_timezone": "Europe/Prague", "account_currency": "USD", "initial_capital": 100000, "safety_buffer_money": 0},
+      "input": {"daily_snapshot_config_version": "ftmo-fixture-v1", "daily_snapshot_currency": "USD", "daily_snapshot_quality": "OK", "daily_snapshot_id": "fixture-day-no-hwm", "daily_reset_at_utc": 5000, "daily_snapshot_valid": true, "reset_window_confirmed_by_caller": true, "balance_at_daily_reset": 120000, "current_balance": 120000, "floating_pnl_after_costs": 0, "proposed_stress_loss": 100, "stress_loss_currency": "USD", "high_water_snapshot_valid": false, "high_water_snapshot_quality": "UNKNOWN", "high_water_config_version": "", "high_water_as_of_utc": 0, "prior_overall_high_water_balance": 0},
+      "expected": {"valid": false, "headroom_status": "POLICY_DATA_UNKNOWN", "reason_code": "TRAILING_HIGH_WATER_SNAPSHOT_MISSING_OR_INVALID"}
+    }
+  ]
+}

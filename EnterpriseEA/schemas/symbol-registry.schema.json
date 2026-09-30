@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Resolved broker instrument metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["canonical_symbol", "broker_symbol", "broker_server", "asset_class", "base_currency", "quote_currency", "profit_currency", "contract_size", "tick_size", "tick_value", "digits", "volume_min", "volume_max", "volume_step", "stops_level_points", "freeze_level_points", "margin_mode", "sessions", "timezone", "spread_guard_points", "setup_whitelist", "timeframe_whitelist", "resolution_status", "source_version"],
+  "properties": {
+    "canonical_symbol": {"type": "string", "minLength": 1},
+    "broker_symbol": {"type": ["string", "null"]},
+    "broker_server": {"type": ["string", "null"]},
+    "asset_class": {"type": ["string", "null"]},
+    "base_currency": {"type": ["string", "null"]}, "quote_currency": {"type": ["string", "null"]}, "profit_currency": {"type": ["string", "null"]},
+    "contract_size": {"type": ["number", "null"]},
+    "tick_size": {"type": ["number", "null"]},
+    "tick_value": {"type": ["number", "null"]},
+    "digits": {"type": ["integer", "null"]},
+    "volume_min": {"type": ["number", "null"]}, "volume_max": {"type": ["number", "null"]}, "volume_step": {"type": ["number", "null"]},
+    "stops_level_points": {"type": ["integer", "null"]}, "freeze_level_points": {"type": ["integer", "null"]},
+    "margin_mode": {"type": ["string", "null"]}, "sessions": {"type": "array", "items": {"type": "string"}}, "timezone": {"type": ["string", "null"]},
+    "spread_guard_points": {"type": ["number", "null"], "minimum": 0},
+    "setup_whitelist": {"type": "array", "items": {"type": "string"}}, "timeframe_whitelist": {"type": "array", "items": {"type": "string"}},
+    "resolution_status": {"enum": ["RESOLVED", "UNRESOLVED", "BLOCKED"]}, "source_version": {"type": "string", "minLength": 1}
+  },
+  "allOf": [{"if": {"properties": {"resolution_status": {"const": "RESOLVED"}}, "required": ["resolution_status"]}, "then": {
+    "properties": {
+      "broker_symbol": {"type": "string", "minLength": 1}, "broker_server": {"type": "string", "minLength": 1}, "asset_class": {"type": "string", "minLength": 1},
+      "contract_size": {"type": "number", "exclusiveMinimum": 0}, "tick_size": {"type": "number", "exclusiveMinimum": 0}, "tick_value": {"type": "number", "exclusiveMinimum": 0},
+      "digits": {"type": "integer", "minimum": 0}, "volume_min": {"type": "number", "exclusiveMinimum": 0}, "volume_max": {"type": "number", "exclusiveMinimum": 0}, "volume_step": {"type": "number", "exclusiveMinimum": 0},
+      "stops_level_points": {"type": "integer", "minimum": 0}, "freeze_level_points": {"type": "integer", "minimum": 0}, "timezone": {"type": "string", "minLength": 1}
+    }
+  }}]
+}

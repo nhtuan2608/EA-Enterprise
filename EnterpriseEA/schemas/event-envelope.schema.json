@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Enterprise EA event envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "event_type", "occurred_at_utc", "observed_at_utc", "symbol", "entity_id", "state_before", "state_after", "reason_codes", "config_version", "data_quality", "source", "details"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "event_id": {"type": "string", "minLength": 1}, "event_type": {"type": "string", "minLength": 1},
+    "occurred_at_utc": {"type": "string", "format": "date-time"}, "observed_at_utc": {"type": "string", "format": "date-time"},
+    "symbol": {"type": "string"}, "entity_id": {"type": "string"}, "state_before": {"type": "string"}, "state_after": {"type": "string"},
+    "reason_codes": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
+    "config_version": {"type": "string"}, "data_quality": {"enum": ["OK", "DEGRADED", "STALE", "UNKNOWN"]}, "source": {"type": "string", "minLength": 1}, "details": {"type": "object"}
+  }
+}

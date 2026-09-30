@@ -1,0 +1,17 @@
+{
+  "policy_id": "FTMO_1_STEP",
+  "config_version": null,
+  "source_url": null,
+  "policy_timezone": null,
+  "account_currency": null,
+  "initial_capital": null,
+  "daily_reset_hour": null,
+  "daily_reset_minute": null,
+  "daily_loss_percent_of_initial": null,
+  "overall_loss_percent_of_initial": null,
+  "overall_floor_mode": null,
+  "safety_buffer": null,
+  "internal_daily_loss_limit": null,
+  "internal_weekly_drawdown_limit": null,
+  "status": "ACTIVE"
+}

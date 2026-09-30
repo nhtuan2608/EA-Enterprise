@@ -1,0 +1,156 @@
+#property strict
+#property version   "1.000"
+#property description "Observer-only core foundation; order execution is intentionally absent."
+
+#include "Core/Config.mqh"
+#include "Core/State.mqh"
+#include "Core/Events.mqh"
+#include "Storage/AtomicWriter.mqh"
+#include "Storage/AuditLog.mqh"
+#include "Storage/SharedStateStore.mqh"
+#include "Runtime/ObserverRuntime.mqh"
+
+input bool   InpObserverOnly           = true;
+input string InpDataRoot               = "EnterpriseEA";
+input bool   InpRuntimeEvidenceEnabled = true;
+input int    InpRuntimeRefreshSeconds  = 30;
+input int    InpHistoryLookbackDays    = 7;
+input string InpCanonicalSymbols       = "EURUSD";
+input string InpBrokerSymbols          = "EURUSD-VIP";
+
+CEAConfig g_config;
+CSharedState g_state;
+CAuditLog g_audit;
+bool g_state_checkpoint_writable=true;
+EEA_ObserverRuntimeContext g_runtime;
+
+bool EEA_ParseSymbolBindings(const string canonical_csv,const string broker_csv,
+                             string &canonical[],string &broker[],int &count)
+  {
+   count=StringSplit(canonical_csv,',',canonical);
+   int broker_count=StringSplit(broker_csv,',',broker);
+   if(count<1 || count!=broker_count || count>EEA_RUNTIME_MAX_SYMBOLS) return false;
+   for(int i=0;i<count;i++)
+     {
+      StringTrimLeft(canonical[i]); StringTrimRight(canonical[i]);
+      StringTrimLeft(broker[i]); StringTrimRight(broker[i]);
+      if(canonical[i]=="" || broker[i]=="") return false;
+     }
+   return true;
+  }
+
+int OnInit()
+  {
+   if(!EAConfig_LoadDefaults(g_config))
+      return INIT_FAILED;
+   g_config.observer_only=InpObserverOnly;
+   if(InpObserverOnly==false)
+     {
+      Print("Execution mode is not implemented in Phase 1; refusing startup.");
+      return INIT_FAILED;
+     }
+   g_config.data_root=InpDataRoot;
+   if(!EAConfig_Validate(g_config))
+      return INIT_PARAMETERS_INCORRECT;
+   EEA_EnsureFolder(g_config.data_root);
+   EEA_EnsureFolder(g_config.data_root+"/logs");
+   EEA_EnsureFolder(g_config.data_root+"/current");
+   g_state.schema_version=EEA_SCHEMA_VERSION;
+   g_state.config_version=g_config.config_version;
+   g_state.source="EA_CORE";
+   g_state.data_quality="UNKNOWN";
+   g_state.symbol_resolution="UNRESOLVED";
+   g_state.policy_status="UNSELECTED";
+   g_state.policy.status="UNSELECTED";
+   g_state.policy.policy_id="";
+   g_state.policy.config_version="";
+   g_state.policy.source_url="";
+   g_state.policy.policy_timezone="";
+   g_state.policy.account_currency="";
+   g_state.daily_snapshot.snapshot_id="core-daily-unselected";
+   g_state.daily_snapshot.policy_version="";
+   g_state.portfolio_snapshot.snapshot_id="core-portfolio-unknown";
+   g_state.risk_status="POLICY_DATA_UNKNOWN";
+   if(!g_audit.Open(g_config.data_root+"/logs/audit.jsonl"))
+      return INIT_FAILED;
+   string state_path=g_config.data_root+"/current/shared_state.json";
+   EEAStateLoadResult recovery=EEA_StateCheckCheckpoint(state_path,g_config.config_version);
+   if(recovery==EEA_STATE_INCOMPATIBLE)
+     {
+      g_state_checkpoint_writable=false;
+      g_state.data_quality="DEGRADED";
+      g_state.symbol_resolution="BLOCKED";
+      g_state.policy_status="POLICY_DATA_UNKNOWN";
+      g_state.policy.status="POLICY_DATA_UNKNOWN";
+      g_state.risk_status="POLICY_DATA_UNKNOWN";
+     }
+   else if(recovery==EEA_STATE_MISSING && !EEA_StateSave(state_path,g_state))
+     {
+      Print("Unable to persist initial shared-state checkpoint.");
+      return INIT_FAILED;
+     }
+   EEAEvent e;
+   string boot_event=(recovery==EEA_STATE_COMPATIBLE ? "STATE_CHECKPOINT_COMPATIBLE" :
+                      recovery==EEA_STATE_INCOMPATIBLE ? "STATE_CHECKPOINT_INCOMPATIBLE" : "EA_INITIALIZED");
+   EEAEvent_Init(e,boot_event,TimeGMT(),"","","","",g_state.data_quality);
+   e.config_version=g_config.config_version;
+   string checkpoint_status=(recovery==EEA_STATE_COMPATIBLE ? "COMPATIBLE" :
+                             recovery==EEA_STATE_INCOMPATIBLE ? "INCOMPATIBLE" : "MISSING");
+   e.details_json="{\"mode\":\"OBSERVER_ONLY\",\"state_checkpoint\":\""+checkpoint_status+
+                   "\",\"policy_status\":\""+g_state.policy_status+"\"}";
+   EEAEvent_AddReason(e,recovery==EEA_STATE_INCOMPATIBLE ? "STATE_CHECKPOINT_INCOMPATIBLE" : "CORE_FOUNDATION_READY");
+   if(!g_audit.Append(e,g_config.source))
+      return INIT_FAILED;
+   if(InpRuntimeEvidenceEnabled)
+     {
+      string canonical[],broker[];
+      int binding_count=0;
+      if(!EEA_ParseSymbolBindings(InpCanonicalSymbols,InpBrokerSymbols,canonical,broker,binding_count))
+         return INIT_PARAMETERS_INCORRECT;
+      if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
+                                  InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
+                                  canonical,broker,binding_count))
+         return INIT_FAILED;
+      if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
+     }
+   Print("EnterpriseEA observer runtime initialized without execution authority.");
+   return INIT_SUCCEEDED;
+  }
+
+void OnDeinit(const int reason)
+  {
+   EventKillTimer();
+   if(InpRuntimeEvidenceEnabled)
+      EEA_ObserverRuntimeShutdown(g_runtime,g_audit);
+   if(g_audit.IsOpen())
+     {
+      EEAEvent e;
+      EEAEvent_Init(e,"EA_STOPPED",TimeGMT(),"","","","",g_state.data_quality);
+      e.config_version=g_config.config_version;
+      e.details_json="{\"mode\":\"OBSERVER_ONLY\"}";
+      EEAEvent_AddReason(e,"DEINIT_REASON_"+IntegerToString(reason));
+      g_audit.Append(e,g_config.source);
+      if(g_state_checkpoint_writable)
+         EEA_StateSave(g_config.data_root+"/current/shared_state.json",g_state);
+      g_audit.Close();
+     }
+  }
+
+void OnTick()
+  {
+   // Phase 1 deliberately has no market scan, order API, or per-tick file writes.
+  }
+
+void OnTimer()
+  {
+   if(InpRuntimeEvidenceEnabled)
+      EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+  }
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   if(InpRuntimeEvidenceEnabled)
+      EEA_ObserverRuntimeMarkStale(g_runtime,"BROKER_TRANSACTION_OBSERVED");
+  }

@@ -1,0 +1,325 @@
+{
+  "fixture_version": "runtime-evidence-offline-v0.1.0",
+  "purpose": "Synthetic runtime evidence fixture only; no MT5 compile/runtime or broker reconciliation proof.",
+  "base_snapshot": {
+    "schema_version": "runtime-evidence-v0.1.0",
+    "config_version": "observer-v1.0.0",
+    "snapshot_id": "rt-snap-0001",
+    "observed_at_utc": 1700000000,
+    "valid_until_utc": 1700060400,
+    "history_lookback_days": 7,
+    "history_from_utc": 1699395200,
+    "account_fingerprint": "fnv1a32:b96fe430",
+    "broker_server": "VTMarkets-Demo",
+    "account_currency": "USD",
+    "account_margin_mode": "HEDGING",
+    "positions_complete": true,
+    "orders_complete": true,
+    "deals_complete": true,
+    "positions": [],
+    "orders": [],
+    "deals": [],
+    "deal_watermark": 0,
+    "deal_watermark_time_msc": 0,
+    "symbols": [
+      {
+        "broker_symbol": "EURUSD",
+        "digits": 5,
+        "point": 1e-05,
+        "tick_size": 1e-05,
+        "tick_value": 1.0,
+        "contract_size": 100000.0,
+        "volume_min": 0.01,
+        "volume_max": 500.0,
+        "volume_step": 0.01,
+        "stops_level_points": 0,
+        "freeze_level_points": 0,
+        "trade_mode": "FULL",
+        "order_mode": "MARKET",
+        "expiration_mode": "GTC",
+        "calculation_mode": "FOREX",
+        "base_currency": "EUR",
+        "profit_currency": "USD",
+        "margin_currency": "EUR"
+      }
+    ]
+  },
+  "symbol_spec": {
+    "broker_symbol": "EURUSD",
+    "digits": 5,
+    "point": 1e-05,
+    "tick_size": 1e-05,
+    "tick_value": 1.0,
+    "contract_size": 100000.0,
+    "volume_min": 0.01,
+    "volume_max": 500.0,
+    "volume_step": 0.01,
+    "stops_level_points": 0,
+    "freeze_level_points": 0,
+    "trade_mode": "FULL",
+    "order_mode": "MARKET",
+    "expiration_mode": "GTC",
+    "calculation_mode": "FOREX",
+    "base_currency": "EUR",
+    "profit_currency": "USD",
+    "margin_currency": "EUR"
+  },
+  "degraded_cases": [
+    {
+      "field": "positions_complete",
+      "expected_reason": "POSITIONS_SOURCE_INCOMPLETE"
+    },
+    {
+      "field": "orders_complete",
+      "expected_reason": "ORDERS_SOURCE_INCOMPLETE"
+    },
+    {
+      "field": "deals_complete",
+      "expected_reason": "DEALS_SOURCE_INCOMPLETE"
+    }
+  ],
+  "blocked_cases": [
+    {
+      "name": "missing_identity",
+      "snapshot_overrides": {
+        "account_fingerprint": ""
+      },
+      "expected_reason": "ACCOUNT_IDENTITY_UNAVAILABLE"
+    },
+    {
+      "name": "expired_evidence",
+      "snapshot_overrides": {
+        "valid_until_utc": 1699900000
+      },
+      "expected_reason": "RUNTIME_RECONCILIATION_REQUIRED"
+    },
+    {
+      "name": "duplicate_position_ticket",
+      "positions": [
+        {
+          "position_id": 101,
+          "ticket": 101,
+          "symbol": "EURUSD",
+          "type": "BUY",
+          "volume": 0.1,
+          "price_open": 1.1,
+          "sl": 0.0,
+          "tp": 0.0,
+          "time_open_utc": 990,
+          "profit": 5.25,
+          "swap": 0.0,
+          "magic": 0
+        },
+        {
+          "position_id": 101,
+          "ticket": 101,
+          "symbol": "EURUSD",
+          "type": "SELL",
+          "volume": 0.1,
+          "price_open": 1.101,
+          "sl": 0.0,
+          "tp": 0.0,
+          "time_open_utc": 991,
+          "profit": -1.0,
+          "swap": 0.0,
+          "magic": 0
+        }
+      ],
+      "expected_reason": "POSITIONS_SOURCE_INCOMPLETE"
+    },
+    {
+      "name": "duplicate_order_ticket",
+      "orders": [
+        {
+          "ticket": 201,
+          "symbol": "EURUSD",
+          "type": "BUY_LIMIT",
+          "volume": 0.1,
+          "price": 1.09,
+          "sl": 0.0,
+          "tp": 0.0,
+          "time_setup_utc": 995,
+          "expiration_utc": 0
+        },
+        {
+          "ticket": 201,
+          "symbol": "EURUSD",
+          "type": "SELL_LIMIT",
+          "volume": 0.1,
+          "price": 1.11,
+          "sl": 0.0,
+          "tp": 0.0,
+          "time_setup_utc": 996,
+          "expiration_utc": 0
+        }
+      ],
+      "expected_reason": "ORDERS_SOURCE_INCOMPLETE"
+    },
+    {
+      "name": "duplicate_deal_ticket",
+      "deals": [
+        {
+          "deal_ticket": 301,
+          "order_ticket": 401,
+          "position_id": 101,
+          "time_utc": 900,
+          "time_msc": 900000,
+          "type": "BUY",
+          "entry": "IN",
+          "symbol": "EURUSD",
+          "volume": 0.1,
+          "price": 1.1,
+          "profit": 0.0,
+          "commission": 0.0,
+          "swap": 0.0,
+          "fee": 0.0
+        },
+        {
+          "deal_ticket": 301,
+          "order_ticket": 402,
+          "position_id": 101,
+          "time_utc": 950,
+          "time_msc": 950000,
+          "type": "SELL",
+          "entry": "OUT",
+          "symbol": "EURUSD",
+          "volume": 0.1,
+          "price": 1.1005,
+          "profit": 5.0,
+          "commission": 0.0,
+          "swap": 0.0,
+          "fee": 0.0
+        }
+      ],
+      "deal_watermark": 301,
+      "snapshot_overrides": {
+        "deal_watermark": 301,
+        "deal_watermark_time_msc": 950000
+      },
+      "expected_reason": "DEALS_SOURCE_INCOMPLETE"
+    },
+    {
+      "name": "descending_deal_ticket_time",
+      "deals": [
+        {
+          "deal_ticket": 302,
+          "order_ticket": 402,
+          "position_id": 101,
+          "time_utc": 950,
+          "time_msc": 950000,
+          "type": "SELL",
+          "entry": "OUT",
+          "symbol": "EURUSD",
+          "volume": 0.1,
+          "price": 1.1005,
+          "profit": 5.0,
+          "commission": 0.0,
+          "swap": 0.0,
+          "fee": 0.0
+        },
+        {
+          "deal_ticket": 301,
+          "order_ticket": 401,
+          "position_id": 101,
+          "time_utc": 900,
+          "time_msc": 900000,
+          "type": "BUY",
+          "entry": "IN",
+          "symbol": "EURUSD",
+          "volume": 0.1,
+          "price": 1.1,
+          "profit": 0.0,
+          "commission": 0.0,
+          "swap": 0.0,
+          "fee": 0.0
+        }
+      ],
+      "snapshot_overrides": {
+        "deal_watermark": 302,
+        "deal_watermark_time_msc": 950000
+      },
+      "expected_reason": "DEALS_SOURCE_INCOMPLETE"
+    },
+    {
+      "name": "deal_watermark_regressed",
+      "previous_watermark": 5,
+      "expected_reason": "DEAL_WATERMARK_REGRESSED"
+    },
+    {
+      "name": "invalid_symbol_volume_range",
+      "snapshot_overrides": {
+        "symbols": [
+          {
+            "broker_symbol": "EURUSD",
+            "digits": 5,
+            "point": 1e-05,
+            "tick_size": 1e-05,
+            "tick_value": 1.0,
+            "contract_size": 100000.0,
+            "volume_min": 100.0,
+            "volume_max": 1.0,
+            "volume_step": 0.01,
+            "stops_level_points": 0,
+            "freeze_level_points": 0,
+            "trade_mode": "FULL",
+            "order_mode": "MARKET",
+            "expiration_mode": "GTC",
+            "calculation_mode": "FOREX",
+            "base_currency": "EUR",
+            "profit_currency": "USD",
+            "margin_currency": "EUR"
+          }
+        ]
+      },
+      "expected_reason": "SYMBOL_SPEC_INCOMPLETE"
+    },
+    {
+      "name": "invalid_symbol_volume_step",
+      "snapshot_overrides": {
+        "symbols": [
+          {
+            "broker_symbol": "EURUSD",
+            "digits": 5,
+            "point": 1e-05,
+            "tick_size": 1e-05,
+            "tick_value": 1.0,
+            "contract_size": 100000.0,
+            "volume_min": 0.01,
+            "volume_max": 500.0,
+            "volume_step": 0.0,
+            "stops_level_points": 0,
+            "freeze_level_points": 0,
+            "trade_mode": "FULL",
+            "order_mode": "MARKET",
+            "expiration_mode": "GTC",
+            "calculation_mode": "FOREX",
+            "base_currency": "EUR",
+            "profit_currency": "USD",
+            "margin_currency": "EUR"
+          }
+        ]
+      },
+      "expected_reason": "SYMBOL_SPEC_INCOMPLETE"
+    },
+    {
+      "name": "non_finite_numeric_input",
+      "positions": [
+        {
+          "position_id": 101,
+          "ticket": 101,
+          "symbol": "EURUSD",
+          "type": "BUY",
+          "volume": "NaN",
+          "price_open": 1.1,
+          "sl": 0.0,
+          "tp": 0.0,
+          "time_open_utc": 990,
+          "profit": 5.25,
+          "swap": 0.0,
+          "magic": 0
+        }
+      ],
+      "expected_reason": "POSITIONS_SOURCE_INCOMPLETE"
+    }
+  ]
+}

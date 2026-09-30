@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Versioned EA shared-state snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "state_version", "updated_at_utc", "config_version", "source", "data_quality", "symbol_resolution", "policy_status", "risk_status", "symbols", "account_policy", "daily_snapshot", "portfolio_snapshot"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"}, "state_version": {"type": "string", "minLength": 1}, "updated_at_utc": {"type": "string", "format": "date-time"},
+    "config_version": {"type": "string", "minLength": 1}, "source": {"type": "string", "minLength": 1},
+    "data_quality": {"enum": ["OK", "DEGRADED", "STALE", "UNKNOWN"]}, "symbol_resolution": {"enum": ["RESOLVED", "UNRESOLVED", "BLOCKED"]},
+    "policy_status": {"enum": ["UNSELECTED", "ACTIVE", "POLICY_DATA_UNKNOWN"]}, "risk_status": {"enum": ["ALLOW", "REDUCE_OR_WAIT", "BLOCK_NEW_ENTRY", "PROTECT_EXISTING", "POLICY_DATA_UNKNOWN"]},
+    "symbols": {"type": "array", "items": {"$ref": "symbol-registry.schema.json"}},
+    "account_policy": {"$ref": "account-policy.schema.json"}, "daily_snapshot": {"$ref": "daily-snapshot.schema.json"}, "portfolio_snapshot": {"$ref": "portfolio-risk-snapshot.schema.json"}
+  }
+}

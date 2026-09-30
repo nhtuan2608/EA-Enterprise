@@ -1,0 +1,28 @@
+{
+  "purpose": "Synthetic FTMO reset-ledger transitions with externally attested Prague midnight timestamps",
+  "source": "Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx PROP-02/03 and TC-035; FTMO trading objectives 00:00 CE(S)T rules",
+  "assumptions": [
+    "UTC timestamps for the 2026 spring/fall boundary were cross-checked with Windows Central Europe Standard Time; no timezone conversion is implemented in MQL5.",
+    "day_index and Prague day ID are supplied by a trusted external reset adapter; this fixture tests sequence checks, not the adapter.",
+    "All balances are synthetic and do not represent a real account."
+  ],
+  "one_step": {
+    "policy": {"policy_id": "FTMO_1_STEP", "config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-1", "account_currency": "USD", "initial_capital": 100000},
+    "snapshots": [
+      {"config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-1", "account_currency": "USD", "snapshot_id": "spring-day-0", "prague_day_id": "2026-03-29", "day_index": 0, "reset_at_utc": 1774738800, "prague_midnight_confirmed": true, "data_quality": "OK", "balance_at_reset": 100000},
+      {"config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-1", "account_currency": "USD", "snapshot_id": "spring-day-1", "prague_day_id": "2026-03-30", "day_index": 1, "reset_at_utc": 1774821600, "prague_midnight_confirmed": true, "data_quality": "OK", "balance_at_reset": 104000},
+      {"config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-1", "account_currency": "USD", "snapshot_id": "spring-day-2", "prague_day_id": "2026-03-31", "day_index": 2, "reset_at_utc": 1774908000, "prague_midnight_confirmed": true, "data_quality": "OK", "balance_at_reset": 103000}
+    ],
+    "expected_daily_floors": [97000, 101000, 100000],
+    "expected_overall_floors": [90000, 94000, 94000]
+  },
+  "two_step": {
+    "policy": {"policy_id": "FTMO_2_STEP", "config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-2", "account_currency": "USD", "initial_capital": 100000},
+    "snapshots": [
+      {"config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-2", "account_currency": "USD", "snapshot_id": "fall-day-0", "prague_day_id": "2026-10-25", "day_index": 0, "reset_at_utc": 1792879200, "prague_midnight_confirmed": true, "data_quality": "OK", "balance_at_reset": 100000},
+      {"config_version": "reset-fixture-v1", "account_epoch_id": "account-epoch-2", "account_currency": "USD", "snapshot_id": "fall-day-1", "prague_day_id": "2026-10-26", "day_index": 1, "reset_at_utc": 1792969200, "prague_midnight_confirmed": true, "data_quality": "OK", "balance_at_reset": 102000}
+    ],
+    "expected_daily_floors": [95000, 97000],
+    "expected_overall_floors": [90000, 90000]
+  }
+}

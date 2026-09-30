@@ -1,0 +1,38 @@
+{
+  "purpose": "Synthetic account-wide pre-sizing budget examples, not entry permission",
+  "source": "Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx Appendix B RISK-03 and PROP-04/05",
+  "assumptions": [
+    "Every amount is synthetic USD; 0.005 base risk fraction is a fixture value, not a live default.",
+    "The upstream reconciler has included manual positions, other EAs, and pending orders where all evidence flags are true.",
+    "Portfolio remaining money is an upstream result that already accounts for correlation and currency exposure; this fixture does not calculate those limits.",
+    "Policy headroom is after the safety buffer and before the proposed new trade. Existing stress loss is deducted once."
+  ],
+  "base": {
+    "config_version": "budget-fixture-v0.1.0",
+    "account_currency": "USD",
+    "data_quality": "OK",
+    "account_scope": "ACCOUNT_WIDE",
+    "reconciliation_status": "RECONCILED",
+    "policy_floor_calculation_valid": true,
+    "policy_headroom_quality": "OK",
+    "policy_config_version": "budget-fixture-v0.1.0",
+    "policy_headroom_currency": "USD",
+    "external_orders_included": true,
+    "account_mode_reconciled": true,
+    "portfolio_limits_confirmed": true,
+    "equity_after_costs": 100000,
+    "base_risk_fraction": 0.005,
+    "per_trade_cap_money": 600,
+    "portfolio_remaining_money": 400,
+    "policy_headroom_after_buffer_money": 700,
+    "existing_stress_loss_money": 100
+  },
+  "cases": [
+    {"name": "portfolio_cap_binds", "overrides": {}, "expected": {"valid": true, "budget_status": "BUDGET_AVAILABLE", "base_risk_money": 500, "floor_remaining_money": 600, "budget_money": 400}},
+    {"name": "floor_capacity_binds", "overrides": {"policy_headroom_after_buffer_money": 250}, "expected": {"valid": true, "budget_status": "BUDGET_AVAILABLE", "floor_remaining_money": 150, "budget_money": 150}},
+    {"name": "existing_stress_exhausts_floor", "overrides": {"existing_stress_loss_money": 800}, "expected": {"valid": true, "budget_status": "BLOCK", "floor_remaining_money": -100, "budget_money": 0}},
+    {"name": "reconcile_missing_fails_closed", "overrides": {"reconciliation_status": "INCOMPLETE"}, "expected": {"valid": false, "budget_status": "UNKNOWN", "reason_code": "ACCOUNT_WIDE_EVIDENCE_INCOMPLETE"}},
+    {"name": "manual_orders_not_included_fails_closed", "overrides": {"external_orders_included": false}, "expected": {"valid": false, "budget_status": "UNKNOWN", "reason_code": "ACCOUNT_WIDE_EVIDENCE_INCOMPLETE"}},
+    {"name": "policy_version_mismatch_fails_closed", "overrides": {"policy_config_version": "old"}, "expected": {"valid": false, "budget_status": "UNKNOWN", "reason_code": "ACCOUNT_WIDE_EVIDENCE_INCOMPLETE"}}
+  ]
+}

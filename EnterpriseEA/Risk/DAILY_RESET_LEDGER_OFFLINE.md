@@ -1,0 +1,9 @@
+# Daily reset ledger (offline)
+
+`DailyResetLedger.mqh` is a pure, isolated record of FTMO daily reset snapshots. A trusted adapter must supply the balance actually recorded at 00:00 Europe/Prague, its UTC timestamp, local Prague day ID, and a contiguous day index. The module does not calculate timezone offsets or read broker history. It allows 23-hour and 25-hour gaps between UTC reset timestamps across daylight saving changes; it does not assume a fixed 24-hour interval.
+
+The ledger starts only from a confirmed first-day snapshot whose balance equals the initial simulated capital. Each next day advances the index by one and must have a later Prague day and UTC reset time. An exact duplicate is ignored. A conflicting duplicate, missing day, untrusted snapshot, account epoch/config/currency mismatch or arithmetic failure moves the ledger to `UNKNOWN` and blocks downstream use. The last accepted snapshot fields remain for audit; after a conflict, a trusted full-history rebuild is required before use.
+
+For 1-Step, the daily floor is reset balance minus 3% of initial capital; the overall floor uses the highest accepted reset balance or initial capital minus 10% of initial capital. For 2-Step, the daily amount is 5% and the overall floor stays at 90% of initial capital. These rules follow [FTMO's trading objectives](https://ftmo.com/en/trading-objectives/). A new account or reward withdrawal that resets the 1-Step trailing floor requires a separately confirmed account epoch and a new ledger; this module never infers one.
+
+`Tests/Fixtures/daily-reset-ledger-v0.1.0.json` contains synthetic spring/fall 2026 boundary timestamps, cross-checked with Windows `Central Europe Standard Time`. Python has no Europe/Prague timezone database on this machine, so the test checks the fixed 23/25-hour intervals and floor arithmetic, not timezone conversion. The MQL5 module remains outside the EA shell and has not been compiled or run in MT5.

@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "config_version": "observer-v1.0.0",
+  "mode": "OBSERVER_ONLY",
+  "source": "EA_CORE",
+  "account_policy": {
+    "policy_id": null,
+    "config_version": null,
+    "source_url": null,
+    "policy_timezone": null,
+    "account_currency": null,
+    "initial_capital": null,
+    "daily_reset_hour": null,
+    "daily_reset_minute": null,
+    "daily_loss_percent_of_initial": null,
+    "overall_loss_percent_of_initial": null,
+    "overall_floor_mode": null,
+    "safety_buffer": null,
+    "internal_daily_loss_limit": null,
+    "internal_weekly_drawdown_limit": null,
+    "status": "UNSELECTED"
+  },
+  "symbol_registry": [],
+  "notes": [
+    "No account or broker assumptions are selected in this baseline.",
+    "An empty symbol registry intentionally blocks symbol resolution.",
+    "This Phase 1 file is a versioned contract fixture; the EA does not yet load external JSON configuration."
+  ]
+}

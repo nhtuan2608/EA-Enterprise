@@ -1,0 +1,298 @@
+{
+  "fixture_version": "account-risk-ledger-offline-v0.1.0",
+  "source": "Synthetic snapshots modeling RISK-04, PROP-05 and TC-036 only; no live account, broker or MT5 reconciliation is represented.",
+  "notes": [
+    "InitialRiskMoney is retained from entry, ProjectedLossToSL is the original intent risk for open positions plus unfilled working orders, and RemainingLossToSL is current risk to current SL for positions plus residual working orders.",
+    "Partial fills are represented by a filled position and a PARTIAL order remainder in the same reconciled snapshot. An SL move changes RemainingLossToSL only; close removes the position from the next full snapshot.",
+    "Risk rows are already normalized to account currency with caller-reconciled costs; hedging/netting positions are supplied in broker account representation."
+  ],
+  "base_snapshot": {
+    "config_version": "bundle-v1",
+    "account_id": "fixture-account-token",
+    "broker_server": "DemoServer-A",
+    "account_currency": "USD",
+    "account_mode": "HEDGING",
+    "data_quality": "OK",
+    "reconciliation_status": "RECONCILED",
+    "account_scope": "ACCOUNT_WIDE",
+    "event_id": "snapshot-event-1",
+    "source_snapshot_id": "account-snap-1",
+    "positions_snapshot_id": "positions-1",
+    "orders_snapshot_id": "orders-1",
+    "deals_snapshot_id": "deals-1",
+    "policy_snapshot_id": "policy-1",
+    "captured_at_utc": 100,
+    "max_age_seconds": 300,
+    "event_sequence": 1,
+    "deal_watermark": 2,
+    "positions_complete": true,
+    "orders_complete": true,
+    "deals_complete": true,
+    "manual_activity_included": true,
+    "other_ea_activity_included": true,
+    "cash_flows_reconciled": true,
+    "costs_reconciled": true,
+    "account_mode_reconciled": true,
+    "policy_headroom_valid": true,
+    "policy_config_version": "bundle-v1",
+    "policy_currency": "USD",
+    "policy_quality": "OK",
+    "equity_after_costs": 10000,
+    "equity_floor_headroom_money": 500,
+    "content_fingerprint": "sha256:synthetic-base-snapshot-v1"
+  },
+  "partial_fill_positions": [
+    {
+      "position_id": "EA-pos-1",
+      "origin": "EA",
+      "canonical_symbol": "EURUSD",
+      "broker_symbol": "EURUSD.a",
+      "direction": "LONG",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.4,
+      "initial_risk_money": 40,
+      "projected_loss_to_sl": 40,
+      "remaining_loss_to_sl": 24,
+      "floating_pnl_after_costs": 12,
+      "locked_profit_money": 0,
+      "risk_lineage_valid": true
+    },
+    {
+      "position_id": "manual-pos-1",
+      "origin": "MANUAL",
+      "canonical_symbol": "XAUUSD",
+      "broker_symbol": "XAUUSDm",
+      "direction": "SHORT",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.2,
+      "initial_risk_money": 20,
+      "projected_loss_to_sl": 20,
+      "remaining_loss_to_sl": 15,
+      "floating_pnl_after_costs": -5,
+      "locked_profit_money": 0,
+      "risk_lineage_valid": true
+    },
+    {
+      "position_id": "other-ea-pos-1",
+      "origin": "OTHER_EA",
+      "canonical_symbol": "USDJPY",
+      "broker_symbol": "USDJPY.pro",
+      "direction": "LONG",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.1,
+      "initial_risk_money": 10,
+      "projected_loss_to_sl": 10,
+      "remaining_loss_to_sl": 5,
+      "floating_pnl_after_costs": 3,
+      "locked_profit_money": 1,
+      "risk_lineage_valid": true
+    }
+  ],
+  "partial_fill_orders": [
+    {
+      "order_id": "EA-order-1",
+      "origin": "EA",
+      "canonical_symbol": "EURUSD",
+      "broker_symbol": "EURUSD.a",
+      "order_status": "PARTIAL",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "remaining_volume": 0.6,
+      "projected_loss_to_sl": 60,
+      "remaining_loss_to_sl": 60
+    },
+    {
+      "order_id": "other-ea-order-1",
+      "origin": "OTHER_EA",
+      "canonical_symbol": "GBPUSD",
+      "broker_symbol": "GBPUSDx",
+      "order_status": "WORKING",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "remaining_volume": 0.2,
+      "projected_loss_to_sl": 40,
+      "remaining_loss_to_sl": 40
+    }
+  ],
+  "partial_fill_deals": [
+    {
+      "deal_id": "deal-fill-1",
+      "origin": "EA",
+      "deal_kind": "TRADE",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "sequence": 1,
+      "money": 0
+    },
+    {
+      "deal_id": "deal-commission-1",
+      "origin": "EA",
+      "deal_kind": "COMMISSION",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "sequence": 2,
+      "money": -1
+    }
+  ],
+  "sl_modified_positions": [
+    {
+      "position_id": "EA-pos-1",
+      "origin": "EA",
+      "canonical_symbol": "EURUSD",
+      "broker_symbol": "EURUSD.a",
+      "direction": "LONG",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.4,
+      "initial_risk_money": 40,
+      "projected_loss_to_sl": 40,
+      "remaining_loss_to_sl": 10,
+      "floating_pnl_after_costs": 18,
+      "locked_profit_money": 0,
+      "risk_lineage_valid": true
+    },
+    {
+      "position_id": "manual-pos-1",
+      "origin": "MANUAL",
+      "canonical_symbol": "XAUUSD",
+      "broker_symbol": "XAUUSDm",
+      "direction": "SHORT",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.2,
+      "initial_risk_money": 20,
+      "projected_loss_to_sl": 20,
+      "remaining_loss_to_sl": 15,
+      "floating_pnl_after_costs": -4,
+      "locked_profit_money": 0,
+      "risk_lineage_valid": true
+    },
+    {
+      "position_id": "other-ea-pos-1",
+      "origin": "OTHER_EA",
+      "canonical_symbol": "USDJPY",
+      "broker_symbol": "USDJPY.pro",
+      "direction": "LONG",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.1,
+      "initial_risk_money": 10,
+      "projected_loss_to_sl": 10,
+      "remaining_loss_to_sl": 5,
+      "floating_pnl_after_costs": 4,
+      "locked_profit_money": 1,
+      "risk_lineage_valid": true
+    }
+  ],
+  "close_positions": [
+    {
+      "position_id": "manual-pos-1",
+      "origin": "MANUAL",
+      "canonical_symbol": "XAUUSD",
+      "broker_symbol": "XAUUSDm",
+      "direction": "SHORT",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.2,
+      "initial_risk_money": 20,
+      "projected_loss_to_sl": 20,
+      "remaining_loss_to_sl": 15,
+      "floating_pnl_after_costs": -5,
+      "locked_profit_money": 0,
+      "risk_lineage_valid": true
+    },
+    {
+      "position_id": "other-ea-pos-1",
+      "origin": "OTHER_EA",
+      "canonical_symbol": "USDJPY",
+      "broker_symbol": "USDJPY.pro",
+      "direction": "LONG",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "volume": 0.1,
+      "initial_risk_money": 10,
+      "projected_loss_to_sl": 10,
+      "remaining_loss_to_sl": 5,
+      "floating_pnl_after_costs": 3,
+      "locked_profit_money": 1,
+      "risk_lineage_valid": true
+    }
+  ],
+  "close_orders": [
+    {
+      "order_id": "other-ea-order-1",
+      "origin": "OTHER_EA",
+      "canonical_symbol": "GBPUSD",
+      "broker_symbol": "GBPUSDx",
+      "order_status": "WORKING",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "remaining_volume": 0.2,
+      "projected_loss_to_sl": 40,
+      "remaining_loss_to_sl": 40
+    }
+  ],
+  "close_deals": [
+    {
+      "deal_id": "deal-fill-1",
+      "origin": "EA",
+      "deal_kind": "TRADE",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "sequence": 1,
+      "money": 0
+    },
+    {
+      "deal_id": "deal-commission-1",
+      "origin": "EA",
+      "deal_kind": "COMMISSION",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "sequence": 2,
+      "money": -1
+    },
+    {
+      "deal_id": "deal-close-1",
+      "origin": "EA",
+      "deal_kind": "TRADE",
+      "config_version": "bundle-v1",
+      "account_currency": "USD",
+      "sequence": 3,
+      "money": 5
+    }
+  ],
+  "invalid_snapshot_cases": [
+    {
+      "name": "missing_other_ea_coverage",
+      "mutation": [
+        "other_ea_activity_included",
+        false
+      ],
+      "expected_reason": "ACCOUNT_WIDE_SNAPSHOT_OR_POLICY_EVIDENCE_MISSING"
+    },
+    {
+      "name": "missing_source_snapshot_id",
+      "mutation": [
+        "positions_snapshot_id",
+        ""
+      ],
+      "expected_reason": "ACCOUNT_WIDE_SNAPSHOT_OR_POLICY_EVIDENCE_MISSING"
+    },
+    {
+      "name": "stale_snapshot",
+      "now_utc": 1000,
+      "expected_reason": "ACCOUNT_WIDE_SNAPSHOT_OR_POLICY_EVIDENCE_MISSING"
+    },
+    {
+      "name": "policy_currency_mismatch",
+      "mutation": [
+        "policy_currency",
+        "EUR"
+      ],
+      "expected_reason": "ACCOUNT_WIDE_SNAPSHOT_OR_POLICY_EVIDENCE_MISSING"
+    }
+  ]
+}

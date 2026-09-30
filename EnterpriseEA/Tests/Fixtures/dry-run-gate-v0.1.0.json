@@ -1,0 +1,45 @@
+{
+  "fixture_version": "dry-run-candidate-gate-v0.1.0",
+  "source": "Synthetic composition cases for existing Phase 2/3 offline modules. No MT5, broker, order, or account state is represented.",
+  "base": {
+    "config_version":"bundle-v1","setup_config_version":"s02-seed-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","levels_snapshot_id":"levels-evt-1","portfolio_snapshot_id":"portfolio-snap-1","volume_quote_snapshot_id":"volume-quote-1","evaluated_at_utc":10000,
+    "symbol":{"resolved":true,"status":"RESOLVED","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_version":"registry-v3","metadata_version":"spec-v7","metadata_fingerprint":"fp-spec-v7"},
+    "candidate":{"candidate_id":"s02-candidate-1","setup_id":"S02","direction":"LONG","state":"TRIGGERED","canonical_symbol":"EURUSD","timeframe":"M15","config_version":"s02-seed-v1","detected_at_utc":9700,"triggered_at_utc":9900,"expires_after_bars":3,"age_after_trigger_bars":0},
+    "levels":{"valid":true,"stop_loss":1.095,"take_profit":1.11},
+    "economics_input":{"config_version":"bundle-v1","account_currency":"USD","quote_config_version":"bundle-v1","quote_currency":"USD","quote_quality":"OK","pricing_snapshot_id":"pricing-snap-1","loss_quote_valid":true,"reward_quote_valid":true,"target_space_confirmed":true,"execution_constraints_confirmed":true,"direction":1,"entry_reference":1.1,"stop_loss":1.095,"take_profit":1.11,"final_volume":0.4,"quote_volume":0.4,"net_loss_at_sl_money":100,"net_gain_at_tp_money":200,"minimum_net_rr":1.5},
+    "economics":{"valid":true,"economics_status":"ECONOMICS_ACCEPTABLE","net_reward_risk":2.0,"net_loss_at_sl_money":100,"net_gain_at_tp_money":200},
+    "headroom":{"calculation_valid":true,"calculation_status":"OK","headroom_status":"SUFFICIENT","config_version":"bundle-v1","source_version":"policy-v1","snapshot_id":"daily-snap-1","available_headroom":1000,"proposed_stress_loss":100},
+    "portfolio_input":{"config_version":"bundle-v1","account_currency":"USD","data_quality":"OK","account_scope":"ACCOUNT_WIDE","reconciliation_status":"RECONCILED","policy_floor_calculation_valid":true,"policy_headroom_quality":"OK","policy_config_version":"bundle-v1","policy_headroom_currency":"USD","external_orders_included":true,"account_mode_reconciled":true,"portfolio_limits_confirmed":true,"equity_after_costs":10000,"base_risk_fraction":0.02,"per_trade_cap_money":300,"portfolio_remaining_money":500,"policy_headroom_after_buffer_money":1000,"existing_stress_loss_money":150},
+    "portfolio":{"valid":true,"budget_status":"BUDGET_AVAILABLE","budget_money":200},
+    "sizing_input":{"config_version":"bundle-v1","account_currency":"USD","risk_budget":200,"loss_quote_valid":true,"loss_quote_quality":"OK","loss_quote_version":"bundle-v1","loss_quote_currency":"USD","loss_per_lot_at_sl":500,"volume_min":0.01,"volume_max":5,"volume_step":0.01,"final_loss_quote_valid":true,"final_loss_quote_quality":"OK","final_loss_quote_version":"bundle-v1","final_loss_quote_currency":"USD","final_loss_quote_volume":0.4,"final_loss_at_sl":100,"margin_quote_valid":true,"margin_quote_quality":"OK","margin_quote_version":"bundle-v1","margin_quote_currency":"USD","margin_quote_volume":0.4,"required_margin":400,"available_margin":1000},
+    "sizing":{"valid":true,"sizing_status":"SIZED","volume":0.4,"projected_loss":100,"required_margin":400,"available_margin":1000},
+    "evidence":[
+      {"stage":"SYMBOL","quality":"OK","config_version":"bundle-v1","source_version":"registry-v3","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"fp-spec-v7","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"CANDIDATE","quality":"OK","config_version":"bundle-v1","source_version":"s02-seed-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"s02-candidate-1","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"LEVELS","quality":"OK","config_version":"bundle-v1","source_version":"s02-seed-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"levels-evt-1","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"ECONOMICS","quality":"OK","config_version":"bundle-v1","source_version":"bundle-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"pricing-snap-1","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"FTMO","quality":"OK","config_version":"bundle-v1","source_version":"policy-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"daily-snap-1","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"PORTFOLIO","quality":"OK","config_version":"bundle-v1","source_version":"bundle-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"portfolio-snap-1","captured_at_utc":9950,"max_age_seconds":300},
+      {"stage":"VOLUME","quality":"OK","config_version":"bundle-v1","source_version":"bundle-v1","account_currency":"USD","canonical_symbol":"EURUSD","broker_symbol":"EURUSD.a","broker_server":"DemoServer-A","source_snapshot_id":"volume-quote-1","captured_at_utc":9950,"max_age_seconds":300}
+    ]
+  },
+  "cases": [
+    {"name":"all_gates_reviewable","mutations":[],"expected":{"decision_status":"REVIEWABLE_CANDIDATE","reason_code":"ALL_OFFLINE_GATES_PASSED_FOR_REVIEW_ONLY"}},
+    {"name":"stale_quote_evidence_unknown","mutations":[["evidence.3.captured_at_utc",9000]],"expected":{"decision_status":"UNKNOWN","reason_code":"EVIDENCE_STALE_OR_INCOMPLETE"}},
+    {"name":"unexpected_evidence_stage_unknown","mutations":[["evidence.6.stage","EXTRA"]],"expected":{"decision_status":"UNKNOWN","reason_code":"EVIDENCE_STAGE_SET_INVALID"}},
+    {"name":"shared_config_mismatch_blocked","mutations":[["evidence.0.config_version","old-bundle"]],"expected":{"decision_status":"BLOCKED","reason_code":"EVIDENCE_BINDING_MISMATCH"}},
+    {"name":"symbol_change_blocked","mutations":[["symbol.metadata_fingerprint","changed-fingerprint"]],"expected":{"decision_status":"BLOCKED","reason_code":"SYMBOL_SOURCE_SNAPSHOT_MISMATCH"}},
+    {"name":"candidate_not_triggered_rejected","mutations":[["candidate.state","RETESTING"]],"expected":{"decision_status":"REJECTED","reason_code":"CANDIDATE_NOT_FRESH_TRIGGERED_S02"}},
+    {"name":"candidate_evidence_predates_trigger_blocked","mutations":[["evidence.1.captured_at_utc",9800]],"expected":{"decision_status":"BLOCKED","reason_code":"CANDIDATE_EVIDENCE_PREDATES_TRIGGER"}},
+    {"name":"invalid_direction_blocked","mutations":[["economics_input.direction",0]],"expected":{"decision_status":"BLOCKED","reason_code":"CANDIDATE_DIRECTION_MISMATCH"}},
+    {"name":"levels_snapshot_mismatch_blocked","mutations":[["evidence.2.source_snapshot_id","other-levels"]],"expected":{"decision_status":"BLOCKED","reason_code":"LEVELS_SOURCE_SNAPSHOT_MISMATCH"}},
+    {"name":"economics_rejection_rejected","mutations":[["economics.economics_status","REJECTED"]],"expected":{"decision_status":"REJECTED","reason_code":"TRADE_ECONOMICS_REJECTED"}},
+    {"name":"headroom_insufficient_rejected","mutations":[["headroom.headroom_status","REDUCE_OR_WAIT"]],"expected":{"decision_status":"REJECTED","reason_code":"FTMO_HEADROOM_INSUFFICIENT"}},
+    {"name":"portfolio_unreconciled_unknown","mutations":[["portfolio_input.reconciliation_status","UNKNOWN"]],"expected":{"decision_status":"UNKNOWN","reason_code":"ACCOUNT_WIDE_RECONCILIATION_EVIDENCE_UNKNOWN"}},
+    {"name":"volume_snapshot_mismatch_blocked","mutations":[["evidence.6.source_snapshot_id","other-quote"]],"expected":{"decision_status":"BLOCKED","reason_code":"VOLUME_SOURCE_SNAPSHOT_MISMATCH"}},
+    {"name":"final_loss_mismatch_blocked","mutations":[["sizing.projected_loss",120]],"expected":{"decision_status":"BLOCKED","reason_code":"FINAL_VOLUME_LOSS_BUDGET_OR_STRESS_MISMATCH"}},
+    {"name":"nonpositive_final_loss_unknown","mutations":[["economics_input.net_loss_at_sl_money",0]],"expected":{"decision_status":"UNKNOWN","reason_code":"ECONOMICS_FINAL_VOLUME_OR_LOSS_INVALID"}},
+    {"name":"cached_rr_result_mismatch_blocked","mutations":[["economics.net_reward_risk",99]],"expected":{"decision_status":"BLOCKED","reason_code":"ECONOMICS_RESULT_INPUT_MISMATCH"}},
+    {"name":"cached_portfolio_success_without_reconcile_unknown","mutations":[["portfolio_input.external_orders_included",false]],"expected":{"decision_status":"UNKNOWN","reason_code":"ACCOUNT_WIDE_RECONCILIATION_EVIDENCE_UNKNOWN"}}
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "fixture_version": "pending-order-lifecycle-offline-v0.1.0",
+  "purpose": "Synthetic setup-bound LIMIT/STOP expiry and partial-fill accounting; no broker or MT5 proof.",
+  "seed": {
+    "intent_id": "intent-s02-1",
+    "candidate_id": "candidate-s02-1",
+    "setup_id": "S02",
+    "setup_version": "s02-fixture-v1",
+    "config_version": "config-fixture-v1",
+    "instrument_version": "instrument-fixture-v1",
+    "canonical_symbol": "FIXTURE",
+    "account_currency": "USD",
+    "broker_server": "SYNTHETIC-DEMO",
+    "account_fingerprint": "account-fixture-1",
+    "order_ticket": "ticket-fixture-100",
+    "trade_style": "SCALP",
+    "order_type": "BUY_LIMIT",
+    "candidate_triggered_at_utc": 990,
+    "submitted_at_utc": 998,
+    "broker_accepted_at_utc": 1000,
+    "setup_valid_until_utc": 1300,
+    "session_end_at_utc": 1400,
+    "broker_expiration_at_utc": 1500,
+    "placed_after_closed_bar_sequence": 10,
+    "max_wait_closed_bars": 3,
+    "placement_validated": true,
+    "broker_expiration_attested": true,
+    "requested_volume": 0.3,
+    "volume_step": 0.1,
+    "reserved_risk_per_lot_money": 123.0,
+    "max_committed_risk_money": 50.0
+  },
+  "observation_defaults": {
+    "intent_id": "intent-s02-1",
+    "config_version": "config-fixture-v1",
+    "bar_closed_confirmed": true,
+    "setup_valid": true,
+    "session_open": true,
+    "risk_entry_allowed": true,
+    "news_entry_allowed": true,
+    "quote_premise_valid": true,
+    "config_spec_unchanged": true,
+    "data_quality": "OK"
+  },
+  "broker_event_defaults": {
+    "intent_id": "intent-s02-1",
+    "config_version": "config-fixture-v1",
+    "instrument_version": "instrument-fixture-v1",
+    "broker_server": "SYNTHETIC-DEMO",
+    "account_fingerprint": "account-fixture-1",
+    "order_ticket": "ticket-fixture-100",
+    "data_quality": "OK"
+  },
+  "expected_initial_risk_reservation_money": 36.9,
+  "expected_partial": {
+    "filled_volume": 0.1,
+    "remaining_volume": 0.2,
+    "filled_initial_risk_money": 11.25,
+    "remaining_risk_reservation_money": 24.6,
+    "total_committed_risk_money": 35.85
+  }
+}

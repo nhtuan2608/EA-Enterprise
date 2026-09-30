@@ -1,0 +1,60 @@
+{
+  "fixture_version": "expected-path-offline-v0.1.0",
+  "purpose": "Synthetic closed-bar path observations after an attested virtual fill; thresholds are research seeds, not live trading policy.",
+  "profile": {
+    "config_version": "path-research-v0.1.0",
+    "setup_id": "S02",
+    "trade_style": "SCALP",
+    "proving_bars": 3,
+    "working_bars": 8,
+    "horizon_bars": 15,
+    "minimum_mfe_at_proving_r": 0.5,
+    "runner_min_close_r": 0.8
+  },
+  "long_seed": {
+    "trade_id": "virtual-long-1",
+    "setup_id": "S02",
+    "config_version": "path-research-v0.1.0",
+    "canonical_symbol": "FIXTURE",
+    "direction": "LONG",
+    "filled_at_utc": 1000,
+    "filled_price": 100.0,
+    "invalidation_stop": 99.0
+  },
+  "short_seed": {
+    "trade_id": "virtual-short-1",
+    "setup_id": "S02",
+    "config_version": "path-research-v0.1.0",
+    "canonical_symbol": "FIXTURE",
+    "direction": "SHORT",
+    "filled_at_utc": 1000,
+    "filled_price": 100.0,
+    "invalidation_stop": 101.0
+  },
+  "long_bars": [
+    {"bar_sequence": 1, "bar_fingerprint": "bar-long-1", "closed_at_utc": 1060, "open": 100.0, "high": 100.3, "low": 99.8, "close": 100.2, "structure_state": "VALID", "volatility_state": "NORMAL"},
+    {"bar_sequence": 2, "bar_fingerprint": "bar-long-2", "closed_at_utc": 1120, "open": 100.2, "high": 100.6, "low": 99.9, "close": 100.5, "structure_state": "VALID", "volatility_state": "NORMAL"},
+    {"bar_sequence": 3, "bar_fingerprint": "bar-long-3", "closed_at_utc": 1180, "open": 100.5, "high": 100.9, "low": 100.1, "close": 100.8, "structure_state": "VALID", "volatility_state": "NORMAL"},
+    {"bar_sequence": 4, "bar_fingerprint": "bar-long-4", "closed_at_utc": 1240, "open": 100.8, "high": 101.2, "low": 100.4, "close": 101.0, "structure_state": "VALID", "volatility_state": "NORMAL"}
+  ],
+  "defaults_for_bars": {
+    "trade_id": "virtual-long-1",
+    "config_version": "path-research-v0.1.0",
+    "bar_closed_confirmed": true,
+    "data_quality": "OK",
+    "session_state": "LONDON",
+    "news_state": "NORMAL"
+  },
+  "expected_after_long_bars": {
+    "bars_held": 4,
+    "mfe_r": 1.2,
+    "mae_r": 0.2,
+    "bars_to_mfe": 4,
+    "bars_to_mae": 1,
+    "time_to_05r_bars": 2,
+    "time_to_1r_bars": 4,
+    "time_to_2r_bars": 0,
+    "phase": "WORKING",
+    "status": "OBSERVING"
+  }
+}

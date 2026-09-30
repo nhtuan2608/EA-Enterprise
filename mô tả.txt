@@ -1,0 +1,33 @@
+https://chatgpt.com/share/6abc8246-72b0-83ec-914f-2774e2aedf10 
+tổng hợp tất cả nội dung đã trao đổi đưa ra 1 plan/specs cụ thể cho document và plan implement nữa nhé. Gồm cả checklist thực sự để đánh giá so với nội dung thực tế đã yêu cầu nhầm bám sát và test khả năng công năng chạy cũng như AI MCP có thể track được rủi ro/ nguy cơ hay hiệu quả nhầm gợi ý plan năng cấp nếu tôi cần hỏi AI nhé. Lưu ý ghi rõ nhưng thuật toán hoặc phương pháp bạn đã cho, đừng nén contexxt để bị thiếu ý nhé và cho cả plan nội dung nữa. Chỉ làm phạm vi theo link tôi gửi, không tìm kiếm memory dự án đã có nhé, làm mới toàn bộ bám sát nội dung link
+
+Đã hoàn thành bộ master specification mới hoàn toàn, chỉ dựa trên nội dung trong link bạn gửi; không sử dụng memory dự án hoặc hai file ZIP đính kèm.
+
+Tài liệu dài 30 trang, bao gồm:
+
+- Phạm vi đã chốt, đề xuất, vấn đề còn mở và nội dung bị thay thế.
+- Nền tảng Price Action và chuỗi `Context → Location → Event → Reaction → Entry → Invalidation → Outcome`.
+- Sáu setup family và state machine.
+- Kiến trúc EA MT5, Risk Kernel, Portfolio Risk và Trade Manager.
+- News Center và chính sách quanh thời điểm tin.
+- MCP AI Bridge cho Claude/Codex, JSON contract, TTL và quyền hạn AI.
+- Dashboard, các nút điều khiển và Calendar theo tiền, %, R.
+- Kế hoạch triển khai 12 phase và 8 sprint gợi ý.
+- 30 test case cốt lõi, 10 kịch bản end-to-end.
+- Cách đánh giá AI là helpful, harmful, neutral hay không đủ bằng chứng.
+- Ma trận truy vết yêu cầu, checklist Paper/Live và 10 quyết định cần chốt.
+- Quy trình để AI đọc audit và đề xuất kế hoạch nâng cấp mà không tự sửa EA.
+
+Bản Word đã được render và kiểm tra toàn bộ 30 trang; không có lỗi bảng, cắt chữ hoặc chồng nội dung. Audit accessibility không phát hiện lỗi.
+
+:chatgpt-content-reference{index="1"}[Tải Đặc tả tổng thể EA MT5 MCP AI News Dashboard](sandbox:/workspace/scratch/9a1167de4e22/output/Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard.docx)
+
+Bước hợp lý tiếp theo là duyệt mục `15.1` để chốt 10 quyết định mở, sau đó mới khóa Phase 0 và bắt đầu tạo source skeleton.
+
+Nếu hữu ích, mình có thể thiết lập “Rà soát tiến độ EA hàng tuần” để các hạng mục triển khai luôn được đối chiếu với checklist này. 
+
+::chatgpt-content-reference{index="0"}
+
+Bạn muốn tác vụ “Rà soát tiến độ EA hàng tuần” chạy vào thời điểm nào? Ví dụ: **Thứ Hai lúc 09:00, múi giờ Việt Nam**.
+
+ok nhé ngoài ra, tôi mong muốn có 1 mức tp/sl hợp lý hơn là theo pip hoặc phần trăm tk theo lẽ thường thì % là mức mà tk chịu được, nên cần 1 sự kỉ luật hoặc có thể áp dụng mức trần của quỹ ftmo 2 mức để áp cho việc bot chạy và quản lý vốn. Ngoài ra, cần normalize chuẩn suffix/prefix cho mọi tên các symbol vì có thể các broker sẽ khác nhau. Ngoài ra các cặp sẽ có khung size pair và cách tính riêng nên cũng cần có vol lot cho phù hợp vì chúng ta đang xử lý ở 1 porfilio nên việc quản lý equity cũng như rủi ro cũng cần tập trung và nhất quán.

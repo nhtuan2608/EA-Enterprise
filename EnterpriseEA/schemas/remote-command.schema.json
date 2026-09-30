@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnterpriseEA trusted remote mode command v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command_id", "action", "role", "chat_id", "user_id", "telegram_update_id", "gateway_sequence", "account_id", "config_version", "expected_state_version", "issued_at_utc", "expires_at_utc", "confirmation_nonce", "nonce_expires_at_utc", "private_chat_attested", "sender_authenticated", "source_authenticated"],
+  "properties": {
+    "schema_version": {"const": "remote-command-v1.0.0"},
+    "command_id": {"type": "string", "minLength": 1},
+    "action": {"enum": ["PAUSE_ENTRIES", "REQUEST_RESUME", "CONFIRM_RESUME"]},
+    "role": {"const": "OPERATOR"},
+    "chat_id": {"type": "string", "minLength": 1},
+    "user_id": {"type": "string", "minLength": 1},
+    "telegram_update_id": {"type": "integer", "minimum": 1},
+    "gateway_sequence": {"type": "integer", "minimum": 1},
+    "account_id": {"type": "string", "minLength": 1},
+    "config_version": {"type": "string", "minLength": 1},
+    "expected_state_version": {"type": "integer", "minimum": 1},
+    "issued_at_utc": {"type": "integer", "minimum": 1},
+    "expires_at_utc": {"type": "integer", "minimum": 1},
+    "confirmation_nonce": {"type": "string"},
+    "nonce_expires_at_utc": {"type": "integer", "minimum": 0},
+    "private_chat_attested": {"type": "boolean"},
+    "sender_authenticated": {"type": "boolean"},
+    "source_authenticated": {"type": "boolean"}
+  },
+  "allOf": [
+    {"if": {"properties": {"action": {"const": "REQUEST_RESUME"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}, "nonce_expires_at_utc": {"minimum": 1}}}},
+    {"if": {"properties": {"action": {"const": "CONFIRM_RESUME"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}}}}
+  ]
+}
