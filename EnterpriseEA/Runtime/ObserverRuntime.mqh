@@ -107,7 +107,6 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
                                   "RUNTIME_RECONCILIATION_REQUIRED");
    EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status);
    ctx.initialized=true;
-   // Even a compatible status document is only local evidence: always read MT5 again.
    EEA_ObserverRuntimeRefresh(ctx,audit);
    return true;
   }
@@ -130,6 +129,19 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
       ctx.account.account_fingerprint,(long)TimeGMT());
    EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_STOPPED",ctx.status);
    ctx.initialized=false;
+  }
+
+bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLog &audit, const string &canonical[], const string &broker[], const int count)
+  {
+   if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS) return false;
+   for(int i=0; i<count; i++)
+     {
+      ctx.canonical_symbols[i] = canonical[i];
+      ctx.broker_symbols[i] = broker[i];
+     }
+   ctx.symbol_count = count;
+   EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED");
+   return EEA_ObserverRuntimeRefresh(ctx, audit);
   }
 
 #endif
