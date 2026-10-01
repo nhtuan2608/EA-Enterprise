@@ -164,6 +164,29 @@ class Phase1Contracts(unittest.TestCase):
             sequence.append(high_water - initial * one["overall_loss_percent_of_initial"] / 100)
         self.assertEqual(sequence, example["one_step_expected_overall_floor_sequence"])
 
+    def test_balance_based_policy_and_profit_continuation_flags(self):
+        policy_schema = load("schemas/account-policy.schema.json")
+        active_bb = {
+            "policy_id": "BALANCE_BASED_FTMO_V1",
+            "config_version": "v1",
+            "source_url": "https://ftmo.com",
+            "policy_timezone": "Europe/Prague",
+            "account_currency": "USD",
+            "initial_capital": 100000.0,
+            "daily_reset_hour": 0,
+            "daily_reset_minute": 0,
+            "daily_loss_percent_of_initial": 5.0,
+            "overall_loss_percent_of_initial": 10.0,
+            "overall_floor_mode": "STATIC_FROM_INITIAL",
+            "safety_buffer": 1000.0,
+            "internal_daily_loss_limit": 5000.0,
+            "internal_weekly_drawdown_limit": 10000.0,
+            "status": "ACTIVE",
+            "continue_after_daily_profit_target": True,
+            "continue_after_overall_profit_target": True
+        }
+        self.assertEqual(schema_errors(policy_schema, active_bb), [])
+
     def test_mql_entry_boundary_and_atomic_writer_are_explicit(self):
         main = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
         state = (ROOT / "Core/State.mqh").read_text(encoding="utf-8")

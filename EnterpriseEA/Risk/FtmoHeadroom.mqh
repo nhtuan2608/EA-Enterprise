@@ -6,7 +6,7 @@
 
 struct EEA_FtmoPolicy
   {
-   string policy_id;             // UNSELECTED | FTMO_1_STEP | FTMO_2_STEP
+   string policy_id;             // UNSELECTED | FTMO_1_STEP | FTMO_2_STEP | BALANCE_BASED_FTMO_V1
    string status;                // UNSELECTED | ACTIVE | POLICY_DATA_UNKNOWN
    string config_version;
    string source_version;
@@ -15,6 +15,8 @@ struct EEA_FtmoPolicy
    string account_currency;
    double initial_capital;
    double safety_buffer_money;
+   bool continue_after_daily_profit_target;
+   bool continue_after_overall_profit_target;
   };
 
 struct EEA_FtmoInputs
@@ -73,6 +75,8 @@ void EEA_FtmoPolicyDefaults(EEA_FtmoPolicy &p)
    p.account_currency="";
    p.initial_capital=0.0;
    p.safety_buffer_money=0.0;
+   p.continue_after_daily_profit_target=true;
+   p.continue_after_overall_profit_target=true;
   }
 
 void EEA_FtmoInputDefaults(EEA_FtmoInputs &i)
@@ -124,7 +128,7 @@ bool EEA_FtmoPolicyRates(const string policy_id,double &daily_percent,double &ov
   {
    if(policy_id=="FTMO_1_STEP")
      { daily_percent=3.0; overall_percent=10.0; return true; }
-   if(policy_id=="FTMO_2_STEP")
+   if(policy_id=="FTMO_2_STEP" || policy_id=="BALANCE_BASED_FTMO_V1")
      { daily_percent=5.0; overall_percent=10.0; return true; }
    daily_percent=0.0;
    overall_percent=0.0;
@@ -140,7 +144,7 @@ bool EEA_FtmoCalculate(const EEA_FtmoPolicy &p,const EEA_FtmoInputs &i,EEA_FtmoH
    o.snapshot_id=i.daily_snapshot_id;
    o.daily_reset_at_utc=i.daily_reset_at_utc;
 
-   if(p.status!="ACTIVE" || (p.policy_id!="FTMO_1_STEP" && p.policy_id!="FTMO_2_STEP"))
+   if(p.status!="ACTIVE" || (p.policy_id!="FTMO_1_STEP" && p.policy_id!="FTMO_2_STEP" && p.policy_id!="BALANCE_BASED_FTMO_V1"))
      { o.reason_code="POLICY_NOT_SELECTED_OR_UNSUPPORTED"; return false; }
    if(p.config_version=="" || p.source_version=="" || p.source_reference=="" ||
       p.policy_timezone!="Europe/Prague" || p.account_currency=="" ||

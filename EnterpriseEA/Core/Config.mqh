@@ -16,6 +16,8 @@ struct CEAConfig
    int daily_reset_hour;
    int daily_reset_minute;
    double safety_buffer;
+   bool continue_after_daily_profit_target;
+   bool continue_after_overall_profit_target;
   };
 
 bool EAConfig_LoadDefaults(CEAConfig &c)
@@ -31,6 +33,8 @@ bool EAConfig_LoadDefaults(CEAConfig &c)
    c.daily_reset_hour=-1;
    c.daily_reset_minute=-1;
    c.safety_buffer=0.0;
+   c.continue_after_daily_profit_target=true;
+   c.continue_after_overall_profit_target=true;
    return true;
   }
 
@@ -40,7 +44,8 @@ bool EAConfig_Validate(const CEAConfig &c)
    if(!c.observer_only) return false;
    // Phase 1 has no account policy selection. Live values must be explicitly configured later.
    if(c.account_policy!="UNSELECTED" && c.account_policy!="FTMO_1_STEP" &&
-      c.account_policy!="FTMO_2_STEP" && c.account_policy!="CUSTOM") return false;
+      c.account_policy!="FTMO_2_STEP" && c.account_policy!="BALANCE_BASED_FTMO_V1" &&
+      c.account_policy!="CUSTOM") return false;
    if(c.initial_capital<0.0 || c.safety_buffer<0.0) return false;
    if(c.daily_reset_hour < -1 || c.daily_reset_hour > 23) return false;
    if(c.daily_reset_minute < -1 || c.daily_reset_minute > 59) return false;

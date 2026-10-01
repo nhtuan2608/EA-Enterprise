@@ -52,6 +52,46 @@ class FtmoHeadroomExamples(unittest.TestCase):
         self.assertEqual(result["headroom_status"], "POLICY_DATA_UNKNOWN")
         self.assertEqual(result["reason_code"], "CALCULATION_OVERFLOW_OR_INVALID_RESULT")
 
+    def test_balance_based_policy_calculation(self):
+        policy = {
+            "policy_id": "BALANCE_BASED_FTMO_V1",
+            "status": "ACTIVE",
+            "config_version": "v1",
+            "source_version": "v1",
+            "source_reference": "https://ftmo.com",
+            "policy_timezone": "Europe/Prague",
+            "account_currency": "USD",
+            "initial_capital": 100000.0,
+            "safety_buffer_money": 1000.0,
+            "continue_after_daily_profit_target": True,
+            "continue_after_overall_profit_target": True
+        }
+        input_data = {
+            "daily_snapshot_config_version": "v1",
+            "daily_snapshot_currency": "USD",
+            "daily_snapshot_quality": "OK",
+            "daily_snapshot_id": "day-1",
+            "daily_reset_at_utc": 1000,
+            "daily_snapshot_valid": True,
+            "reset_window_confirmed_by_caller": True,
+            "balance_at_daily_reset": 105000.0,
+            "current_balance": 106000.0,
+            "floating_pnl_after_costs": 500.0,
+            "proposed_stress_loss": 2000.0,
+            "stress_loss_currency": "USD",
+            "high_water_snapshot_valid": False,
+            "high_water_snapshot_quality": "UNKNOWN",
+            "high_water_config_version": "",
+            "high_water_as_of_utc": 0,
+            "prior_overall_high_water_balance": 0.0
+        }
+        result = calculate(policy, input_data)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["daily_loss_amount"], 5000.0)
+        self.assertEqual(result["daily_floor"], 100000.0)
+        self.assertEqual(result["overall_floor"], 90000.0)
+        self.assertEqual(result["headroom_status"], "SUFFICIENT")
+
     def test_policy_is_not_entry_permission_and_module_is_isolated(self):
         source = (ROOT / "Risk/FtmoHeadroom.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
