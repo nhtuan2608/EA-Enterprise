@@ -32,6 +32,20 @@ struct EEA_ExecutionIntent
    string canonical_symbol;
    string broker_symbol;
    string symbol_fingerprint;
+   string candidate_id;
+   string setup_id;
+   string setup_version;
+   string risk_decision_id;
+   string risk_decision_status;
+   string risk_policy_snapshot_id;
+   string portfolio_snapshot_id;
+   string quote_snapshot_id;
+   string reconciliation_snapshot_id;
+   string entry_reference;
+   double risk_budget;
+   double projected_loss;
+   double net_reward_risk;
+   long reconciliation_observed_at_utc;
    int action; // ENUM_EEA_EXECUTION_ACTION
    int order_type;
    double volume;
@@ -54,6 +68,7 @@ struct EEA_ExecutionResult
    string intent_id;
    string correlation_id;
    string idempotency_key;
+   string risk_decision_id;
    string authorization_id;
    string build_hash;
    bool request_sent;
@@ -89,6 +104,20 @@ void EEA_ExecutionIntentDefaults(EEA_ExecutionIntent &intent)
    intent.canonical_symbol="";
    intent.broker_symbol="";
    intent.symbol_fingerprint="";
+   intent.candidate_id="";
+   intent.setup_id="";
+   intent.setup_version="";
+   intent.risk_decision_id="";
+   intent.risk_decision_status="UNKNOWN";
+   intent.risk_policy_snapshot_id="";
+   intent.portfolio_snapshot_id="";
+   intent.quote_snapshot_id="";
+   intent.reconciliation_snapshot_id="";
+   intent.entry_reference="";
+   intent.risk_budget=0.0;
+   intent.projected_loss=0.0;
+   intent.net_reward_risk=0.0;
+   intent.reconciliation_observed_at_utc=0;
    intent.action=EEA_EXEC_ACTION_SUBMIT_MARKET;
    intent.order_type=0;
    intent.volume=0.0;
@@ -111,6 +140,7 @@ void EEA_ExecutionResultDefaults(EEA_ExecutionResult &result)
    result.intent_id="";
    result.correlation_id="";
    result.idempotency_key="";
+   result.risk_decision_id="";
    result.authorization_id="";
    result.build_hash="";
    result.request_sent=false;

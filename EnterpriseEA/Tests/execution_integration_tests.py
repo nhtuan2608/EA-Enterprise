@@ -11,6 +11,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
         self.assertIn('#include "Runtime/ExecutionAdapter.mqh"', shell)
         self.assertIn('#include "Runtime/ExecutionControllerState.mqh"', shell)
+        self.assertIn('#include "Risk/RiskDecision.mqh"', shell)
 
     def test_shell_has_no_automatic_execution_invocation(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
@@ -74,6 +75,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         self.assertIn("symbol.metadata_fingerprint", gate)
         self.assertIn('"SYMBOL_FINGERPRINT_MISMATCH"', gate)
         self.assertIn("metadata_fingerprint", evidence)
+        self.assertIn("ACCOUNT_FINANCIAL_STATE_INVALID", gate)
 
     def test_ack_and_persistence_failures_are_operation_specific(self):
         adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
@@ -96,6 +98,21 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         for field in ("action", "order_type", "volume", "price", "sl", "tp", "ticket", "position_ticket", "magic", "filling_mode"):
             self.assertIn("intent." + field, store)
         self.assertIn("execution_persistence_failure.json", adapter)
+
+    def test_execution_intent_requires_risk_and_strategy_lineage(self):
+        contracts = (ROOT / "Runtime/ExecutionContracts.mqh").read_text(encoding="utf-8")
+        gate = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        for field in (
+            "candidate_id", "setup_id", "setup_version", "risk_decision_id",
+            "risk_decision_status", "risk_policy_snapshot_id", "portfolio_snapshot_id",
+            "quote_snapshot_id", "reconciliation_snapshot_id", "entry_reference",
+            "risk_budget", "projected_loss", "net_reward_risk",
+        ):
+            self.assertIn(field, contracts)
+            self.assertIn("intent." + field, store)
+        self.assertIn('intent.risk_decision_status!="RISK_APPROVED"', gate)
+        self.assertIn('"RISK_DECISION_LINEAGE_MISSING"', gate)
 
     def test_symbol_metadata_fingerprint_is_derived_and_persisted(self):
         symbol_adapter = (ROOT / "Runtime/SymbolSpecAdapter.mqh").read_text(encoding="utf-8")

@@ -104,6 +104,19 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       EEA_ExecutionResultReject(result,"RISK_POLICY_ID_MISSING");
       return false;
      }
+   if(intent.risk_decision_status!="RISK_APPROVED" ||
+      intent.candidate_id=="" || intent.setup_id=="" || intent.setup_version=="" ||
+      intent.risk_decision_id=="" || intent.risk_policy_snapshot_id=="" ||
+      intent.portfolio_snapshot_id=="" || intent.quote_snapshot_id=="" ||
+      intent.reconciliation_snapshot_id=="" || intent.entry_reference=="" ||
+      intent.reconciliation_observed_at_utc<=0 ||
+      !EEA_IsFiniteDouble(intent.risk_budget) || intent.risk_budget<=0.0 ||
+      !EEA_IsFiniteDouble(intent.projected_loss) || intent.projected_loss<=0.0 ||
+      !EEA_IsFiniteDouble(intent.net_reward_risk))
+     {
+      EEA_ExecutionResultReject(result,"RISK_DECISION_LINEAGE_MISSING");
+      return false;
+     }
    if(intent.config_version!=account.config_version ||
       intent.config_version!=reconciliation.config_version)
      {
@@ -117,6 +130,12 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       account.valid_until_utc<=now || account.observed_at_utc>now)
      {
       EEA_ExecutionResultReject(result,"ACCOUNT_SNAPSHOT_INVALID");
+      return false;
+     }
+   if(!EEA_IsFiniteDouble(account.balance) || !EEA_IsFiniteDouble(account.equity) ||
+      !EEA_IsFiniteDouble(account.margin) || !EEA_IsFiniteDouble(account.margin_free))
+     {
+      EEA_ExecutionResultReject(result,"ACCOUNT_FINANCIAL_STATE_INVALID");
       return false;
      }
    if(reconciliation.schema_version!="runtime-evidence-v0.1.0" ||

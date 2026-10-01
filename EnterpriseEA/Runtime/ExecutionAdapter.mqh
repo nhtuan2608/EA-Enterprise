@@ -92,6 +92,12 @@ void EEA_ExecutionBindAuthorization(EEA_ExecutionResult &result,
    result.build_hash=authorization.build_hash;
   }
 
+void EEA_ExecutionBindIntentLineage(EEA_ExecutionResult &result,
+                                    const EEA_ExecutionIntent &intent)
+  {
+   result.risk_decision_id=intent.risk_decision_id;
+  }
+
 bool EEA_ExecutionPersistUnknownAfterFailure(const string root,
                                               EEA_ExecutionResult &result,
                                               const string intent_id)
@@ -180,6 +186,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+   EEA_ExecutionBindIntentLineage(result,intent);
 
    if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
@@ -287,6 +294,7 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+   EEA_ExecutionBindIntentLineage(result,intent);
 
    if(intent.position_ticket<=0)
      {
@@ -405,6 +413,7 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+   EEA_ExecutionBindIntentLineage(result,intent);
 
    EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
    return false;

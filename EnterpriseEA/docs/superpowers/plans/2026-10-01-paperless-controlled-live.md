@@ -21,6 +21,8 @@ The implementation is market-only until pending-order runtime is complete and se
 
 The current increment also adds compile-covered read-only account financial and trade-quote/margin evidence contracts, plus a standalone fail-closed controller/kill-switch contract. None of these contracts is an authorization substitute; dispatch, durable control-state loading, risk decision lineage, restart recovery, and retained target-runtime evidence remain required.
 
+Risk release is now an explicit contract: `REVIEWABLE_CANDIDATE` cannot authorize execution, and only a fresh `RISK_APPROVED` decision with complete provenance can be used to construct a future intent. The execution gate additionally rejects intents that lack this lineage.
+
 ## Gate work
 
 ### 1. Runtime compile gate

@@ -55,7 +55,7 @@ From the workspace root run:
 python -m unittest discover -s EnterpriseEA/Tests -p '*tests.py' -v
 ```
 
-These checks validate JSON syntax, core required fields, fail-closed defaults, FTMO floor/headroom fixtures, runtime evidence contracts/adapters, account financial snapshots, trade quote boundaries, live-authorization defaults, controller defaults, and static execution/storage boundaries. The current suite contains 192 tests. The isolated MetaEditor build log records 0 errors and 0 warnings for the integrated observer EA and execution-adapter include graph. No demo or live operation was performed; retained-sandbox checkpoint restart proof, strategy-to-execution integration, and live authorization remain pending. These results do not authorize live trading, and there is no Paper validation requirement because the Paper ledger is permanently excluded.
+These checks validate JSON syntax, core required fields, fail-closed defaults, FTMO floor/headroom fixtures, runtime evidence contracts/adapters, account financial snapshots, trade quote boundaries, risk-release lineage, live-authorization defaults, controller defaults, and static execution/storage boundaries. The current suite contains 198 tests. The isolated MetaEditor build log records 0 errors and 0 warnings for the integrated observer EA and execution-adapter include graph. No demo or live operation was performed; retained-sandbox checkpoint restart proof, strategy-to-execution integration, and live authorization remain pending. These results do not authorize live trading, and there is no Paper validation requirement because the Paper ledger is permanently excluded.
 
 ## Phase boundaries
 

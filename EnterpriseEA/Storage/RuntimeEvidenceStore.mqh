@@ -270,7 +270,21 @@ bool EEA_ExecutionStoreWriteIntent(const string root,const EEA_ExecutionIntent &
       EEA_JsonEscape(intent.broker_server)+"\",\"canonical_symbol\":\""+
       EEA_JsonEscape(intent.canonical_symbol)+"\",\"broker_symbol\":\""+
       EEA_JsonEscape(intent.broker_symbol)+"\",\"symbol_fingerprint\":\""+
-      EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"action\":"+
+      EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"candidate_id\":\""+
+      EEA_JsonEscape(intent.candidate_id)+"\",\"setup_id\":\""+
+      EEA_JsonEscape(intent.setup_id)+"\",\"setup_version\":\""+
+      EEA_JsonEscape(intent.setup_version)+"\",\"risk_decision_id\":\""+
+      EEA_JsonEscape(intent.risk_decision_id)+"\",\"risk_decision_status\":\""+
+      EEA_JsonEscape(intent.risk_decision_status)+"\",\"risk_policy_snapshot_id\":\""+
+      EEA_JsonEscape(intent.risk_policy_snapshot_id)+"\",\"portfolio_snapshot_id\":\""+
+      EEA_JsonEscape(intent.portfolio_snapshot_id)+"\",\"quote_snapshot_id\":\""+
+      EEA_JsonEscape(intent.quote_snapshot_id)+"\",\"reconciliation_snapshot_id\":\""+
+      EEA_JsonEscape(intent.reconciliation_snapshot_id)+"\",\"entry_reference\":\""+
+      EEA_JsonEscape(intent.entry_reference)+"\",\"risk_budget\":"+
+      EEA_RuntimeDoubleJson(intent.risk_budget)+",\"projected_loss\":"+
+      EEA_RuntimeDoubleJson(intent.projected_loss)+",\"net_reward_risk\":"+
+      EEA_RuntimeDoubleJson(intent.net_reward_risk)+",\"reconciliation_observed_at_utc\":\""+
+      EEA_IsoUtc((datetime)intent.reconciliation_observed_at_utc)+"\",\"action\":"+
       IntegerToString(intent.action)+",\"order_type\":"+
       IntegerToString(intent.order_type)+",\"volume\":"+
       EEA_RuntimeDoubleJson(intent.volume)+",\"risk_policy_id\":\""+
@@ -297,7 +311,8 @@ bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &
       "\",\"document_version\":\"execution-result-v0.1.0\",\"intent_id\":\""+
       EEA_JsonEscape(result.intent_id)+"\",\"correlation_id\":\""+
       EEA_JsonEscape(result.correlation_id)+"\",\"idempotency_key\":\""+
-      EEA_JsonEscape(result.idempotency_key)+"\",\"authorization_id\":\""+
+      EEA_JsonEscape(result.idempotency_key)+"\",\"risk_decision_id\":\""+
+      EEA_JsonEscape(result.risk_decision_id)+"\",\"authorization_id\":\""+
       EEA_JsonEscape(result.authorization_id)+
       "\",\"build_hash\":\""+EEA_JsonEscape(result.build_hash)+
       "\",\"request_sent\":"+

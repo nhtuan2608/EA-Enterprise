@@ -25,6 +25,8 @@ This scope restriction is an additional execution boundary, not a waiver of any 
 
 The observer shell now has compile-covered, read-only boundaries for account financial state (`balance`, `equity`, `margin`, `margin_free`) and current trade quote/margin/loss evidence. A separate controller contract defaults to `kill_active=true` and requires a valid operator, revision, exact scope, and time window before it can allow a request. These contracts are prerequisites only: they are not yet wired into an execution dispatch path and do not change the documented `NOT_AUTHORIZED` state.
 
+The pure risk-release contract also defaults to `UNKNOWN`/`BLOCKED`; `REVIEWABLE_CANDIDATE` is never an execution release. A release requires `RISK_APPROVED`, complete decision/candidate/setup/policy/account/reconciliation/symbol/quote/portfolio lineage, finite positive sizing/loss values, and an active decision window.
+
 ## Required gate matrix
 
 | Gate | Required evidence | Current status / blocking rule |

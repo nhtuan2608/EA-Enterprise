@@ -14,6 +14,7 @@
 #include "Runtime/LiveAuthorizationGate.mqh"
 #include "Runtime/TradeQuoteAdapter.mqh"
 #include "Runtime/SymbolSelectionPanel.mqh"
+#include "Risk/RiskDecision.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
