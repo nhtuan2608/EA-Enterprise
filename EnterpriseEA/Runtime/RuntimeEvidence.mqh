@@ -29,6 +29,10 @@ struct EEA_RuntimeAccountSnapshot
    string broker_server;
    string account_currency;
    string account_margin_mode;
+   double balance;
+   double equity;
+   double margin;
+   double margin_free;
    long   observed_at_utc;
    long   valid_until_utc;
   };

@@ -10,6 +10,21 @@ The Paper ledger is permanently excluded. No paper, simulated, virtual, or shado
 
 Paperless controlled-live is not live readiness by default. It is an operating mode that may be entered only after every applicable gate below is closed with retained, reviewable evidence. Offline tests, source inspection, a successful compile, a demo result, or the existence of an adapter alone never authorizes live trading.
 
+## Initial operation scope
+
+The first controlled-live scope is deliberately market-only:
+
+- `SUBMIT_MARKET` may cover only BUY/SELL market requests after the full gate matrix passes.
+- `MODIFY_PROTECTIVE` may cover an existing position (`position_ticket > 0`) only.
+- `SUBMIT_PENDING`, `CANCEL_PENDING`, and protective modification of a pending order are hard-denied with `PENDING_RUNTIME_NOT_IMPLEMENTED`.
+- LIMIT/STOP/STOP_LIMIT lifecycle, checkpoint, expiry, partial-fill, restart, and broker-event handling remain out of scope until separately implemented and evidenced.
+
+This scope restriction is an additional execution boundary, not a waiver of any required risk, authorization, kill-switch, rollback, reconciliation, or audit gate.
+
+## Implemented prerequisite contracts
+
+The observer shell now has compile-covered, read-only boundaries for account financial state (`balance`, `equity`, `margin`, `margin_free`) and current trade quote/margin/loss evidence. A separate controller contract defaults to `kill_active=true` and requires a valid operator, revision, exact scope, and time window before it can allow a request. These contracts are prerequisites only: they are not yet wired into an execution dispatch path and do not change the documented `NOT_AUTHORIZED` state.
+
 ## Required gate matrix
 
 | Gate | Required evidence | Current status / blocking rule |

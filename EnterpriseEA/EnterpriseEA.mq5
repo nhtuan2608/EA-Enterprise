@@ -10,7 +10,9 @@
 #include "Storage/SharedStateStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
 #include "Runtime/ExecutionAdapter.mqh"
+#include "Runtime/ExecutionControllerState.mqh"
 #include "Runtime/LiveAuthorizationGate.mqh"
+#include "Runtime/TradeQuoteAdapter.mqh"
 #include "Runtime/SymbolSelectionPanel.mqh"
 
 input bool   InpObserverOnly           = true;

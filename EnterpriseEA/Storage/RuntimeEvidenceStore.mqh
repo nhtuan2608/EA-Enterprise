@@ -20,7 +20,11 @@ bool EEA_RuntimeStoreWriteAccount(const string root,const EEA_RuntimeAccountSnap
       "\",\"account_fingerprint\":\""+EEA_JsonEscape(account.account_fingerprint)+
       "\",\"broker_server\":\""+EEA_JsonEscape(account.broker_server)+
       "\",\"account_currency\":\""+EEA_JsonEscape(account.account_currency)+
-      "\",\"account_margin_mode\":\""+EEA_JsonEscape(account.account_margin_mode)+"\"}";
+      "\",\"account_margin_mode\":\""+EEA_JsonEscape(account.account_margin_mode)+
+      "\",\"balance\":"+EEA_RuntimeDoubleJson(account.balance)+
+      ",\"equity\":"+EEA_RuntimeDoubleJson(account.equity)+
+      ",\"margin\":"+EEA_RuntimeDoubleJson(account.margin)+
+      ",\"margin_free\":"+EEA_RuntimeDoubleJson(account.margin_free)+"}";
    return EEA_WriteAtomicText(root+"/current/account_snapshot.json",json);
   }
 

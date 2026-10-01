@@ -79,6 +79,28 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         for token in FORBIDDEN_RUNTIME_CORE_TOKENS:
             self.assertNotIn(token, source)
 
+    def test_account_financial_snapshot_is_read_and_persisted(self):
+        adapter = (ROOT / "Runtime/AccountSnapshotAdapter.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        contract = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
+        for field in ("balance", "equity", "margin", "margin_free"):
+            self.assertIn("AccountInfoDouble(ACCOUNT_" + field.upper() + ")", adapter)
+            self.assertIn("snapshot." + field, adapter)
+            self.assertIn("account." + field, store)
+            self.assertIn("double " + field, contract)
+        self.assertIn("ACCOUNT_FINANCIAL_STATE_UNAVAILABLE", adapter)
+
+    def test_trade_quote_adapter_is_read_only_and_binds_account_symbol_evidence(self):
+        source = (ROOT / "Runtime/TradeQuoteAdapter.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        for token in ("SymbolInfoTick", "OrderCalcProfit", "OrderCalcMargin",
+                      "available_margin", "projected_loss", "symbol_fingerprint",
+                      "TRADE_QUOTE_UNAVAILABLE", "LOSS_CALCULATION_INVALID"):
+            self.assertIn(token, source)
+        self.assertIn('"Runtime/TradeQuoteAdapter.mqh"', shell)
+        for forbidden in ("OrderSend", "OrderSendAsync", "CTrade"):
+            self.assertNotIn(forbidden, source)
+
     def test_mql_validation_contains_duplicate_and_finite_checks(self):
         """Regression: MQL validation must contain loops/checks for duplicates
         and finite numeric fields, not only names."""

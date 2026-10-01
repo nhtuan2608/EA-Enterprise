@@ -10,6 +10,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
     def test_shell_includes_adapter_for_compilation(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
         self.assertIn('#include "Runtime/ExecutionAdapter.mqh"', shell)
+        self.assertIn('#include "Runtime/ExecutionControllerState.mqh"', shell)
 
     def test_shell_has_no_automatic_execution_invocation(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
@@ -43,7 +44,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
             self.assertIn("EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol)", section)
         self.assertIn('authorization.authorized && authorization.status=="AUTHORIZED_CONTROLLED_LIVE"', adapter)
         self.assertIn("intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET", adapter)
-        self.assertIn("intent.action!=EEA_EXEC_ACTION_SUBMIT_PENDING", adapter)
+        self.assertIn("intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING", adapter)
         self.assertIn("intent.action!=EEA_EXEC_ACTION_MODIFY_PROTECTIVE", adapter)
         self.assertIn("intent.action!=EEA_EXEC_ACTION_CANCEL_PENDING", adapter)
 
@@ -53,6 +54,17 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         self.assertIn("request.action = TRADE_ACTION_SLTP;", adapter)
         self.assertIn("if(intent.position_ticket > 0)", adapter)
         self.assertIn("request.order = (ulong)intent.ticket;", adapter)
+
+    def test_runtime_scope_is_market_only_until_pending_runtime_exists(self):
+        adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        gate = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
+        self.assertIn('"PENDING_RUNTIME_NOT_IMPLEMENTED"', adapter)
+        self.assertIn("intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET", adapter)
+        self.assertIn("intent.position_ticket<=0", adapter)
+        self.assertIn('"PENDING_RUNTIME_NOT_IMPLEMENTED"', gate)
+        self.assertIn("intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING", gate)
+        self.assertIn("intent.action==EEA_EXEC_ACTION_CANCEL_PENDING", gate)
+        self.assertIn("intent.order_type>1", gate)
 
     def test_mql_gate_matches_runtime_state_and_symbol_metadata(self):
         gate = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
@@ -67,7 +79,8 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
         self.assertIn("EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action)", adapter)
         self.assertIn("EEA_ExecutionPersistAfterSend", adapter)
-        self.assertIn("if(!result_written || !audit_written)", adapter)
+        self.assertIn("if(!audit_written)", adapter)
+        self.assertIn("EEA_ExecutionStoreWriteResult(root,result);", adapter)
         self.assertIn("EEA_JsonEscape(idempotency_key)", adapter)
         self.assertIn("if(action==EEA_EXEC_ACTION_CANCEL_PENDING)\n      return retcode==TRADE_RETCODE_DONE;", adapter)
         self.assertIn("bool marker_written=EEA_WriteAtomicText", adapter)

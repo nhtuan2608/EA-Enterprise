@@ -15,6 +15,12 @@
 - Secrets and raw account-holder identity must not appear in retained evidence.
 - `EXECUTION_UNKNOWN`, stale reconciliation, identity mismatch, audit failure, kill-switch failure, or rollback failure blocks new entries and requires manual review.
 
+## Current execution scope
+
+The implementation is market-only until pending-order runtime is complete and separately evidenced. The allowed operation set is `SUBMIT_MARKET` for BUY/SELL and `MODIFY_PROTECTIVE` for an existing position. `SUBMIT_PENDING`, `CANCEL_PENDING`, and pending-order protective modification are hard-denied before any broker request. This does not reduce the seven mandatory controlled-live gates.
+
+The current increment also adds compile-covered read-only account financial and trade-quote/margin evidence contracts, plus a standalone fail-closed controller/kill-switch contract. None of these contracts is an authorization substitute; dispatch, durable control-state loading, risk decision lineage, restart recovery, and retained target-runtime evidence remain required.
+
 ## Gate work
 
 ### 1. Runtime compile gate

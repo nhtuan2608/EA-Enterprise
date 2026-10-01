@@ -210,6 +210,18 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       EEA_ExecutionResultReject(result,"EXECUTION_CONTRACT_INVALID");
       return false;
      }
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING ||
+      intent.action==EEA_EXEC_ACTION_CANCEL_PENDING ||
+      (intent.action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE && intent.position_ticket<=0))
+     {
+      EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      return false;
+     }
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_MARKET && intent.order_type>1)
+     {
+      EEA_ExecutionResultReject(result,"MARKET_ORDER_TYPE_UNSUPPORTED");
+      return false;
+     }
    if(intent.action==EEA_EXEC_ACTION_SUBMIT_MARKET ||
       intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
      {

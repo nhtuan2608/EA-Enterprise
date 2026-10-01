@@ -14,7 +14,7 @@
 ## 3. Offline Test Suite Verification
 - **Test Framework:** Python `unittest` discovering all test suites under `EnterpriseEA/Tests`.
 - **Test Modules:** Account risk, daily reset, checkpoint, dry-run gate, expected path, FTMO headroom, pending audit, pending checkpoint, pending order lifecycle, portfolio budget, remote control, runtime evidence, S02 setup, structural levels, symbol registry, trade economics, volume sizing, and execution adapter contracts (`execution_adapter_tests.py`).
-- **Result:** `184/184 tests passed successfully (OK)`.
+- **Result:** `192/192 tests passed successfully (OK)`.
 
 ## 4. MQL5 Compilation Verification
 - **Compiler:** MetaEditor 64-bit build 6230 (`metaeditor64.exe`).

@@ -92,6 +92,23 @@ void EEA_ExecutionBindAuthorization(EEA_ExecutionResult &result,
    result.build_hash=authorization.build_hash;
   }
 
+bool EEA_ExecutionPersistUnknownAfterFailure(const string root,
+                                              EEA_ExecutionResult &result,
+                                              const string intent_id)
+{
+   result.confirmation_state="EXECUTION_UNKNOWN";
+   result.reason_code="EXECUTION_RESULT_PERSISTENCE_FAILED";
+   string failure_json="{\"intent_id\":\""+EEA_JsonEscape(intent_id)+
+      "\",\"reason_code\":\"EXECUTION_RESULT_PERSISTENCE_FAILED\"}";
+   bool marker_written=EEA_WriteAtomicText(root+"/current/execution_persistence_failure.json",failure_json) &&
+      EEA_WriteAtomicAppendText(root+"/logs/execution_persistence_failures.jsonl",failure_json+"\r\n");
+   if(!marker_written) result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
+   bool result_rewritten=EEA_ExecutionStoreWriteResult(root,result);
+   if(!result_rewritten && result.reason_code!="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE")
+      result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
+   return false;
+}
+
 bool EEA_ExecutionPersistAfterSend(CAuditLog &audit,
                                    const string root,
                                    EEA_ExecutionResult &result,
@@ -99,31 +116,14 @@ bool EEA_ExecutionPersistAfterSend(CAuditLog &audit,
 {
    bool result_written=EEA_ExecutionStoreWriteResult(root,result);
    if(!result_written)
-     {
-      result.confirmation_state="EXECUTION_UNKNOWN";
-      result.reason_code="EXECUTION_RESULT_PERSISTENCE_FAILED";
-      string failure_json="{\"intent_id\":\""+EEA_JsonEscape(intent_id)+
-         "\",\"reason_code\":\"EXECUTION_RESULT_PERSISTENCE_FAILED\"}";
-      bool marker_written=EEA_WriteAtomicText(root+"/current/execution_persistence_failure.json",failure_json) &&
-         EEA_WriteAtomicAppendText(root+"/logs/execution_persistence_failures.jsonl",failure_json+"\r\n");
-      if(!marker_written) result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
-      return false;
-     }
+      return EEA_ExecutionPersistUnknownAfterFailure(root,result,intent_id);
+
    EEAEvent ack_event;
    EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
    ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent_id) + "\",\"ticket\":" + IntegerToString(result.request_ticket) + "}";
    bool audit_written=audit.Append(ack_event, "EA_EXECUTION");
-   if(!result_written || !audit_written)
-     {
-      result.confirmation_state="EXECUTION_UNKNOWN";
-      result.reason_code="EXECUTION_RESULT_PERSISTENCE_FAILED";
-      string failure_json="{\"intent_id\":\""+EEA_JsonEscape(intent_id)+
-         "\",\"reason_code\":\"EXECUTION_RESULT_PERSISTENCE_FAILED\"}";
-      bool marker_written=EEA_WriteAtomicText(root+"/current/execution_persistence_failure.json",failure_json) &&
-         EEA_WriteAtomicAppendText(root+"/logs/execution_persistence_failures.jsonl",failure_json+"\r\n");
-      if(!marker_written) result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
-      return false;
-     }
+   if(!audit_written)
+      return EEA_ExecutionPersistUnknownAfterFailure(root,result,intent_id);
    return true;
 }
 
@@ -181,14 +181,18 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
 
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+     {
+      EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      return false;
+     }
    EEA_ExecutionBindAuthorization(result,authorization);
    if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
      {
       EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
       return false;
      }
-   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET &&
-      intent.action!=EEA_EXEC_ACTION_SUBMIT_PENDING)
+   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET)
      {
       EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
       return false;
@@ -284,6 +288,11 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
 
+   if(intent.position_ticket<=0)
+     {
+      EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      return false;
+     }
    EEA_ExecutionBindAuthorization(result,authorization);
    if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
      {
@@ -396,6 +405,9 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+
+   EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+   return false;
 
    EEA_ExecutionBindAuthorization(result,authorization);
    if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
