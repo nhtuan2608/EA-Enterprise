@@ -35,4 +35,20 @@ bool EEA_WriteAtomicText(const string path,const string contents)
    return true;
   }
 
+bool EEA_WriteAtomicAppendText(const string path,const string contents)
+  {
+   int h=FileOpen(path,FILE_READ|FILE_WRITE|FILE_BIN|FILE_SHARE_READ);
+   if(h==INVALID_HANDLE)
+      h=FileOpen(path,FILE_WRITE|FILE_BIN|FILE_SHARE_READ);
+   if(h==INVALID_HANDLE) return false;
+   FileSeek(h,0,SEEK_END);
+   uchar bytes[];
+   int count=StringToCharArray(contents,bytes,0,WHOLE_ARRAY,CP_UTF8)-1;
+   uint written=0;
+   if(count>0) written=FileWriteArray(h,bytes,0,count);
+   FileFlush(h);
+   FileClose(h);
+   return written==(uint)count;
+  }
+
 #endif

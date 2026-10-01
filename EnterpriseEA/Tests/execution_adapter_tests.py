@@ -22,13 +22,22 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         self.assertEqual(res["reason_code"], "RECONCILIATION_STALE")
 
     def test_duplicate_idempotency_key_never_sends_second_request(self):
-        state = {"accepted_keys": ["idem-1"]}
-        res = idempotency_decision(state, "idem-1")
+        state = {"accepted_keys": ["idem-001"]}
+        res = idempotency_decision(state, "idem-001")
         self.assertEqual(res, {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"})
 
     def test_acknowledgement_requires_reconciliation_confirmation(self):
         res = apply_result({}, {"request_sent": True, "request_retcode": "DONE", "broker_confirmed": False})
         self.assertEqual(res["confirmation_state"], "EXECUTION_UNKNOWN")
+
+    def test_redaction_no_raw_login_or_credentials_in_intent(self):
+        i = intent()
+        for forbidden in ["login", "account_name", "password", "secret", "token"]:
+            self.assertNotIn(forbidden, i)
+
+    def test_no_paper_ledger_exists(self):
+        paper_files = list(ROOT.glob("*paper*.mqh")) + list(ROOT.glob("*Paper*.mqh")) + list(ROOT.glob("*paper*.py"))
+        self.assertEqual(len(paper_files), 0, "No paper ledger files or modules are permitted.")
 
     def test_fixture_cases(self):
         if not FIXTURE_PATH.exists():
