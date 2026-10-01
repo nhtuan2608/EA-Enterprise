@@ -26,9 +26,11 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
    reason="";
    snapshot.positions_complete=false;
    snapshot.orders_complete=false;
+   snapshot.history_orders_complete=false;
    snapshot.deals_complete=false;
    snapshot.position_count=0;
    snapshot.order_count=0;
+   snapshot.history_order_count=0;
    snapshot.deal_count=0;
    if(lookback_days<1 || lookback_days>90 || freshness_seconds<1)
      { reason="RUNTIME_CONFIGURATION_INVALID"; return false; }
@@ -66,9 +68,12 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
       row.swap=PositionGetDouble(POSITION_SWAP);
       row.commission=0.0; // Position properties expose no authoritative commission total.
       row.time_open_utc=PositionGetInteger(POSITION_TIME);
+      row.sl=PositionGetDouble(POSITION_SL);
+      row.tp=PositionGetDouble(POSITION_TP);
       if(row.symbol=="" || !EEA_IsFiniteDouble(row.volume) || row.volume<=0.0 ||
          !EEA_IsFiniteDouble(row.price_open) || !EEA_IsFiniteDouble(row.current_price) ||
-         !EEA_IsFiniteDouble(row.profit) || !EEA_IsFiniteDouble(row.swap))
+         !EEA_IsFiniteDouble(row.profit) || !EEA_IsFiniteDouble(row.swap) ||
+         !EEA_IsFiniteDouble(row.sl) || !EEA_IsFiniteDouble(row.tp))
         { reason="POSITIONS_SOURCE_INCOMPLETE"; return false; }
       snapshot.positions[snapshot.position_count++]=row;
      }
@@ -102,6 +107,34 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
 
    if(!HistorySelect((datetime)snapshot.history_from_utc,(datetime)observed))
      { reason="DEALS_SOURCE_INCOMPLETE"; return false; }
+
+   snapshot.history_order_count=0;
+   snapshot.history_orders_complete=false;
+   const int history_order_total=HistoryOrdersTotal();
+   if(history_order_total<0 || history_order_total>EEA_RUNTIME_MAX_ORDERS)
+     { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+   for(int i=0;i<history_order_total;i++)
+     {
+      const ulong ticket=HistoryOrderGetTicket(i);
+      if(ticket==0)
+        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+      EEA_RuntimeOrderRow row;
+      row.ticket=(long)ticket;
+      row.order_id=IntegerToString((long)ticket);
+      row.symbol=HistoryOrderGetString(ticket,ORDER_SYMBOL);
+      row.type=IntegerToString(HistoryOrderGetInteger(ticket,ORDER_TYPE));
+      row.volume=HistoryOrderGetDouble(ticket,ORDER_VOLUME_CURRENT);
+      row.price=HistoryOrderGetDouble(ticket,ORDER_PRICE_OPEN);
+      row.sl=HistoryOrderGetDouble(ticket,ORDER_SL);
+      row.tp=HistoryOrderGetDouble(ticket,ORDER_TP);
+      row.time_setup_utc=HistoryOrderGetInteger(ticket,ORDER_TIME_SETUP);
+      row.expiration_utc=HistoryOrderGetInteger(ticket,ORDER_TIME_EXPIRATION);
+      if(!EEA_IsFiniteDouble(row.volume) || row.volume<0.0 ||
+         !EEA_IsFiniteDouble(row.price) || !EEA_IsFiniteDouble(row.sl) || !EEA_IsFiniteDouble(row.tp))
+        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+      snapshot.history_orders[snapshot.history_order_count++]=row;
+     }
+   snapshot.history_orders_complete=true;
    const int deal_total=HistoryDealsTotal();
    if(deal_total<0 || deal_total>EEA_RUNTIME_MAX_DEALS)
      { reason="DEALS_SOURCE_INCOMPLETE"; return false; }

@@ -55,6 +55,10 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         snapshot = {"orders": [], "deals": [{"order_ticket": 12345}], "positions": []}
         res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "CANCEL_PENDING", {})
         self.assertEqual(res["confirmation_state"], "CONFIRMED")
+        
+        snapshot_hist = {"orders": [], "history_orders": [{"ticket": 12345}], "deals": [], "positions": []}
+        res_hist = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot_hist, 12345, "CANCEL_PENDING", {})
+        self.assertEqual(res_hist["confirmation_state"], "CONFIRMED")
 
     def test_modify_confirmation_from_active_protective_fields(self):
         snapshot = {"orders": [{"ticket": 12345, "sl": 1.08, "tp": 1.10}], "deals": [], "positions": []}
@@ -64,6 +68,11 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         snapshot2 = {"orders": [], "positions": [{"ticket": 12345, "sl": 1.08, "tp": 1.10}], "deals": []}
         res2 = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot2, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10})
         self.assertEqual(res2["confirmation_state"], "CONFIRMED")
+
+        # Non-matching position SL/TP tolerance should remain unknown
+        snapshot3 = {"orders": [], "positions": [{"ticket": 12345, "sl": 1.07, "tp": 1.09}], "deals": []}
+        res3 = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot3, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10})
+        self.assertEqual(res3["confirmation_state"], "EXECUTION_UNKNOWN")
 
     def test_timeout_missing_evidence_race_unknown(self):
         snapshot = {"orders": [], "deals": [], "positions": []}

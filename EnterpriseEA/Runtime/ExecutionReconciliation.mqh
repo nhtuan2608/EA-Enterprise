@@ -49,13 +49,18 @@ bool EEA_ExecutionReconcileResult(EEA_ExecutionResult &result,
         {
          if(reconciliation.orders[i].ticket==request_ticket) { active_found=true; break; }
         }
+      bool history_order_found=false;
+      for(int i=0; i<reconciliation.history_order_count; i++)
+        {
+         if(reconciliation.history_orders[i].ticket==request_ticket) { history_order_found=true; break; }
+        }
       bool terminal_in_history=false;
       for(int i=0; i<reconciliation.deal_count; i++)
         {
          if(reconciliation.deals[i].order_ticket==request_ticket) { terminal_in_history=true; break; }
         }
 
-      if(!active_found && terminal_in_history)
+      if(!active_found && (history_order_found || terminal_in_history))
         {
          result.confirmation_state="CONFIRMED";
          result.reason_code="OK";
@@ -80,7 +85,9 @@ bool EEA_ExecutionReconcileResult(EEA_ExecutionResult &result,
            {
             if(reconciliation.positions[i].ticket==request_ticket)
               {
-               matched=true; break; 
+               if(MathAbs(reconciliation.positions[i].sl - expected_sl) < 1e-9 &&
+                  MathAbs(reconciliation.positions[i].tp - expected_tp) < 1e-9)
+                 { matched=true; break; }
               }
            }
         }

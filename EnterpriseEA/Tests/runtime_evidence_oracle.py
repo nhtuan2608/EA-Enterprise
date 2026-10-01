@@ -111,10 +111,28 @@ def evaluate(snapshot: Dict[str, Any], now_utc: int, previous_watermark: int = -
         if t in pos_tickets:
             result["reason_code"] = "POSITIONS_SOURCE_INCOMPLETE"
             return result
-        if not is_finite(p.get("volume", 0)) or not is_finite(p.get("price_open", 0)):
+        if not is_finite(p.get("volume", 0)) or not is_finite(p.get("price_open", 0)) or \
+           not is_finite(p.get("sl", 0)) or not is_finite(p.get("tp", 0)):
             result["reason_code"] = "POSITIONS_SOURCE_INCOMPLETE"
             return result
         pos_tickets.add(t)
+
+    # History order tickets and finite numeric fields
+    history_orders = snapshot.get("history_orders", [])
+    if len(history_orders) > 256:
+        result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
+        return result
+    hist_ord_tickets = set()
+    for o in history_orders:
+        t = o.get("ticket")
+        if t in hist_ord_tickets:
+            result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
+            return result
+        if not is_finite(o.get("volume", 0)) or not is_finite(o.get("price", 0)) or \
+           not is_finite(o.get("sl", 0)) or not is_finite(o.get("tp", 0)):
+            result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
+            return result
+        hist_ord_tickets.add(t)
 
     # Order tickets and finite numeric fields
     ord_tickets = set()
@@ -154,6 +172,10 @@ def evaluate(snapshot: Dict[str, Any], now_utc: int, previous_watermark: int = -
         result["reason_code"] = "POSITIONS_SOURCE_INCOMPLETE"
         return result
     if not snapshot.get("orders_complete", False):
+        result["runtime_state"] = "DEGRADED"
+        result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
+        return result
+    if not snapshot.get("history_orders_complete", True):
         result["runtime_state"] = "DEGRADED"
         result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
         return result

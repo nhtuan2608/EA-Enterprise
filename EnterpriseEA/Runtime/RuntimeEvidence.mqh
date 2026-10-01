@@ -67,6 +67,8 @@ struct EEA_RuntimePositionRow
    double profit;
    double swap;
    double commission;
+   double sl;
+   double tp;
    long   time_open_utc;
   };
 
@@ -118,6 +120,7 @@ struct EEA_RuntimeReconciliationSnapshot
    bool   positions_complete;
    bool   orders_complete;
    bool   deals_complete;
+   bool   history_orders_complete;
    long   deal_watermark;
    long   deal_watermark_time_msc;
    EEA_RuntimeSymbolSpec symbols[EEA_RUNTIME_MAX_SYMBOLS];
@@ -126,6 +129,8 @@ struct EEA_RuntimeReconciliationSnapshot
    int    position_count;
    EEA_RuntimeOrderRow orders[EEA_RUNTIME_MAX_ORDERS];
    int    order_count;
+   EEA_RuntimeOrderRow history_orders[EEA_RUNTIME_MAX_ORDERS];
+   int    history_order_count;
    EEA_RuntimeDealRow deals[EEA_RUNTIME_MAX_DEALS];
    int    deal_count;
   };
@@ -284,7 +289,8 @@ void EEA_RuntimeValidate(const EEA_RuntimeReconciliationSnapshot &snapshot,
           if(snapshot.positions[i].ticket == snapshot.positions[j].ticket)
              { status.reason_code = "POSITIONS_SOURCE_INCOMPLETE"; return; }
        // Check finite numeric fields
-       if(!EEA_IsFiniteDouble(snapshot.positions[i].volume) || !EEA_IsFiniteDouble(snapshot.positions[i].price_open))
+       if(!EEA_IsFiniteDouble(snapshot.positions[i].volume) || !EEA_IsFiniteDouble(snapshot.positions[i].price_open) ||
+          !EEA_IsFiniteDouble(snapshot.positions[i].sl) || !EEA_IsFiniteDouble(snapshot.positions[i].tp))
           { status.reason_code = "POSITIONS_SOURCE_INCOMPLETE"; return; }
       }
 
@@ -297,6 +303,19 @@ void EEA_RuntimeValidate(const EEA_RuntimeReconciliationSnapshot &snapshot,
              { status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
        // Check finite numeric fields
        if(!EEA_IsFiniteDouble(snapshot.orders[i].volume) || !EEA_IsFiniteDouble(snapshot.orders[i].price))
+          { status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
+      }
+
+   // History order tickets and finite numeric fields
+   for(int i = 0; i < snapshot.history_order_count; i++)
+      {
+       // Check duplicate tickets
+       for(int j = i + 1; j < snapshot.history_order_count; j++)
+          if(snapshot.history_orders[i].ticket == snapshot.history_orders[j].ticket)
+             { status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
+       // Check finite numeric fields
+       if(!EEA_IsFiniteDouble(snapshot.history_orders[i].volume) || !EEA_IsFiniteDouble(snapshot.history_orders[i].price) ||
+          !EEA_IsFiniteDouble(snapshot.history_orders[i].sl) || !EEA_IsFiniteDouble(snapshot.history_orders[i].tp))
           { status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
       }
 
@@ -325,6 +344,8 @@ void EEA_RuntimeValidate(const EEA_RuntimeReconciliationSnapshot &snapshot,
    if(!snapshot.positions_complete)
       { status.runtime_state = "DEGRADED"; status.reason_code = "POSITIONS_SOURCE_INCOMPLETE"; return; }
    if(!snapshot.orders_complete)
+      { status.runtime_state = "DEGRADED"; status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
+   if(!snapshot.history_orders_complete)
       { status.runtime_state = "DEGRADED"; status.reason_code = "ORDERS_SOURCE_INCOMPLETE"; return; }
    if(!snapshot.deals_complete)
       { status.runtime_state = "DEGRADED"; status.reason_code = "DEALS_SOURCE_INCOMPLETE"; return; }

@@ -86,7 +86,7 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
          EEA_RuntimeDoubleJson(s.orders[i].price)+",\"sl\":"+EEA_RuntimeDoubleJson(s.orders[i].sl)+
          ",\"tp\":"+EEA_RuntimeDoubleJson(s.orders[i].tp)+",\"setup_at_utc\":\""+
          EEA_IsoUtc((datetime)s.orders[i].time_setup_utc)+"\",\"expiration_at_utc\":\""+
-         EEA_IsoUtc((datetime)s.orders[i].time_expiration_utc)+"\"}";
+         EEA_IsoUtc((datetime)s.orders[i].expiration_utc)+"\"}";
      }
    orders+="]";
    string deals="[";

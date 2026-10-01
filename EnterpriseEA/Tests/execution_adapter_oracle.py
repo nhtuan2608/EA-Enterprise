@@ -74,8 +74,10 @@ def reconcile_result(result, snapshot, request_ticket, request_action, intent_fi
     elif request_action == "CANCEL_PENDING":
         order_found = any(o.get("ticket") == request_ticket for o in orders)
         deal_found = any(d.get("order_ticket") == request_ticket for d in deals)
+        history_orders = snapshot.get("history_orders", [])
+        hist_order_found = any(o.get("ticket") == request_ticket for o in history_orders)
         
-        if not order_found and deal_found:
+        if not order_found and (deal_found or hist_order_found):
             result["confirmation_state"] = "CONFIRMED"
             result["reason_code"] = "OK"
         else:
