@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a real MT5 order/modify/cancel adapter that is disabled by default, fail-closed, demo-first, idempotent and reconciliation-driven, without implementing a Paper ledger or automatically sending orders.
+**Goal:** Add a real MT5 order/modify/cancel adapter that is disabled by default, fail-closed, demo-first, idempotent and reconciliation-driven, without implementing a Paper ledger or automatically sending orders. Define the later paperless controlled-live route without declaring live readiness.
 
 **Architecture:** Keep strategy/observer modules separate from `Runtime/ExecutionAdapter.mqh`. Pure Python contracts model preflight/result/race semantics; MQL5 adapters call mutating APIs only behind an explicit disabled-by-default gate and persist intent/result audit. Every request is followed by authoritative active-state/history reconciliation.
 
@@ -18,9 +18,11 @@
 - A unique correlation ID and idempotency key are mandatory; an already accepted key is rejected as duplicate without a second broker request.
 - Request acknowledgements are not fill/cancel confirmation; fresh broker reconciliation is mandatory.
 - Timeout, restart, missing history, callback race, identity change or stale snapshot yields `EXECUTION_UNKNOWN`, keeps entries blocked and never silently retries.
-- No Paper ledger is created or implied.
+- Paper/virtual execution is permanently excluded; no Paper ledger is created, implied, or used as evidence.
 - No automatic request from startup, timer, OnTick, symbol panel Refresh or transaction callback.
 - No live enablement or go-live authorization in this increment.
+- The paperless controlled-live route requires all gates in `docs/superpowers/specs/2026-10-01-paperless-controlled-live-design.md`: runtime compile, applicable demo/retained evidence, approved risk policy, manual authorization, tested kill switch, tested rollback, and durable audit.
+- A missing or stale gate keeps status `NOT_AUTHORIZED`; compile, offline tests, or adapter presence do not establish live readiness.
 
 ---
 
@@ -197,7 +199,7 @@ Expected: FAIL because adapter/input are absent.
 
 - [ ] **Step 3: Implement adapter**
 
-Use `MqlTradeRequest`/`OrderSend` for submit, `MqlTradeRequest`/`OrderSend` with `TRADE_ACTION_SLTP` for protective modify, and `MqlTradeRequest`/`OrderSend` with `TRADE_ACTION_REMOVE` for pending cancel. Every function immediately records request acknowledgement, never confirmation, and returns with `EXECUTION_UNKNOWN` until an external caller supplies fresh reconciliation. Never call these from EA lifecycle events.
+Use `MqlTradeRequest`/`OrderSend` for submit, `TRADE_ACTION_SLTP` with a position ticket for position protective changes, `TRADE_ACTION_MODIFY` with an order ticket for pending-order protective changes, and `TRADE_ACTION_REMOVE` for pending cancel. Every function immediately records request acknowledgement, never confirmation, and returns with `EXECUTION_UNKNOWN` until an external caller supplies fresh reconciliation. Never call these from EA lifecycle events.
 
 - [ ] **Step 4: Compile and run tests**
 
@@ -215,17 +217,17 @@ git commit -m "feat: add disabled execution adapter"
 ### Task 5: Controlled demo activation protocol and documentation
 
 **Files:**
-- Create: `EnterpriseEA/artifacts/execution-demo-runbook.md`
-- Create: `EnterpriseEA/artifacts/execution-demo-verification.md`
 - Modify: `EnterpriseEA/docs/superpowers/specs/2026-10-01-execution-adapter-design.md`
 - Modify: `EnterpriseEA/docs/superpowers/plans/2026-10-01-execution-adapter.md`
 - Modify: `EnterpriseEA/README.md`
 - Modify: `EnterpriseEA/PHASE3_TRACEABILITY.md`
 - Modify: `EnterpriseEA/PHASE4_TRACEABILITY.md`
+- Create: `EnterpriseEA/docs/superpowers/specs/2026-10-01-paperless-controlled-live-design.md`
+- Create: `EnterpriseEA/docs/superpowers/plans/2026-10-01-paperless-controlled-live.md`
 
 - [ ] **Step 1: Add failing documentation/static-status tests**
 
-Require exact labels `IMPLEMENTED_DISABLED_BY_DEFAULT`, `PAPER_PENDING`, `NOT_AUTHORIZED`, `EXECUTION_UNKNOWN`, and `RUNTIME_EVIDENCE_PENDING` in the report.
+Require exact labels `IMPLEMENTED_DISABLED_BY_DEFAULT`, `PAPER_EXCLUDED_PERMANENTLY`, `NOT_AUTHORIZED`, `EXECUTION_UNKNOWN`, and `RUNTIME_EVIDENCE_PENDING` in the report.
 
 - [ ] **Step 2: Run RED**
 
@@ -233,16 +235,13 @@ Run execution tests and confirm report/status labels are absent.
 
 - [ ] **Step 3: Write runbook**
 
-Document preflight, demo-only activation, one controlled operation, confirmation/reconciliation, rollback/unknown handling, side-effect before/after snapshots, and explicit no-live/no-Paper boundaries. Do not put secrets or raw account-holder identity in artifacts.
+Document preflight, demo-only activation, one controlled operation, confirmation/reconciliation, rollback/unknown handling, side-effect before/after snapshots, and explicit no-live/no-Paper boundaries. The paperless controlled-live documents must also list the seven mandatory gates and record evidence status without claiming readiness. Do not put secrets or raw account-holder identity in artifacts.
 
 - [ ] **Step 4: Run final verification and commit**
 
 Run full test suite, MetaEditor compile, static API scan, inspect clean Git status and commit:
 
-```powershell
-git add artifacts/execution-demo-runbook.md artifacts/execution-demo-verification.md docs/superpowers/specs/2026-10-01-execution-adapter-design.md docs/superpowers/plans/2026-10-01-execution-adapter.md README.md PHASE3_TRACEABILITY.md PHASE4_TRACEABILITY.md Tests/execution_adapter_tests.py
-git commit -m "docs: define controlled execution demo gate"
-```
+Review only the allowed documentation files and verify that no code or test files changed. The final documentation must retain `NOT_AUTHORIZED` until the seven gates are evidenced.
 
 ## Final acceptance
 
@@ -250,6 +249,7 @@ git commit -m "docs: define controlled execution demo gate"
 - MetaEditor build 6230 reports `0 errors, 0 warnings`.
 - Execution adapter exists but default is disabled and no lifecycle path calls it automatically.
 - Every request has idempotency/correlation, fresh reconciliation, audit, redaction and unknown-state handling.
-- No Paper ledger exists.
+- Paper ledger is permanently excluded.
 - No live operation is performed or authorized by this plan.
-- Retained-terminal observer evidence remains separately classified as `RUNTIME_EVIDENCE_PENDING` until manual GUI/runtime protocol actually passes.
+- Retained-terminal observer evidence remains separately classified as `RUNTIME_EVIDENCE_PENDING` until the applicable GUI/runtime protocol actually passes.
+- Paperless controlled-live remains `NOT_AUTHORIZED` until runtime compile, applicable demo/retained evidence, risk policy, manual authorization, kill switch, rollback, and audit are all evidenced.

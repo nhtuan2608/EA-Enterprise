@@ -1,6 +1,6 @@
 #property strict
 #property version   "1.000"
-#property description "Observer-only core foundation; order execution is intentionally absent."
+#property description "Observer-only core foundation; execution adapter is compile-covered, disabled, and never invoked by lifecycle events."
 
 #include "Core/Config.mqh"
 #include "Core/State.mqh"
@@ -9,6 +9,8 @@
 #include "Storage/AuditLog.mqh"
 #include "Storage/SharedStateStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
+#include "Runtime/ExecutionAdapter.mqh"
+#include "Runtime/LiveAuthorizationGate.mqh"
 #include "Runtime/SymbolSelectionPanel.mqh"
 
 input bool   InpObserverOnly           = true;

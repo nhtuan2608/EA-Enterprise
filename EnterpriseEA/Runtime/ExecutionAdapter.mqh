@@ -4,6 +4,7 @@
 #include "ExecutionContracts.mqh"
 #include "ExecutionGate.mqh"
 #include "ExecutionReconciliation.mqh"
+#include "LiveAuthorizationGate.mqh"
 #include "../Storage/AuditLog.mqh"
 #include "../Storage/RuntimeEvidenceStore.mqh"
 
@@ -34,8 +35,8 @@ bool EEA_ExecutionIsDuplicateIdempotency(const string root, const string idempot
    for(int i = 0; i < count; i++)
      {
       string line = lines[i];
-      if(StringFind(line, "\"idempotency_key\":\"" + idempotency_key + "\"") >= 0 ||
-         StringFind(line, "\"idempotency_key\":\"" + idempotency_key + '"') >= 0)
+      string escaped_key = EEA_JsonEscape(idempotency_key);
+      if(StringFind(line, "\"idempotency_key\":\"" + escaped_key + "\"") >= 0)
         {
          return true;
         }
@@ -51,14 +52,116 @@ void EEA_AuditExecutionFailure(CAuditLog &audit, const string intent_id, const s
    audit.Append(err_event, "EA_EXECUTION");
 }
 
+bool EEA_ExecutionRetcodeAcknowledged(const uint retcode,const int action)
+{
+   if(action==EEA_EXEC_ACTION_SUBMIT_MARKET)
+      return retcode==TRADE_RETCODE_DONE || retcode==TRADE_RETCODE_DONE_PARTIAL;
+   if(action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+      return retcode==TRADE_RETCODE_PLACED || retcode==TRADE_RETCODE_DONE ||
+             retcode==TRADE_RETCODE_DONE_PARTIAL;
+   if(action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE)
+      return retcode==TRADE_RETCODE_DONE || retcode==TRADE_RETCODE_ORDER_CHANGED ||
+             retcode==TRADE_RETCODE_NO_CHANGES;
+   if(action==EEA_EXEC_ACTION_CANCEL_PENDING)
+      return retcode==TRADE_RETCODE_DONE;
+   return false;
+}
+
+bool EEA_ExecutionAuthorizationBinds(const EEA_LiveAuthorizationDecision &authorization,
+                                      const EEA_ExecutionIntent &intent,
+                                      const EEA_RuntimeAccountSnapshot &account,
+                                      const EEA_RuntimeSymbolSpec &symbol)
+{
+   return authorization.authorized && authorization.status=="AUTHORIZED_CONTROLLED_LIVE" &&
+      authorization.authorization_valid_until_utc>TimeGMT() &&
+      authorization.account_fingerprint==account.account_fingerprint &&
+      authorization.account_fingerprint==intent.account_fingerprint &&
+      authorization.intent_id==intent.intent_id &&
+      authorization.config_version==intent.config_version &&
+      authorization.broker_server==intent.broker_server &&
+      authorization.broker_symbol==intent.broker_symbol &&
+      authorization.broker_symbol==symbol.broker_symbol &&
+      authorization.account_mode==account.account_margin_mode &&
+      authorization.risk_policy_id==intent.risk_policy_id;
+}
+
+void EEA_ExecutionBindAuthorization(EEA_ExecutionResult &result,
+                                     const EEA_LiveAuthorizationDecision &authorization)
+  {
+   result.authorization_id=authorization.authorization_id;
+   result.build_hash=authorization.build_hash;
+  }
+
+bool EEA_ExecutionPersistAfterSend(CAuditLog &audit,
+                                   const string root,
+                                   EEA_ExecutionResult &result,
+                                   const string intent_id)
+{
+   bool result_written=EEA_ExecutionStoreWriteResult(root,result);
+   if(!result_written)
+     {
+      result.confirmation_state="EXECUTION_UNKNOWN";
+      result.reason_code="EXECUTION_RESULT_PERSISTENCE_FAILED";
+      string failure_json="{\"intent_id\":\""+EEA_JsonEscape(intent_id)+
+         "\",\"reason_code\":\"EXECUTION_RESULT_PERSISTENCE_FAILED\"}";
+      bool marker_written=EEA_WriteAtomicText(root+"/current/execution_persistence_failure.json",failure_json) &&
+         EEA_WriteAtomicAppendText(root+"/logs/execution_persistence_failures.jsonl",failure_json+"\r\n");
+      if(!marker_written) result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
+      return false;
+     }
+   EEAEvent ack_event;
+   EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
+   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent_id) + "\",\"ticket\":" + IntegerToString(result.request_ticket) + "}";
+   bool audit_written=audit.Append(ack_event, "EA_EXECUTION");
+   if(!result_written || !audit_written)
+     {
+      result.confirmation_state="EXECUTION_UNKNOWN";
+      result.reason_code="EXECUTION_RESULT_PERSISTENCE_FAILED";
+      string failure_json="{\"intent_id\":\""+EEA_JsonEscape(intent_id)+
+         "\",\"reason_code\":\"EXECUTION_RESULT_PERSISTENCE_FAILED\"}";
+      bool marker_written=EEA_WriteAtomicText(root+"/current/execution_persistence_failure.json",failure_json) &&
+         EEA_WriteAtomicAppendText(root+"/logs/execution_persistence_failures.jsonl",failure_json+"\r\n");
+      if(!marker_written) result.reason_code="EXECUTION_PERSISTENCE_FAILURE_UNDURABLE";
+      return false;
+     }
+   return true;
+}
+
+bool EEA_ExecutionPersistBeforeSend(CAuditLog &audit,
+                                     const string root,
+                                     const EEA_ExecutionIntent &intent,
+                                     const string details_json)
+{
+   if(!EEA_ExecutionStoreWriteIntent(root, intent))
+      return false;
+
+   EEAEvent req_event;
+   EEAEvent_Init(req_event, "EXECUTION_REQUESTED", TimeGMT(), "", "", "", "", "UNKNOWN");
+   req_event.details_json = details_json;
+   return audit.Append(req_event, "EA_EXECUTION");
+}
+
+void EEA_ExecutionRecordPersistenceFailure(CAuditLog &audit,
+                                            const string root,
+                                            const EEA_ExecutionIntent &intent,
+                                            EEA_ExecutionResult &result)
+{
+   result.request_sent = false;
+   result.confirmation_state = "NOT_SENT";
+   result.reason_code = "EXECUTION_PERSISTENCE_FAILED";
+   EEA_ExecutionStoreWriteResult(root, result);
+   EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+}
+
 bool EEA_ExecutionPreflight(const EEA_ExecutionIntent &intent,
                             const EEA_RuntimeAccountSnapshot &account,
                             const EEA_RuntimeReconciliationSnapshot &reconciliation,
                             const EEA_RuntimeSymbolSpec &symbol,
+                            const EEA_RuntimeStatus &status,
                             const bool execution_enabled,
                             EEA_ExecutionResult &result)
 {
-   return EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, execution_enabled, result);
+   return EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result);
 }
 
 bool EEA_ExecutionSubmit(CAuditLog &audit,
@@ -67,7 +170,9 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
                          const EEA_RuntimeAccountSnapshot &account,
                          const EEA_RuntimeReconciliationSnapshot &reconciliation,
                          const EEA_RuntimeSymbolSpec &symbol,
+                         const EEA_RuntimeStatus &status,
                          const bool execution_enabled,
+                         const EEA_LiveAuthorizationDecision &authorization,
                          EEA_ExecutionResult &result)
 {
    string root = EEA_ExecutionResolveRoot(data_root);
@@ -75,6 +180,19 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+
+   EEA_ExecutionBindAuthorization(result,authorization);
+   if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
+     {
+      EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET &&
+      intent.action!=EEA_EXEC_ACTION_SUBMIT_PENDING)
+     {
+      EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
 
    if(EEA_ExecutionIsDuplicateIdempotency(root, intent.idempotency_key))
      {
@@ -87,7 +205,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       return false;
      }
 
-   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, execution_enabled, result))
+   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
      {
       result.request_sent = false;
       EEA_ExecutionStoreWriteIntent(root, intent);
@@ -96,11 +214,12 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       return false;
      }
 
-   EEA_ExecutionStoreWriteIntent(root, intent);
-   EEAEvent req_event;
-   EEAEvent_Init(req_event, "EXECUTION_REQUESTED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   req_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"correlation_id\":\"" + EEA_JsonEscape(intent.correlation_id) + "\"}";
-   audit.Append(req_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistBeforeSend(audit, root, intent,
+      "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"correlation_id\":\"" + EEA_JsonEscape(intent.correlation_id) + "\"}"))
+     {
+      EEA_ExecutionRecordPersistenceFailure(audit, root, intent, result);
+      return false;
+     }
 
    MqlTradeRequest request;
    MqlTradeResult trade_result;
@@ -114,7 +233,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    request.sl = intent.sl;
    request.tp = intent.tp;
    request.type = (ENUM_ORDER_TYPE)intent.order_type;
-   request.type_filling = (ENUM_ORDER_FILLING)intent.filling_mode;
+   request.type_filling = (ENUM_ORDER_TYPE_FILLING)intent.filling_mode;
    request.deviation = intent.deviation;
    request.magic = intent.magic;
 
@@ -125,13 +244,14 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
      }
 
    bool sent = OrderSend(request, trade_result);
-   result.request_sent = sent;
+   bool broker_acknowledged = EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action);
+   result.request_sent = sent || broker_acknowledged;
    result.request_retcode = IntegerToString(trade_result.retcode);
    result.request_ticket_kind = (intent.action == EEA_EXEC_ACTION_SUBMIT_MARKET && trade_result.deal > 0) ? "DEAL" : "ORDER";
-   result.request_ticket = (result.request_ticket_kind == "DEAL") ? trade_result.deal : trade_result.order;
+   result.request_ticket = (result.request_ticket_kind == "DEAL") ? (long)trade_result.deal : (long)trade_result.order;
    result.observed_at_utc = TimeCurrent();
 
-   if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)
+   if(!broker_acknowledged)
      {
       result.confirmation_state = "REJECTED";
       result.reason_code = "ORDER_SEND_FAILED_" + result.request_retcode;
@@ -142,11 +262,8 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
 
    result.confirmation_state = "EXECUTION_UNKNOWN";
    result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
-   EEA_ExecutionStoreWriteResult(root, result);
-   EEAEvent ack_event;
-   EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(result.request_ticket) + "}";
-   audit.Append(ack_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))
+      return false;
    return true;
 }
 
@@ -156,7 +273,9 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
                                     const EEA_RuntimeAccountSnapshot &account,
                                     const EEA_RuntimeReconciliationSnapshot &reconciliation,
                                     const EEA_RuntimeSymbolSpec &symbol,
+                                    const EEA_RuntimeStatus &status,
                                     const bool execution_enabled,
+                                    const EEA_LiveAuthorizationDecision &authorization,
                                     EEA_ExecutionResult &result)
 {
    string root = EEA_ExecutionResolveRoot(data_root);
@@ -164,6 +283,18 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+
+   EEA_ExecutionBindAuthorization(result,authorization);
+   if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
+     {
+      EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.action!=EEA_EXEC_ACTION_MODIFY_PROTECTIVE)
+     {
+      EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
 
    if(EEA_ExecutionIsDuplicateIdempotency(root, intent.idempotency_key))
      {
@@ -187,7 +318,7 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
       return false;
      }
 
-   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, execution_enabled, result))
+   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
      {
       result.request_sent = false;
       EEA_ExecutionStoreWriteIntent(root, intent);
@@ -196,36 +327,44 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
       return false;
      }
 
-   EEA_ExecutionStoreWriteIntent(root, intent);
-   EEAEvent req_event;
-   EEAEvent_Init(req_event, "EXECUTION_REQUESTED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   req_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.position_ticket > 0 ? intent.position_ticket : intent.ticket) + "}";
-   audit.Append(req_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistBeforeSend(audit, root, intent,
+      "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.position_ticket > 0 ? intent.position_ticket : intent.ticket) + "}"))
+     {
+      EEA_ExecutionRecordPersistenceFailure(audit, root, intent, result);
+      return false;
+     }
 
    MqlTradeRequest request;
    MqlTradeResult trade_result;
    ZeroMemory(request);
    ZeroMemory(trade_result);
 
-   request.action = TRADE_ACTION_SLTP;
    request.symbol = intent.broker_symbol;
    request.sl = intent.sl;
    request.tp = intent.tp;
    request.magic = intent.magic;
 
    if(intent.position_ticket > 0)
+     {
+      request.action = TRADE_ACTION_SLTP;
       request.position = (ulong)intent.position_ticket;
+     }
    else
+     {
+      request.action = TRADE_ACTION_MODIFY;
       request.order = (ulong)intent.ticket;
+      request.price = intent.price;
+     }
 
    bool sent = OrderSend(request, trade_result);
-   result.request_sent = sent;
+   bool broker_acknowledged = EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action);
+   result.request_sent = sent || broker_acknowledged;
    result.request_retcode = IntegerToString(trade_result.retcode);
    result.request_ticket_kind = intent.position_ticket > 0 ? "POSITION" : "ORDER";
    result.request_ticket = intent.position_ticket > 0 ? intent.position_ticket : intent.ticket;
    result.observed_at_utc = TimeCurrent();
 
-   if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)
+   if(!broker_acknowledged)
      {
       result.confirmation_state = "REJECTED";
       result.reason_code = "MODIFY_FAILED_" + result.request_retcode;
@@ -236,11 +375,8 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
 
    result.confirmation_state = "EXECUTION_UNKNOWN";
    result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
-   EEA_ExecutionStoreWriteResult(root, result);
-   EEAEvent ack_event;
-   EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(result.request_ticket) + "}";
-   audit.Append(ack_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))
+      return false;
    return true;
 }
 
@@ -250,7 +386,9 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
                                 const EEA_RuntimeAccountSnapshot &account,
                                 const EEA_RuntimeReconciliationSnapshot &reconciliation,
                                 const EEA_RuntimeSymbolSpec &symbol,
+                                const EEA_RuntimeStatus &status,
                                 const bool execution_enabled,
+                                const EEA_LiveAuthorizationDecision &authorization,
                                 EEA_ExecutionResult &result)
 {
    string root = EEA_ExecutionResolveRoot(data_root);
@@ -258,6 +396,18 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    result.intent_id = intent.intent_id;
    result.correlation_id = intent.correlation_id;
    result.idempotency_key = intent.idempotency_key;
+
+   EEA_ExecutionBindAuthorization(result,authorization);
+   if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
+     {
+      EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.action!=EEA_EXEC_ACTION_CANCEL_PENDING)
+     {
+      EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
 
    if(EEA_ExecutionIsDuplicateIdempotency(root, intent.idempotency_key))
      {
@@ -281,7 +431,7 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
       return false;
      }
 
-   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, execution_enabled, result))
+   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
      {
       result.request_sent = false;
       EEA_ExecutionStoreWriteIntent(root, intent);
@@ -290,11 +440,12 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
       return false;
      }
 
-   EEA_ExecutionStoreWriteIntent(root, intent);
-   EEAEvent req_event;
-   EEAEvent_Init(req_event, "EXECUTION_REQUESTED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   req_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.ticket) + "}";
-   audit.Append(req_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistBeforeSend(audit, root, intent,
+      "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.ticket) + "}"))
+     {
+      EEA_ExecutionRecordPersistenceFailure(audit, root, intent, result);
+      return false;
+     }
 
    MqlTradeRequest request;
    MqlTradeResult trade_result;
@@ -307,13 +458,14 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    request.magic = intent.magic;
 
    bool sent = OrderSend(request, trade_result);
-   result.request_sent = sent;
+   bool broker_acknowledged = EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action);
+   result.request_sent = sent || broker_acknowledged;
    result.request_retcode = IntegerToString(trade_result.retcode);
    result.request_ticket_kind = "ORDER";
    result.request_ticket = intent.ticket;
    result.observed_at_utc = TimeCurrent();
 
-   if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)
+   if(!broker_acknowledged)
      {
       result.confirmation_state = "REJECTED";
       result.reason_code = "CANCEL_FAILED_" + result.request_retcode;
@@ -324,11 +476,8 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
 
    result.confirmation_state = "EXECUTION_UNKNOWN";
    result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
-   EEA_ExecutionStoreWriteResult(root, result);
-   EEAEvent ack_event;
-   EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.ticket) + "}";
-   audit.Append(ack_event, "EA_EXECUTION");
+   if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))
+      return false;
    return true;
 }
 

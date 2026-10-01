@@ -18,7 +18,7 @@ Mỗi fixture phải nêu nguồn/giả định, input, output kỳ vọng và v
 1. Biên dịch toàn bộ `.mq5/.mqh` bằng MetaEditor và lưu log không có lỗi compiler.
 2. Chạy EA trong MT5 ở observer mode, xác nhận log, file sandbox, restart và trạng thái fail closed.
 3. Chạy Strategy Tester với dữ liệu và broker specs mục tiêu; so khớp fixture, kiểm tra multi-symbol, thời gian, spread và chi phí.
-4. Chỉ sau đó mới đánh dấu gate Paper; không phát lệnh live từ các kiểm thử offline.
+4. Không có gate Paper: Paper ledger bị loại trừ vĩnh viễn. Chỉ controlled-live path có ủy quyền rõ ràng mới được xem xét, và không phát lệnh live từ các kiểm thử offline.
 
 Cổng này có thể chạy sau trên máy Windows khác hoặc môi trường được tổ chức cho phép. Việc chọn môi trường đó không thay đổi yêu cầu phải kiểm tra broker/account cụ thể trước Paper/Live.
 
@@ -28,7 +28,7 @@ Cổng này có thể chạy sau trên máy Windows khác hoặc môi trường 
 - Trước Phase 3: loại tài khoản hedging/netting, policy 1-Step/2-Step hoặc custom, vốn ban đầu, tiền tệ và các giới hạn risk nội bộ. Không cần chia sẻ thông tin đăng nhập.
 - Trước News/AI integration: nguồn lịch tin, cách chạy bridge và provider được phép.
 
-Trạng thái hiện tại: Phase 1 có source và contract tests; Phase 2 có module S02 Break Retest cô lập; Phase 3 có các phép tính thuần cho giá SL/TP, net reward/risk, headroom FTMO, ngân sách rủi ro trước sizing, volume, resolver symbol, gate dry run, ledger reset ngày và reducer rủi ro account-wide. Phase 4 có observer expected path, prototype vòng đời pending order, contract checkpoint restore và audit chain cô lập. Bộ kiểm thử offline hiện đạt 132/132. Một adapter runtime chỉ đọc cho account/symbol/positions/orders/deals đã được nối vào EA shell và MetaEditor build 6230 biên dịch sạch 0 lỗi/0 cảnh báo. Một isolated MT5 tester run đã tạo runtime JSON/audit thật và xác nhận snapshot account/symbol/positions/orders/deals trong cửa sổ bảy ngày, nên adapter đạt `RUNTIME_OBSERVED` và `BROKER_RECONCILED_BOUNDED` cho đúng tester scope. Lần chạy thứ hai cũng thực hiện fresh broker read thành công; tuy nhiên tester tái tạo Files sandbox nên chưa chứng minh checkpoint sống qua restart trong retained terminal sandbox, chưa so khớp toàn bộ output MQL với fixture và chưa đạt Paper.
+Trạng thái hiện tại: Phase 1 có source và contract tests; Phase 2 có module S02 Break Retest cô lập; Phase 3 có các phép tính thuần cho giá SL/TP, net reward/risk, headroom FTMO, ngân sách rủi ro trước sizing, volume, resolver symbol, gate dry run, ledger reset ngày và reducer rủi ro account-wide. Phase 4 có observer expected path, prototype vòng đời pending order, contract checkpoint restore và audit chain cô lập. Bộ kiểm thử offline hiện đạt 184/184. Adapter runtime chỉ đọc cho account/symbol/positions/orders/deals đã được nối vào EA shell; execution adapter được include để kiểm tra compile nhưng bị vô hiệu hóa và không được lifecycle gọi. Log build MetaEditor 6230 trong `artifacts/metaeditor-paperless-controlled-live-build.log` ghi nhận 0 lỗi/0 cảnh báo. Không có demo/live operation nào được thực hiện. Tester/retained-terminal restart, strategy-to-execution integration, risk-policy binding, manual authorization, kill switch, rollback và live evidence vẫn chưa đóng; Paper ledger bị loại trừ vĩnh viễn (`PAPER_EXCLUDED_PERMANENTLY`).
 
 
 ## Phase 3 FTMO headroom (offline)

@@ -49,7 +49,8 @@ bool EEA_RuntimeStoreWriteSymbols(const string root,const string &canonical[],
          EEA_JsonEscape(symbols[i].calculation_mode)+"\",\"base_currency\":\""+
          EEA_JsonEscape(symbols[i].base_currency)+"\",\"profit_currency\":\""+
          EEA_JsonEscape(symbols[i].profit_currency)+"\",\"margin_currency\":\""+
-         EEA_JsonEscape(symbols[i].margin_currency)+"\"}";
+         EEA_JsonEscape(symbols[i].margin_currency)+"\",\"metadata_fingerprint\":\""+
+         EEA_JsonEscape(symbols[i].metadata_fingerprint)+"\"}";
      }
    rows+="]";
    string json="{\"schema_version\":\"runtime-evidence-v0.1.0\",\"document_version\":\"runtime-symbols-v0.1.0\",\"config_version\":\""+
@@ -268,11 +269,19 @@ bool EEA_ExecutionStoreWriteIntent(const string root,const EEA_ExecutionIntent &
       EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"action\":"+
       IntegerToString(intent.action)+",\"order_type\":"+
       IntegerToString(intent.order_type)+",\"volume\":"+
-      EEA_RuntimeDoubleJson(intent.volume)+",\"price\":"+
+      EEA_RuntimeDoubleJson(intent.volume)+",\"risk_policy_id\":\""+
+      EEA_JsonEscape(intent.risk_policy_id)+"\",\"price\":"+
       EEA_RuntimeDoubleJson(intent.price)+",\"sl\":"+
       EEA_RuntimeDoubleJson(intent.sl)+",\"tp\":"+
       EEA_RuntimeDoubleJson(intent.tp)+",\"intent_created_at_utc\":\""+
-      EEA_IsoUtc((datetime)intent.intent_created_at_utc)+"\"}";
+      EEA_IsoUtc((datetime)intent.intent_created_at_utc)+"\",\"ticket\":"+
+      IntegerToString(intent.ticket)+",\"position_ticket\":"+
+      IntegerToString(intent.position_ticket)+",\"expiration\":\""+
+      EEA_IsoUtc((datetime)intent.expiration)+"\",\"magic\":"+
+      IntegerToString(intent.magic)+",\"deviation\":"+
+      IntegerToString(intent.deviation)+",\"filling_mode\":"+
+      IntegerToString(intent.filling_mode)+",\"request_ticket_kind\":\""+
+      EEA_JsonEscape(intent.request_ticket_kind)+"\"}";
    bool ok1=EEA_WriteAtomicText(root+"/current/execution_intent.json",json);
    bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
    return ok1 && ok2;
@@ -284,10 +293,14 @@ bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &
       "\",\"document_version\":\"execution-result-v0.1.0\",\"intent_id\":\""+
       EEA_JsonEscape(result.intent_id)+"\",\"correlation_id\":\""+
       EEA_JsonEscape(result.correlation_id)+"\",\"idempotency_key\":\""+
-      EEA_JsonEscape(result.idempotency_key)+"\",\"request_sent\":"+
+      EEA_JsonEscape(result.idempotency_key)+"\",\"authorization_id\":\""+
+      EEA_JsonEscape(result.authorization_id)+
+      "\",\"build_hash\":\""+EEA_JsonEscape(result.build_hash)+
+      "\",\"request_sent\":"+
       (result.request_sent ? "true" : "false")+",\"request_retcode\":\""+
       EEA_JsonEscape(result.request_retcode)+"\",\"request_ticket\":"+
-      IntegerToString(result.request_ticket)+",\"confirmation_state\":\""+
+      IntegerToString(result.request_ticket)+",\"request_ticket_kind\":\""+
+      EEA_JsonEscape(result.request_ticket_kind)+"\",\"confirmation_state\":\""+
       EEA_JsonEscape(result.confirmation_state)+"\",\"reason_code\":\""+
       EEA_JsonEscape(result.reason_code)+"\",\"observed_at_utc\":\""+
       EEA_IsoUtc((datetime)result.observed_at_utc)+"\"}";

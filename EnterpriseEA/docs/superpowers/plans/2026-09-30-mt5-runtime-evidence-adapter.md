@@ -422,7 +422,7 @@ Add a test to `Tests/runtime_evidence_tests.py` requiring each of the six exact 
 
 ```python
 for label in ("OFFLINE_VERIFIED", "MQL_COMPILED", "RUNTIME_OBSERVED",
-              "BROKER_RECONCILED_BOUNDED", "PAPER_PENDING", "NOT_IMPLEMENTED"):
+              "BROKER_RECONCILED_BOUNDED", "PAPER_EXCLUDED_PERMANENTLY", "NOT_IMPLEMENTED"):
     self.assertIn(label, report)
 ```
 

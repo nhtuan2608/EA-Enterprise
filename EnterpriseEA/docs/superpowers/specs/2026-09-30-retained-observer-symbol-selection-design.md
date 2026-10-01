@@ -367,7 +367,7 @@ After source/test/compile completion:
 - retained checkpoint and timer behavior: `RUNTIME_OBSERVED` only after retained-terminal artifacts pass;
 - account/position/order/deal evidence: `BROKER_RECONCILED_BOUNDED` only for the declared lookback and parity keys;
 - external transaction invalidation: `RUNTIME_OBSERVED` only when genuine external activity is captured, otherwise `RUNTIME_EVIDENCE_PENDING`;
-- virtual/Paper ledger: `PAPER_PENDING` and not implemented;
+- virtual/Paper ledger: `PAPER_EXCLUDED_PERMANENTLY`; it is not implemented and is not a required gate;
 - broker order submission/modification/cancellation: `NOT_IMPLEMENTED`.
 
 No result from this increment grants Paper or Live permission.

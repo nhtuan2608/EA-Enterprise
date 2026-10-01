@@ -313,8 +313,8 @@ The normal connected MT5 terminal was restored afterward. Account balance/equity
 ### Current evidence classifications
 
 - Existing pure Phase 1–4 prototype modules: **OFFLINE_VERIFIED**.
-- Runtime evidence contract/adapters/store/coordinator: **OFFLINE_VERIFIED**, **MQL_COMPILED** (latest full suite: 132/132; latest compile: 0 errors/0 warnings).
+- Runtime evidence contract/adapters/store/coordinator: **OFFLINE_VERIFIED**, **MQL_COMPILED** (current full suite: 184/184; current isolated compile: 0 errors/0 warnings).
 - Observer EA in isolated MT5 tester: **RUNTIME_OBSERVED**.
 - Seven-day tester account snapshot: **BROKER_RECONCILED_BOUNDED** for the declared tester scope only, not full live/demo account lineage.
-- Virtual execution, Strategy Tester trading scenarios, Paper soak and Live: **PAPER_PENDING**.
+- Virtual execution and Paper soak: **PAPER_EXCLUDED_PERMANENTLY**. Strategy Tester trading scenarios and Live: **NOT_AUTHORIZED** pending the controlled-live gates.
 - Pending order submission/cancellation, Dashboard, News Center, MCP AI runtime and Telegram gateway: **NOT_IMPLEMENTED**.

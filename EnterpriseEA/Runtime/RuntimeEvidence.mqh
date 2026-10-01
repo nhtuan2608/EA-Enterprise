@@ -53,6 +53,7 @@ struct EEA_RuntimeSymbolSpec
    string base_currency;
    string profit_currency;
    string margin_currency;
+   string metadata_fingerprint;
    long   filling_mode_mask;
   };
 
@@ -251,6 +252,20 @@ string EEA_RuntimeFingerprint(const string server,const string account_id)
    return StringFormat("fnv1a32:%x", h);
   }
 
+string EEA_RuntimeSymbolFingerprint(const EEA_RuntimeSymbolSpec &spec)
+  {
+   string raw=spec.broker_symbol+"|"+IntegerToString(spec.digits)+"|"+
+      DoubleToString(spec.point,12)+"|"+DoubleToString(spec.tick_size,12)+"|"+
+      DoubleToString(spec.tick_value,12)+"|"+DoubleToString(spec.contract_size,12)+"|"+
+      DoubleToString(spec.volume_min,12)+"|"+DoubleToString(spec.volume_max,12)+"|"+
+      DoubleToString(spec.volume_step,12)+"|"+IntegerToString(spec.stops_level_points)+"|"+
+      IntegerToString(spec.freeze_level_points)+"|"+spec.trade_mode+"|"+
+      spec.order_mode+"|"+spec.expiration_mode+"|"+spec.calculation_mode+"|"+
+      spec.base_currency+"|"+spec.profit_currency+"|"+spec.margin_currency+"|"+
+      IntegerToString(spec.filling_mode_mask);
+   return EEA_RuntimeFingerprint(spec.broker_symbol,raw);
+  }
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -401,6 +416,7 @@ bool EEA_RuntimeMaterialSpecEqual(const EEA_RuntimeSymbolSpec &left,
    if(left.base_currency       != right.base_currency)       return false;
    if(left.profit_currency     != right.profit_currency)     return false;
    if(left.margin_currency     != right.margin_currency)     return false;
+   if(left.metadata_fingerprint != right.metadata_fingerprint) return false;
    return true;
   }
 

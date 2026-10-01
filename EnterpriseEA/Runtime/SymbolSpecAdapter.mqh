@@ -36,6 +36,7 @@ bool EEA_ReadRuntimeSymbolSpec(const string canonical_symbol,
    spec.base_currency=SymbolInfoString(broker_symbol,SYMBOL_CURRENCY_BASE);
    spec.profit_currency=SymbolInfoString(broker_symbol,SYMBOL_CURRENCY_PROFIT);
    spec.margin_currency=SymbolInfoString(broker_symbol,SYMBOL_CURRENCY_MARGIN);
+   spec.metadata_fingerprint=EEA_RuntimeSymbolFingerprint(spec);
     spec.filling_mode_mask=SymbolInfoInteger(broker_symbol,SYMBOL_FILLING_MODE);
 
    if(!EEA_IsFiniteDouble(spec.point) || !EEA_IsFiniteDouble(spec.tick_size) ||

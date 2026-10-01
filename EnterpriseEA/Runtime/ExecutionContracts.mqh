@@ -26,6 +26,7 @@ struct EEA_ExecutionIntent
    string correlation_id;
    string idempotency_key;
    string config_version;
+   string risk_policy_id;
    string account_fingerprint;
    string broker_server;
    string canonical_symbol;
@@ -53,6 +54,8 @@ struct EEA_ExecutionResult
    string intent_id;
    string correlation_id;
    string idempotency_key;
+   string authorization_id;
+   string build_hash;
    bool request_sent;
    string request_retcode;
    long request_ticket;
@@ -80,6 +83,7 @@ void EEA_ExecutionIntentDefaults(EEA_ExecutionIntent &intent)
    intent.correlation_id="";
    intent.idempotency_key="";
    intent.config_version="";
+   intent.risk_policy_id="";
    intent.account_fingerprint="";
    intent.broker_server="";
    intent.canonical_symbol="";
@@ -107,6 +111,8 @@ void EEA_ExecutionResultDefaults(EEA_ExecutionResult &result)
    result.intent_id="";
    result.correlation_id="";
    result.idempotency_key="";
+   result.authorization_id="";
+   result.build_hash="";
    result.request_sent=false;
    result.request_retcode="";
    result.request_ticket=0;
@@ -114,6 +120,26 @@ void EEA_ExecutionResultDefaults(EEA_ExecutionResult &result)
    result.confirmation_state="NOT_SENT";
    result.reason_code="EXECUTION_DISABLED";
    result.observed_at_utc=0;
+  }
+
+void EEA_ExecutionResultReject(EEA_ExecutionResult &result,const string reason)
+  {
+   result.confirmation_state="NOT_SENT";
+   result.reason_code=reason;
+   result.request_sent=false;
+  }
+
+void EEA_ExecutionResultAccept(EEA_ExecutionResult &result)
+  {
+   result.confirmation_state="PREFLIGHT_ACCEPTED";
+   result.reason_code="OK";
+   result.request_sent=false;
+  }
+
+bool EEA_ExecutionIntentIdentifiersPresent(const EEA_ExecutionIntent &intent)
+  {
+   return intent.intent_id!="" && intent.correlation_id!="" &&
+          intent.idempotency_key!="";
   }
 
 #endif
