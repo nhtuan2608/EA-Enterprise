@@ -93,6 +93,40 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
                 self.assertEqual(actual["reason_code"], row["expected"]["reason_code"])
                 self.assertEqual(actual["request_sent"], row["expected"]["request_sent"])
 
+    def test_mql_adapter_and_input_default_disabled(self):
+        adapter_path = ROOT / "Runtime/ExecutionAdapter.mqh"
+        self.assertTrue(adapter_path.exists(), "ExecutionAdapter.mqh must exist")
+        
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("InpExecutionEnabled", shell)
+        self.assertIn("InpObserverOnly", shell)
+
+    def test_no_automatic_execution_call_sites(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertNotIn("EEA_ExecutionSubmit", shell)
+        self.assertNotIn("EEA_ExecutionModifyProtective", shell)
+        self.assertNotIn("EEA_ExecutionCancelPending", shell)
+        self.assertNotIn("EEA_ExecutionPreflight", shell)
+
+    def test_execution_apis_confined_to_adapter(self):
+        adapter_text = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        self.assertIn("OrderSend", adapter_text)
+        for mqh in ROOT.glob("Runtime/**/*.mqh"):
+            if mqh.name == "ExecutionAdapter.mqh":
+                continue
+            content = mqh.read_text(encoding="utf-8")
+            self.assertNotIn("OrderSend", content)
+
+    def test_execution_adapter_features(self):
+        adapter_text = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        self.assertIn("data_root", adapter_text)
+        self.assertIn("position_ticket", adapter_text)
+        self.assertIn("ticket", adapter_text)
+        self.assertIn("magic", adapter_text)
+        self.assertIn("expiration", adapter_text)
+        self.assertIn("type_time", adapter_text)
+        self.assertIn("EEA_ExecutionIsDuplicateIdempotency", adapter_text)
+
 
 if __name__ == "__main__":
     unittest.main()

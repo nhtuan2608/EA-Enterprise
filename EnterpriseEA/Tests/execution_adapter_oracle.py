@@ -126,6 +126,8 @@ def intent():
         "price": 0.0,
         "sl": 1.0800,
         "tp": 1.1000,
+        "ticket": 0,
+        "position_ticket": 0,
         "expiration": 0
     }
 

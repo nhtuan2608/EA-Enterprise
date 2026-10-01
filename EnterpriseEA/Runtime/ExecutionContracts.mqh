@@ -37,6 +37,8 @@ struct EEA_ExecutionIntent
    double price;
    double sl;
    double tp;
+   long ticket;
+   long position_ticket;
    datetime expiration;
    datetime intent_created_at_utc;
   };
@@ -84,6 +86,8 @@ void EEA_ExecutionIntentDefaults(EEA_ExecutionIntent &intent)
    intent.price=0.0;
    intent.sl=0.0;
    intent.tp=0.0;
+   intent.ticket=0;
+   intent.position_ticket=0;
    intent.expiration=0;
    intent.intent_created_at_utc=0;
   }
