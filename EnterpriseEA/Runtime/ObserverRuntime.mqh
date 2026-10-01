@@ -140,11 +140,26 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
 
    EEA_RuntimeStatus val_status;
    EEA_RuntimeValidate(ctx.reconciliation,(long)TimeGMT(),ctx.previous_deal_watermark,val_status);
-   ctx.status.runtime_state = val_status.runtime_state;
-   ctx.status.reason_code = val_status.reason_code;
-   ctx.status.new_entries_blocked = val_status.new_entries_blocked;
-   ctx.status.previous_deal_watermark = val_status.previous_deal_watermark;
-   ctx.status.previous_deal_watermark_time = val_status.previous_deal_watermark_time;
+   val_status.runtime_instance_id = ctx.status.runtime_instance_id;
+   val_status.refresh_sequence = ctx.status.refresh_sequence;
+   val_status.refresh_generation = ctx.status.refresh_generation;
+   val_status.selection_revision = ctx.status.selection_revision;
+   val_status.checkpoint_written_at_utc = ctx.status.checkpoint_written_at_utc;
+   val_status.broker_observed_at_utc = ctx.status.broker_observed_at_utc;
+   val_status.selected_symbols_fingerprint = ctx.status.selected_symbols_fingerprint;
+   val_status.timer_tick_count = ctx.status.timer_tick_count;
+   val_status.refresh_attempt_count = ctx.status.refresh_attempt_count;
+   val_status.refresh_success_count = ctx.status.refresh_success_count;
+   val_status.refresh_failure_count = ctx.status.refresh_failure_count;
+   val_status.last_timer_at_utc = ctx.status.last_timer_at_utc;
+   val_status.last_refresh_duration_ms = ctx.status.last_refresh_duration_ms;
+   val_status.max_refresh_duration_ms = ctx.status.max_refresh_duration_ms;
+   val_status.consecutive_refresh_failures = ctx.status.consecutive_refresh_failures;
+   val_status.transaction_callback_count = ctx.status.transaction_callback_count;
+   val_status.transaction_invalidation_generation = ctx.status.transaction_invalidation_generation;
+   val_status.pending_refresh = ctx.status.pending_refresh;
+   val_status.refresh_in_progress = ctx.status.refresh_in_progress;
+   ctx.status = val_status;
 
    bool persisted=EEA_RuntimeStoreWriteAccount(ctx.root,ctx.account) &&
       EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
@@ -218,29 +233,38 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
 
    EEAStateLoadResult checkpoint=EEA_RuntimeStoreCheckStatus(
       ctx.root+"/current/runtime_status.json",ctx.config_version,ctx.account.account_fingerprint);
+   EEAStateLoadResult selection_check=EEA_RuntimeStoreCheckSymbolSelection(
+      ctx.root+"/current/symbol_selection.json",ctx.config_version,ctx.account.account_fingerprint);
    EEA_RuntimeStatus checkpoint_status;
    EEA_RuntimeDefaults(checkpoint_status);
    checkpoint_status.reason_code=(checkpoint==EEA_STATE_MISSING ? "RUNTIME_CHECKPOINT_MISSING" :
                                   checkpoint==EEA_STATE_INCOMPATIBLE ? "RUNTIME_CHECKPOINT_INCOMPATIBLE" :
+                                  selection_check==EEA_STATE_INCOMPATIBLE ? "RUNTIME_SELECTION_INCOMPATIBLE" :
                                   "RUNTIME_RECONCILIATION_REQUIRED");
    EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status);
    ctx.initialized=true;
    return EEA_ObserverRuntimeRefresh(ctx,audit);
   }
 
-void EEA_ObserverRuntimeMarkStale(EEA_ObserverRuntimeContext &ctx,const string reason)
+void EEA_ObserverRuntimeMarkStale(EEA_ObserverRuntimeContext &ctx,const string reason,CAuditLog &audit)
   {
+   ctx.status.transaction_callback_count++;
    if(!ctx.stale)
      {
       ctx.status.transaction_invalidation_generation++;
+      ctx.stale=true;
+      ctx.stale_reason=reason;
+      ctx.status.runtime_state="DEGRADED";
+      ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
+      ctx.status.new_entries_blocked=true;
+      ctx.status.pending_refresh=true;
+      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"BROKER_TRANSACTION_OBSERVED",ctx.status);
      }
-   ctx.status.transaction_callback_count++;
-   ctx.stale=true;
-   ctx.stale_reason=reason;
-   ctx.status.runtime_state="DEGRADED";
-   ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
-   ctx.status.new_entries_blocked=true;
-   ctx.status.pending_refresh=true;
+   else
+     {
+      ctx.stale_reason=reason;
+      ctx.status.pending_refresh=true;
+     }
   }
 
 void EEA_ObserverRuntimeOnTimer(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit)
@@ -296,7 +320,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
    ctx.symbol_count = count;
    ctx.status.selection_revision++;
 
-   EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED");
+   EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED", audit);
 
    if(EEA_ObserverRuntimeRefresh(ctx, audit))
      {

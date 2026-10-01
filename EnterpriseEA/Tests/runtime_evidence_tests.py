@@ -443,5 +443,29 @@ class RuntimeTelemetryValidationTests(unittest.TestCase):
         for token in ("OrderSend", "OrderSendAsync", "CTrade", "PositionClose", "PositionModify", "OrderDelete"):
             self.assertNotIn(token, obs_mqh)
 
+
+class RetainedRuntimeLifecycleWiringTests(unittest.TestCase):
+    def test_mark_stale_signature_and_audit(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        shell = (ROOT / 'EnterpriseEA.mq5').read_text(encoding='utf-8')
+        self.assertIn("EEA_ObserverRuntimeMarkStale(EEA_ObserverRuntimeContext &ctx,const string reason,CAuditLog &audit)", obs_mqh)
+        self.assertIn("BROKER_TRANSACTION_OBSERVED", obs_mqh)
+        self.assertIn("EEA_ObserverRuntimeMarkStale(g_runtime,\"BROKER_TRANSACTION_OBSERVED\",g_audit)", shell)
+
+    def test_refresh_preserves_telemetry(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        self.assertIn("val_status", obs_mqh)
+        self.assertIn("ctx.status = val_status", obs_mqh)
+
+    def test_startup_checks_symbol_selection(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        self.assertIn("EEA_RuntimeStoreCheckSymbolSelection", obs_mqh)
+
+    def test_apply_selection_rollback(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        self.assertIn("ctx.canonical_symbols[i] = old_canons[i]", obs_mqh)
+        self.assertIn("ctx.status.selection_revision = old_revision", obs_mqh)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -146,7 +146,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeResult &result)
   {
    if(InpRuntimeEvidenceEnabled)
-      EEA_ObserverRuntimeMarkStale(g_runtime,"BROKER_TRANSACTION_OBSERVED");
+      EEA_ObserverRuntimeMarkStale(g_runtime,"BROKER_TRANSACTION_OBSERVED",g_audit);
   }
 
 void OnChartEvent(const int id,
