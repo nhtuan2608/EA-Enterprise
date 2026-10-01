@@ -71,7 +71,9 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
          EEA_RuntimeDoubleJson(s.positions[i].price_open)+",\"current_price\":"+
          EEA_RuntimeDoubleJson(s.positions[i].current_price)+",\"profit\":"+
          EEA_RuntimeDoubleJson(s.positions[i].profit)+",\"swap\":"+
-         EEA_RuntimeDoubleJson(s.positions[i].swap)+",\"opened_at_utc\":\""+
+         EEA_RuntimeDoubleJson(s.positions[i].swap)+",\"sl\":"+
+         EEA_RuntimeDoubleJson(s.positions[i].sl)+",\"tp\":"+
+         EEA_RuntimeDoubleJson(s.positions[i].tp)+",\"opened_at_utc\":\""+
          EEA_IsoUtc((datetime)s.positions[i].time_open_utc)+"\"}";
      }
    positions+="]";
@@ -89,6 +91,21 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
          EEA_IsoUtc((datetime)s.orders[i].expiration_utc)+"\"}";
      }
    orders+="]";
+   string history_orders="[";
+   for(int i=0;i<s.history_order_count;i++)
+     {
+      if(i>0) history_orders+=",";
+      history_orders+="{\"ticket\":"+IntegerToString(s.history_orders[i].ticket)+",\"order_id\":\""+
+         EEA_JsonEscape(s.history_orders[i].order_id)+"\",\"symbol\":\""+EEA_JsonEscape(s.history_orders[i].symbol)+
+         "\",\"type\":\""+EEA_JsonEscape(s.history_orders[i].type)+"\",\"volume\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].volume)+",\"price\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].price)+",\"sl\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].sl)+",\"tp\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].tp)+",\"setup\":\""+
+         EEA_IsoUtc((datetime)s.history_orders[i].time_setup_utc)+"\",\"expiration\":\""+
+         EEA_IsoUtc((datetime)s.history_orders[i].expiration_utc)+"\"}";
+     }
+   history_orders+="]";
    string deals="[";
    for(int i=0;i<s.deal_count;i++)
      {
@@ -116,12 +133,14 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
       ",\"account_fingerprint\":\""+EEA_JsonEscape(s.account_fingerprint)+
       "\",\"positions_complete\":"+EEA_RuntimeBoolJson(s.positions_complete)+
       ",\"orders_complete\":"+EEA_RuntimeBoolJson(s.orders_complete)+
+      ",\"history_orders_complete\":"+EEA_RuntimeBoolJson(s.history_orders_complete)+
       ",\"deals_complete\":"+EEA_RuntimeBoolJson(s.deals_complete)+
       ",\"position_count\":"+IntegerToString(s.position_count)+",\"order_count\":"+
-      IntegerToString(s.order_count)+",\"deal_count\":"+IntegerToString(s.deal_count)+
+      IntegerToString(s.order_count)+",\"history_order_count\":"+
+      IntegerToString(s.history_order_count)+",\"deal_count\":"+IntegerToString(s.deal_count)+
       ",\"deal_watermark\":"+IntegerToString(s.deal_watermark)+
       ",\"deal_watermark_time_msc\":"+IntegerToString(s.deal_watermark_time_msc)+
-      ",\"positions\":"+positions+",\"orders\":"+orders+",\"deals\":"+deals+"}";
+      ",\"positions\":"+positions+",\"orders\":"+orders+",\"history_orders\":"+history_orders+",\"deals\":"+deals+"}";
    return EEA_WriteAtomicText(root+"/current/broker_reconciliation.json",json);
   }
 
