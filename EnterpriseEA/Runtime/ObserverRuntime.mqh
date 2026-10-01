@@ -161,6 +161,22 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    val_status.refresh_in_progress = ctx.status.refresh_in_progress;
    ctx.status = val_status;
 
+   ulong duration_ms = GetTickCount64() - start_tick;
+   ctx.status.last_refresh_duration_ms = (long)duration_ms;
+   if((long)duration_ms > ctx.status.max_refresh_duration_ms)
+      ctx.status.max_refresh_duration_ms = (long)duration_ms;
+
+   ctx.status.broker_observed_at_utc = ctx.reconciliation.observed_at_utc;
+   ctx.status.checkpoint_written_at_utc = (long)TimeGMT();
+   ctx.previous_deal_watermark=ctx.reconciliation.deal_watermark;
+   ctx.last_refresh_utc=(long)TimeGMT();
+   ctx.stale=false;
+   ctx.stale_reason="";
+   ctx.status.refresh_success_count++;
+   ctx.status.consecutive_refresh_failures=0;
+   ctx.status.refresh_in_progress=false;
+   ctx.status.pending_refresh=false;
+
    bool persisted=EEA_RuntimeStoreWriteAccount(ctx.root,ctx.account) &&
       EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
                                    ctx.config_version,ctx.account.account_fingerprint) &&
@@ -180,22 +196,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_PERSISTENCE_FAILED",ctx.status);
       return false;
      }
-
-   ulong duration_ms = GetTickCount64() - start_tick;
-   ctx.status.last_refresh_duration_ms = (long)duration_ms;
-   if((long)duration_ms > ctx.status.max_refresh_duration_ms)
-      ctx.status.max_refresh_duration_ms = (long)duration_ms;
-
-   ctx.status.broker_observed_at_utc = ctx.reconciliation.observed_at_utc;
-   ctx.status.checkpoint_written_at_utc = (long)TimeGMT();
-   ctx.previous_deal_watermark=ctx.reconciliation.deal_watermark;
-   ctx.last_refresh_utc=(long)TimeGMT();
-   ctx.stale=false;
-   ctx.stale_reason="";
-   ctx.status.refresh_success_count++;
-   ctx.status.consecutive_refresh_failures=0;
-   ctx.status.refresh_in_progress=false;
-   ctx.status.pending_refresh=false;
 
    EEA_ObserverRuntimeAudit(audit,ctx.config_version,prior.runtime_state=="" ? "RUNTIME_INITIALIZED" : "RUNTIME_REFRESHED",ctx.status);
    return ctx.status.runtime_state=="OBSERVING";

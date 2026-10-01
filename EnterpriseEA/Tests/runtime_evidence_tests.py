@@ -498,6 +498,19 @@ class RetainedRuntimeLifecycleWiringTests(unittest.TestCase):
         self.assertIn("ctx.canonical_symbols[i] = old_canons[i]", obs_mqh)
         self.assertIn("ctx.status.selection_revision = old_revision", obs_mqh)
 
+    def test_status_serialization_occurs_after_final_telemetry(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        write_status_pos = obs_mqh.find("EEA_RuntimeStoreWriteStatus")
+        refresh_false_pos = obs_mqh.find("ctx.status.refresh_in_progress = false")
+        duration_pos = obs_mqh.find("ctx.status.last_refresh_duration_ms =")
+        
+        self.assertNotEqual(write_status_pos, -1, "EEA_RuntimeStoreWriteStatus must exist")
+        self.assertNotEqual(refresh_false_pos, -1, "refresh_in_progress = false assignment must exist")
+        self.assertNotEqual(duration_pos, -1, "duration assignment must exist")
+        
+        self.assertGreater(write_status_pos, duration_pos, "Status serialization must occur after duration assignment")
+        self.assertGreater(write_status_pos, refresh_false_pos, "Status serialization must occur after refresh_in_progress = false")
+
 
 if __name__ == "__main__":
     unittest.main()
