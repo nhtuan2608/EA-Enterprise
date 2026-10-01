@@ -7,10 +7,6 @@
 #include "../Storage/AuditLog.mqh"
 #include "../Storage/RuntimeEvidenceStore.mqh"
 
-// Disabled-by-default execution adapter for MetaTrader 5 trade operations.
-// All mutating calls are guarded by EEA_ExecutionGateCheck and require explicit invocation.
-// No execution path is called from EA lifecycle events (OnInit, OnTick, OnTimer, OnChartEvent, OnTradeTransaction).
-
 string EEA_ExecutionResolveRoot(const string data_root)
 {
    return (data_root == "") ? "EnterpriseEA" : data_root;
@@ -22,16 +18,29 @@ bool EEA_ExecutionIsDuplicateIdempotency(const string root, const string idempot
    string path = root + "/logs/execution_audit.jsonl";
    if(!FileIsExist(path, 0)) return false;
    int h = FileOpen(path, FILE_READ|FILE_BIN|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(h == INVALID_HANDLE) return false;
+   if(h == INVALID_HANDLE) return true; // Fail closed on unreadable log
    ulong size = FileSize(h);
+   if(size > 1048576) { FileClose(h); return true; } // Fail closed on oversized log (>1MB)
    if(size == 0) { FileClose(h); return false; }
    uchar bytes[];
-   if(ArrayResize(bytes, (int)size) != (int)size) { FileClose(h); return false; }
+   if(ArrayResize(bytes, (int)size) != (int)size) { FileClose(h); return true; }
    uint read = FileReadArray(h, bytes, 0, (int)size);
    FileClose(h);
-   if(read != (uint)size) return false;
+   if(read != (uint)size) return true; // Fail closed on incomplete read
    string content = CharArrayToString(bytes, 0, (int)read, CP_UTF8);
-   return (StringFind(content, "\"idempotency_key\":\"" + idempotency_key + "\"") >= 0);
+   
+   string lines[];
+   int count = StringSplit(content, '\n', lines);
+   for(int i = 0; i < count; i++)
+     {
+      string line = lines[i];
+      if(StringFind(line, "\"idempotency_key\":\"" + idempotency_key + "\"") >= 0 ||
+         StringFind(line, "\"idempotency_key\":\"" + idempotency_key + '"') >= 0)
+        {
+         return true;
+        }
+     }
+   return false;
 }
 
 void EEA_AuditExecutionFailure(CAuditLog &audit, const string intent_id, const string reason_code)
@@ -105,9 +114,9 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    request.sl = intent.sl;
    request.tp = intent.tp;
    request.type = (ENUM_ORDER_TYPE)intent.order_type;
-   request.type_filling = ORDER_FILLING_FOK;
-   request.deviation = 20;
-   request.magic = 888888;
+   request.type_filling = (ENUM_ORDER_FILLING)intent.filling_mode;
+   request.deviation = intent.deviation;
+   request.magic = intent.magic;
 
    if(intent.action == EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
@@ -118,7 +127,8 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    bool sent = OrderSend(request, trade_result);
    result.request_sent = sent;
    result.request_retcode = IntegerToString(trade_result.retcode);
-   result.request_ticket = trade_result.order > 0 ? trade_result.order : trade_result.deal;
+   result.request_ticket_kind = (intent.action == EEA_EXEC_ACTION_SUBMIT_MARKET && trade_result.deal > 0) ? "DEAL" : "ORDER";
+   result.request_ticket = (result.request_ticket_kind == "DEAL") ? trade_result.deal : trade_result.order;
    result.observed_at_utc = TimeCurrent();
 
    if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)
@@ -201,7 +211,7 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    request.symbol = intent.broker_symbol;
    request.sl = intent.sl;
    request.tp = intent.tp;
-   request.magic = 888888;
+   request.magic = intent.magic;
 
    if(intent.position_ticket > 0)
       request.position = (ulong)intent.position_ticket;
@@ -211,6 +221,8 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    bool sent = OrderSend(request, trade_result);
    result.request_sent = sent;
    result.request_retcode = IntegerToString(trade_result.retcode);
+   result.request_ticket_kind = intent.position_ticket > 0 ? "POSITION" : "ORDER";
+   result.request_ticket = intent.position_ticket > 0 ? intent.position_ticket : intent.ticket;
    result.observed_at_utc = TimeCurrent();
 
    if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)
@@ -227,7 +239,7 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    EEA_ExecutionStoreWriteResult(root, result);
    EEAEvent ack_event;
    EEAEvent_Init(ack_event, "EXECUTION_ACKNOWLEDGED", TimeGMT(), "", "", "", "", "UNKNOWN");
-   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(intent.position_ticket > 0 ? intent.position_ticket : intent.ticket) + "}";
+   ack_event.details_json = "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"ticket\":" + IntegerToString(result.request_ticket) + "}";
    audit.Append(ack_event, "EA_EXECUTION");
    return true;
 }
@@ -290,12 +302,15 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    ZeroMemory(trade_result);
 
    request.action = TRADE_ACTION_REMOVE;
+   request.symbol = intent.broker_symbol;
    request.order = (ulong)intent.ticket;
-   request.magic = 888888;
+   request.magic = intent.magic;
 
    bool sent = OrderSend(request, trade_result);
    result.request_sent = sent;
    result.request_retcode = IntegerToString(trade_result.retcode);
+   result.request_ticket_kind = "ORDER";
+   result.request_ticket = intent.ticket;
    result.observed_at_utc = TimeCurrent();
 
    if(!sent || trade_result.retcode != TRADE_RETCODE_DONE)

@@ -53,6 +53,7 @@ struct EEA_RuntimeSymbolSpec
    string base_currency;
    string profit_currency;
    string margin_currency;
+   long   filling_mode_mask;
   };
 
 struct EEA_RuntimePositionRow

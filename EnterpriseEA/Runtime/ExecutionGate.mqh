@@ -51,7 +51,23 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       return false;
      }
 
-   if(intent.volume<symbol.volume_min || intent.volume>symbol.volume_max)
+       long filling_mask = symbol.filling_mode_mask;
+    if(filling_mask > 0)
+      {
+       bool supported = false;
+       if(intent.filling_mode == 0 && (filling_mask & 1) != 0) supported = true;
+       else if(intent.filling_mode == 1 && (filling_mask & 2) != 0) supported = true;
+       else if(intent.filling_mode == 2 && (filling_mask & 4) != 0) supported = true;
+       if(!supported)
+         {
+          result.confirmation_state="NOT_SENT";
+          result.reason_code="SYMBOL_FILLING_UNSUPPORTED";
+          result.request_sent=false;
+          return false;
+         }
+      }
+
+    if(intent.volume<symbol.volume_min || intent.volume>symbol.volume_max)
      {
       result.confirmation_state="NOT_SENT";
       result.reason_code="SYMBOL_SPEC_INVALID";

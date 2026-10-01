@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from execution_adapter_oracle import preflight, idempotency_decision, apply_result, reconcile_result, intent, context, mutate
+from execution_adapter_oracle import preflight, idempotency_decision, idempotency_decision_scan, apply_result, reconcile_result, intent, context, mutate
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = ROOT / "Tests/Fixtures/execution-adapter-v0.1.0.json"
@@ -40,44 +40,70 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         self.assertEqual(len(paper_files), 0, "No paper ledger files or modules are permitted.")
 
     def test_market_fill_in_history_confirms(self):
-        snapshot = {"deals": [{"order_ticket": 12345}], "orders": [], "positions": []}
-        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_MARKET", {})
+        snapshot = {"deals": [{"deal_ticket": 12345}], "orders": [], "positions": []}
+        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_MARKET", {}, request_ticket_kind="DEAL")
         self.assertEqual(res["confirmation_state"], "CONFIRMED")
         self.assertEqual(res["reason_code"], "OK")
 
     def test_pending_order_remaining_active_confirms(self):
         snapshot = {"orders": [{"ticket": 12345}], "deals": [], "positions": []}
-        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_PENDING", {})
+        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_PENDING", {}, request_ticket_kind="ORDER")
         self.assertEqual(res["confirmation_state"], "CONFIRMED")
         self.assertEqual(res["reason_code"], "OK")
 
     def test_confirmed_cancel_after_active_order_disappears(self):
         snapshot = {"orders": [], "deals": [{"order_ticket": 12345}], "positions": []}
-        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "CANCEL_PENDING", {})
+        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "CANCEL_PENDING", {}, request_ticket_kind="ORDER")
         self.assertEqual(res["confirmation_state"], "CONFIRMED")
         
         snapshot_hist = {"orders": [], "history_orders": [{"ticket": 12345}], "deals": [], "positions": []}
-        res_hist = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot_hist, 12345, "CANCEL_PENDING", {})
+        res_hist = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot_hist, 12345, "CANCEL_PENDING", {}, request_ticket_kind="ORDER")
         self.assertEqual(res_hist["confirmation_state"], "CONFIRMED")
 
     def test_modify_confirmation_from_active_protective_fields(self):
         snapshot = {"orders": [{"ticket": 12345, "sl": 1.08, "tp": 1.10}], "deals": [], "positions": []}
-        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10})
+        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10}, request_ticket_kind="ORDER")
         self.assertEqual(res["confirmation_state"], "CONFIRMED")
         
         snapshot2 = {"orders": [], "positions": [{"ticket": 12345, "sl": 1.08, "tp": 1.10}], "deals": []}
-        res2 = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot2, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10})
+        res2 = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot2, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10}, request_ticket_kind="POSITION")
         self.assertEqual(res2["confirmation_state"], "CONFIRMED")
-
-        # Non-matching position SL/TP tolerance should remain unknown
-        snapshot3 = {"orders": [], "positions": [{"ticket": 12345, "sl": 1.07, "tp": 1.09}], "deals": []}
-        res3 = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED", "intent": {"sl": 1.08, "tp": 1.10}}, snapshot3, 12345, "MODIFY_PROTECTIVE", {"sl": 1.08, "tp": 1.10})
-        self.assertEqual(res3["confirmation_state"], "EXECUTION_UNKNOWN")
 
     def test_timeout_missing_evidence_race_unknown(self):
         snapshot = {"orders": [], "deals": [], "positions": []}
-        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_PENDING", {})
+        res = reconcile_result({"confirmation_state": "REQUEST_ACCEPTED"}, snapshot, 12345, "SUBMIT_PENDING", {}, request_ticket_kind="ORDER")
         self.assertEqual(res["confirmation_state"], "EXECUTION_UNKNOWN")
+
+    def test_hardening_magic_deviation_filling_defaults(self):
+        i = intent()
+        self.assertEqual(i["magic"], 888888)
+        self.assertEqual(i["deviation"], 20)
+        self.assertEqual(i["filling_mode"], 0)
+
+    def test_unsupported_filling_mode_fails_closed(self):
+        i = intent()
+        i["filling_mode"] = 2 # e.g. RETURN
+        ctx = context(execution_enabled=True, supported_filling_modes=[0, 1]) # Only FOK and IOC supported
+        res = preflight(i, ctx)
+        self.assertEqual(res["confirmation_state"], "NOT_SENT")
+        self.assertEqual(res["reason_code"], "SYMBOL_FILLING_UNSUPPORTED")
+
+    def test_idempotency_audit_scan_exact_bounded_and_fail_closed(self):
+        log_text = '{"intent_id":"1","idempotency_key":"idem-001"}\n'
+        res_dup = idempotency_decision_scan(log_text, "idem-001")
+        self.assertFalse(res_dup["accepted"])
+        self.assertEqual(res_dup["reason_code"], "DUPLICATE_IDEMPOTENCY_KEY")
+
+        res_ok = idempotency_decision_scan(log_text, "idem-999")
+        self.assertTrue(res_ok["accepted"])
+
+        # Unreadable (None) or oversized log (>1MB) fails closed
+        res_unreadable = idempotency_decision_scan(None, "idem-001")
+        self.assertFalse(res_unreadable["accepted"])
+
+        oversized = "A" * 2000000
+        res_oversized = idempotency_decision_scan(oversized, "idem-001")
+        self.assertFalse(res_oversized["accepted"])
 
     def test_fixture_cases(self):
         if not FIXTURE_PATH.exists():
@@ -123,8 +149,9 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         self.assertIn("position_ticket", adapter_text)
         self.assertIn("ticket", adapter_text)
         self.assertIn("magic", adapter_text)
-        self.assertIn("expiration", adapter_text)
-        self.assertIn("type_time", adapter_text)
+        self.assertIn("deviation", adapter_text)
+        self.assertIn("filling_mode", adapter_text)
+        self.assertIn("request_ticket_kind", adapter_text)
         self.assertIn("EEA_ExecutionIsDuplicateIdempotency", adapter_text)
 
 

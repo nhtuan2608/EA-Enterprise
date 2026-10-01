@@ -9,29 +9,40 @@ bool EEA_ExecutionReconcileResult(EEA_ExecutionResult &result,
                                    const long request_ticket,
                                    const string request_action,
                                    const double expected_sl=0.0,
-                                   const double expected_tp=0.0)
+                                   const double expected_tp=0.0,
+                                   const string request_ticket_kind="ORDER")
   {
    if(result.confirmation_state=="CONFIRMED") return true;
 
    bool found=false;
    if(request_action=="SUBMIT_MARKET" || request_action=="SUBMIT_PENDING")
      {
-      for(int i=0; i<reconciliation.deal_count; i++)
+      if(request_ticket_kind=="DEAL")
         {
-         if(reconciliation.deals[i].order_ticket==request_ticket) { found=true; break; }
+         for(int i=0; i<reconciliation.deal_count; i++)
+           {
+            if(reconciliation.deals[i].deal_ticket==request_ticket || reconciliation.deals[i].order_ticket==request_ticket) { found=true; break; }
+           }
         }
-      if(!found)
+      else if(request_ticket_kind=="POSITION")
+        {
+         for(int i=0; i<reconciliation.position_count; i++)
+           {
+            if(reconciliation.positions[i].ticket==request_ticket) { found=true; break; }
+           }
+        }
+      else
         {
          for(int i=0; i<reconciliation.order_count; i++)
            {
             if(reconciliation.orders[i].ticket==request_ticket) { found=true; break; }
            }
-        }
-      if(!found)
-        {
-         for(int i=0; i<reconciliation.position_count; i++)
+         if(!found)
            {
-            if(reconciliation.positions[i].ticket==request_ticket) { found=true; break; }
+            for(int i=0; i<reconciliation.deal_count; i++)
+              {
+               if(reconciliation.deals[i].order_ticket==request_ticket) { found=true; break; }
+              }
            }
         }
 
@@ -70,16 +81,7 @@ bool EEA_ExecutionReconcileResult(EEA_ExecutionResult &result,
    else if(request_action=="MODIFY_PROTECTIVE")
      {
       bool matched=false;
-      for(int i=0; i<reconciliation.order_count; i++)
-        {
-         if(reconciliation.orders[i].ticket==request_ticket)
-           {
-            if(MathAbs(reconciliation.orders[i].sl - expected_sl) < 1e-9 &&
-               MathAbs(reconciliation.orders[i].tp - expected_tp) < 1e-9)
-              { matched=true; break; }
-           }
-        }
-      if(!matched)
+      if(request_ticket_kind=="POSITION")
         {
          for(int i=0; i<reconciliation.position_count; i++)
            {
@@ -88,6 +90,30 @@ bool EEA_ExecutionReconcileResult(EEA_ExecutionResult &result,
                if(MathAbs(reconciliation.positions[i].sl - expected_sl) < 1e-9 &&
                   MathAbs(reconciliation.positions[i].tp - expected_tp) < 1e-9)
                  { matched=true; break; }
+              }
+           }
+        }
+      else
+        {
+         for(int i=0; i<reconciliation.order_count; i++)
+           {
+            if(reconciliation.orders[i].ticket==request_ticket)
+              {
+               if(MathAbs(reconciliation.orders[i].sl - expected_sl) < 1e-9 &&
+                  MathAbs(reconciliation.orders[i].tp - expected_tp) < 1e-9)
+                 { matched=true; break; }
+              }
+           }
+         if(!matched)
+           {
+            for(int i=0; i<reconciliation.position_count; i++)
+              {
+               if(reconciliation.positions[i].ticket==request_ticket)
+                 {
+                  if(MathAbs(reconciliation.positions[i].sl - expected_sl) < 1e-9 &&
+                     MathAbs(reconciliation.positions[i].tp - expected_tp) < 1e-9)
+                    { matched=true; break; }
+                 }
               }
            }
         }

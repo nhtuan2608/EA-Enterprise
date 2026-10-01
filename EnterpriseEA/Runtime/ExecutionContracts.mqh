@@ -40,6 +40,10 @@ struct EEA_ExecutionIntent
    long ticket;
    long position_ticket;
    datetime expiration;
+   long magic;
+   int deviation;
+   int filling_mode;
+   string request_ticket_kind;
    datetime intent_created_at_utc;
   };
 
@@ -52,6 +56,7 @@ struct EEA_ExecutionResult
    bool request_sent;
    string request_retcode;
    long request_ticket;
+   string request_ticket_kind;
    string confirmation_state; // NOT_SENT | PREFLIGHT_ACCEPTED | REQUEST_ACCEPTED | CONFIRMED | REJECTED | EXECUTION_UNKNOWN
    string reason_code;
    datetime observed_at_utc;
@@ -89,6 +94,10 @@ void EEA_ExecutionIntentDefaults(EEA_ExecutionIntent &intent)
    intent.ticket=0;
    intent.position_ticket=0;
    intent.expiration=0;
+   intent.magic=888888;
+   intent.deviation=20;
+   intent.filling_mode=0;
+   intent.request_ticket_kind="ORDER";
    intent.intent_created_at_utc=0;
   }
 
@@ -101,6 +110,7 @@ void EEA_ExecutionResultDefaults(EEA_ExecutionResult &result)
    result.request_sent=false;
    result.request_retcode="";
    result.request_ticket=0;
+   result.request_ticket_kind="ORDER";
    result.confirmation_state="NOT_SENT";
    result.reason_code="EXECUTION_DISABLED";
    result.observed_at_utc=0;

@@ -26,6 +26,14 @@ def preflight(intent, context):
             "reason_code": "SYMBOL_SPEC_INVALID",
             "request_sent": False
         }
+    filling_mode = intent.get("filling_mode", 0)
+    supported_filling = context.get("supported_filling_modes", [0, 1, 2])
+    if filling_mode not in supported_filling:
+        return {
+            "confirmation_state": "NOT_SENT",
+            "reason_code": "SYMBOL_FILLING_UNSUPPORTED",
+            "request_sent": False
+        }
     return {
         "confirmation_state": "PREFLIGHT_ACCEPTED",
         "reason_code": "OK",
@@ -36,6 +44,14 @@ def idempotency_decision(state, key):
     accepted_keys = state.get("accepted_keys", [])
     if key in accepted_keys:
         return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"}
+    return {"accepted": True, "reason_code": "OK"}
+
+def idempotency_decision_scan(log_content, key, max_size=1048576):
+    if log_content is None or len(log_content) > max_size:
+        return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"} # Fail closed
+    for line in log_content.splitlines():
+        if f'"idempotency_key":"{key}"' in line or f'"idempotency_key": "{key}"' in line:
+            return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"}
     return {"accepted": True, "reason_code": "OK"}
 
 def apply_result(state, result):
@@ -51,7 +67,7 @@ def apply_result(state, result):
         "request_sent": result.get("request_sent", False)
     }
 
-def reconcile_result(result, snapshot, request_ticket, request_action, intent_fields):
+def reconcile_result(result, snapshot, request_ticket, request_action, intent_fields, request_ticket_kind="ORDER"):
     if result.get("confirmation_state") == "CONFIRMED":
         return result
 
@@ -60,11 +76,17 @@ def reconcile_result(result, snapshot, request_ticket, request_action, intent_fi
     positions = snapshot.get("positions", [])
 
     if request_action in ("SUBMIT_MARKET", "SUBMIT_PENDING"):
-        deal_found = any(d.get("order_ticket") == request_ticket for d in deals)
-        order_found = any(o.get("ticket") == request_ticket for o in orders)
-        pos_found = any(p.get("ticket") == request_ticket for p in positions)
+        found = False
+        if request_ticket_kind == "DEAL":
+            found = any(d.get("deal_ticket") == request_ticket or d.get("order_ticket") == request_ticket for d in deals)
+        elif request_ticket_kind == "POSITION":
+            found = any(p.get("ticket") == request_ticket for p in positions)
+        else:
+            order_found = any(o.get("ticket") == request_ticket for o in orders)
+            deal_found = any(d.get("order_ticket") == request_ticket for d in deals)
+            found = order_found or deal_found
         
-        if deal_found or order_found or pos_found:
+        if found:
             result["confirmation_state"] = "CONFIRMED"
             result["reason_code"] = "OK"
         else:
@@ -87,14 +109,21 @@ def reconcile_result(result, snapshot, request_ticket, request_action, intent_fi
     elif request_action == "MODIFY_PROTECTIVE":
         sl = intent_fields.get("sl")
         tp = intent_fields.get("tp")
+        matched = False
+        if request_ticket_kind == "POSITION":
+            pos = next((p for p in positions if p.get("ticket") == request_ticket), None)
+            if pos and _close(pos.get("sl"), sl) and _close(pos.get("tp"), tp):
+                matched = True
+        else:
+            order = next((o for o in orders if o.get("ticket") == request_ticket), None)
+            if order and _close(order.get("sl"), sl) and _close(order.get("tp"), tp):
+                matched = True
+            else:
+                pos = next((p for p in positions if p.get("ticket") == request_ticket), None)
+                if pos and _close(pos.get("sl"), sl) and _close(pos.get("tp"), tp):
+                    matched = True
         
-        order = next((o for o in orders if o.get("ticket") == request_ticket), None)
-        pos = next((p for p in positions if p.get("ticket") == request_ticket), None)
-        
-        if order and _close(order.get("sl"), sl) and _close(order.get("tp"), tp):
-            result["confirmation_state"] = "CONFIRMED"
-            result["reason_code"] = "OK"
-        elif pos and _close(pos.get("sl"), sl) and _close(pos.get("tp"), tp):
+        if matched:
             result["confirmation_state"] = "CONFIRMED"
             result["reason_code"] = "OK"
         else:
@@ -128,10 +157,14 @@ def intent():
         "tp": 1.1000,
         "ticket": 0,
         "position_ticket": 0,
-        "expiration": 0
+        "expiration": 0,
+        "magic": 888888,
+        "deviation": 20,
+        "filling_mode": 0,
+        "request_ticket_kind": "ORDER"
     }
 
-def context(execution_enabled=False, reconciliation_fresh=True, account_fingerprint="acc-fp-001", broker_server="DemoServer", symbol_spec_valid=True):
+def context(execution_enabled=False, reconciliation_fresh=True, account_fingerprint="acc-fp-001", broker_server="DemoServer", symbol_spec_valid=True, supported_filling_modes=[0, 1, 2]):
     return {
         "execution_enabled": execution_enabled,
         "reconciliation_fresh": reconciliation_fresh,
@@ -139,7 +172,8 @@ def context(execution_enabled=False, reconciliation_fresh=True, account_fingerpr
         "broker_server": broker_server,
         "canonical_symbol": "EURUSD",
         "broker_symbol": "EURUSD.m",
-        "symbol_spec_valid": symbol_spec_valid
+        "symbol_spec_valid": symbol_spec_valid,
+        "supported_filling_modes": supported_filling_modes
     }
 
 def mutate(base, path, value):
