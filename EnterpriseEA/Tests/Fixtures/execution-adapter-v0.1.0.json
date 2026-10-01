@@ -1,0 +1,95 @@
+{
+  "schema_version": "0.1.0",
+  "base": {
+    "intent": {
+      "schema_version": "0.1.0",
+      "intent_id": "intent-001",
+      "correlation_id": "corr-001",
+      "idempotency_key": "idem-001",
+      "config_version": "cfg-1.0.0",
+      "account_fingerprint": "acc-fp-001",
+      "broker_server": "DemoServer",
+      "canonical_symbol": "EURUSD",
+      "broker_symbol": "EURUSD.m",
+      "symbol_fingerprint": "sym-fp-001",
+      "action": "SUBMIT_MARKET",
+      "order_type": "BUY",
+      "volume": 0.1,
+      "price": 0.0,
+      "sl": 1.0800,
+      "tp": 1.1000,
+      "ticket": 0,
+      "position_ticket": 0,
+      "expiration": 0
+    },
+    "context": {
+      "execution_enabled": false,
+      "reconciliation_fresh": true,
+      "account_fingerprint": "acc-fp-001",
+      "broker_server": "DemoServer",
+      "canonical_symbol": "EURUSD",
+      "broker_symbol": "EURUSD.m",
+      "symbol_spec_valid": true
+    }
+  },
+  "cases": [
+    {
+      "name": "disabled_default_rejects_without_request",
+      "mutations": [
+        ["context.execution_enabled", false]
+      ],
+      "expected": {
+        "confirmation_state": "NOT_SENT",
+        "reason_code": "EXECUTION_DISABLED",
+        "request_sent": false
+      }
+    },
+    {
+      "name": "stale_reconciliation_blocks_preflight",
+      "mutations": [
+        ["context.execution_enabled", true],
+        ["context.reconciliation_fresh", false]
+      ],
+      "expected": {
+        "confirmation_state": "NOT_SENT",
+        "reason_code": "RECONCILIATION_STALE",
+        "request_sent": false
+      }
+    },
+    {
+      "name": "account_identity_mismatch_blocks_preflight",
+      "mutations": [
+        ["context.execution_enabled", true],
+        ["context.account_fingerprint", "acc-fp-999"]
+      ],
+      "expected": {
+        "confirmation_state": "NOT_SENT",
+        "reason_code": "ACCOUNT_IDENTITY_MISMATCH",
+        "request_sent": false
+      }
+    },
+    {
+      "name": "symbol_spec_invalid_blocks_preflight",
+      "mutations": [
+        ["context.execution_enabled", true],
+        ["context.symbol_spec_valid", false]
+      ],
+      "expected": {
+        "confirmation_state": "NOT_SENT",
+        "reason_code": "SYMBOL_SPEC_INVALID",
+        "request_sent": false
+      }
+    },
+    {
+      "name": "preflight_accepted_when_all_conditions_met",
+      "mutations": [
+        ["context.execution_enabled", true]
+      ],
+      "expected": {
+        "confirmation_state": "PREFLIGHT_ACCEPTED",
+        "reason_code": "OK",
+        "request_sent": false
+      }
+    }
+  ]
+}

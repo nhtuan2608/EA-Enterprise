@@ -12,6 +12,7 @@
 #include "Runtime/SymbolSelectionPanel.mqh"
 
 input bool   InpObserverOnly           = true;
+input bool   InpExecutionEnabled       = false;
 input string InpDataRoot               = "EnterpriseEA";
 input bool   InpRuntimeEvidenceEnabled = true;
 input int    InpRuntimeRefreshSeconds  = 30;

@@ -5,6 +5,7 @@
 #include "SharedStateStore.mqh"
 #include "..\Core\Events.mqh"
 #include "..\Runtime\RuntimeEvidence.mqh"
+#include "..\Runtime\ExecutionContracts.mqh"
 
 string EEA_RuntimeBoolJson(const bool value) { return value ? "true" : "false"; }
 string EEA_RuntimeDoubleJson(const double value) { return DoubleToString(value,12); }
@@ -70,7 +71,9 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
          EEA_RuntimeDoubleJson(s.positions[i].price_open)+",\"current_price\":"+
          EEA_RuntimeDoubleJson(s.positions[i].current_price)+",\"profit\":"+
          EEA_RuntimeDoubleJson(s.positions[i].profit)+",\"swap\":"+
-         EEA_RuntimeDoubleJson(s.positions[i].swap)+",\"opened_at_utc\":\""+
+         EEA_RuntimeDoubleJson(s.positions[i].swap)+",\"sl\":"+
+         EEA_RuntimeDoubleJson(s.positions[i].sl)+",\"tp\":"+
+         EEA_RuntimeDoubleJson(s.positions[i].tp)+",\"opened_at_utc\":\""+
          EEA_IsoUtc((datetime)s.positions[i].time_open_utc)+"\"}";
      }
    positions+="]";
@@ -88,6 +91,21 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
          EEA_IsoUtc((datetime)s.orders[i].expiration_utc)+"\"}";
      }
    orders+="]";
+   string history_orders="[";
+   for(int i=0;i<s.history_order_count;i++)
+     {
+      if(i>0) history_orders+=",";
+      history_orders+="{\"ticket\":"+IntegerToString(s.history_orders[i].ticket)+",\"order_id\":\""+
+         EEA_JsonEscape(s.history_orders[i].order_id)+"\",\"symbol\":\""+EEA_JsonEscape(s.history_orders[i].symbol)+
+         "\",\"type\":\""+EEA_JsonEscape(s.history_orders[i].type)+"\",\"volume\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].volume)+",\"price\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].price)+",\"sl\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].sl)+",\"tp\":"+
+         EEA_RuntimeDoubleJson(s.history_orders[i].tp)+",\"setup\":\""+
+         EEA_IsoUtc((datetime)s.history_orders[i].time_setup_utc)+"\",\"expiration\":\""+
+         EEA_IsoUtc((datetime)s.history_orders[i].expiration_utc)+"\"}";
+     }
+   history_orders+="]";
    string deals="[";
    for(int i=0;i<s.deal_count;i++)
      {
@@ -115,12 +133,14 @@ bool EEA_RuntimeStoreWriteReconciliation(const string root,const EEA_RuntimeReco
       ",\"account_fingerprint\":\""+EEA_JsonEscape(s.account_fingerprint)+
       "\",\"positions_complete\":"+EEA_RuntimeBoolJson(s.positions_complete)+
       ",\"orders_complete\":"+EEA_RuntimeBoolJson(s.orders_complete)+
+      ",\"history_orders_complete\":"+EEA_RuntimeBoolJson(s.history_orders_complete)+
       ",\"deals_complete\":"+EEA_RuntimeBoolJson(s.deals_complete)+
       ",\"position_count\":"+IntegerToString(s.position_count)+",\"order_count\":"+
-      IntegerToString(s.order_count)+",\"deal_count\":"+IntegerToString(s.deal_count)+
+      IntegerToString(s.order_count)+",\"history_order_count\":"+
+      IntegerToString(s.history_order_count)+",\"deal_count\":"+IntegerToString(s.deal_count)+
       ",\"deal_watermark\":"+IntegerToString(s.deal_watermark)+
       ",\"deal_watermark_time_msc\":"+IntegerToString(s.deal_watermark_time_msc)+
-      ",\"positions\":"+positions+",\"orders\":"+orders+",\"deals\":"+deals+"}";
+      ",\"positions\":"+positions+",\"orders\":"+orders+",\"history_orders\":"+history_orders+",\"deals\":"+deals+"}";
    return EEA_WriteAtomicText(root+"/current/broker_reconciliation.json",json);
   }
 
@@ -233,5 +253,47 @@ EEAStateLoadResult EEA_RuntimeStoreCheckSymbolSelection(const string path, const
    return EEA_STATE_COMPATIBLE;
   }
 
-#endif
+bool EEA_ExecutionStoreWriteIntent(const string root,const EEA_ExecutionIntent &intent)
+  {
+   string json="{\"schema_version\":\""+EEA_JsonEscape(intent.schema_version)+
+      "\",\"document_version\":\"execution-intent-v0.1.0\",\"intent_id\":\""+
+      EEA_JsonEscape(intent.intent_id)+"\",\"correlation_id\":\""+
+      EEA_JsonEscape(intent.correlation_id)+"\",\"idempotency_key\":\""+
+      EEA_JsonEscape(intent.idempotency_key)+"\",\"config_version\":\""+
+      EEA_JsonEscape(intent.config_version)+"\",\"account_fingerprint\":\""+
+      EEA_JsonEscape(intent.account_fingerprint)+"\",\"broker_server\":\""+
+      EEA_JsonEscape(intent.broker_server)+"\",\"canonical_symbol\":\""+
+      EEA_JsonEscape(intent.canonical_symbol)+"\",\"broker_symbol\":\""+
+      EEA_JsonEscape(intent.broker_symbol)+"\",\"symbol_fingerprint\":\""+
+      EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"action\":"+
+      IntegerToString(intent.action)+",\"order_type\":"+
+      IntegerToString(intent.order_type)+",\"volume\":"+
+      EEA_RuntimeDoubleJson(intent.volume)+",\"price\":"+
+      EEA_RuntimeDoubleJson(intent.price)+",\"sl\":"+
+      EEA_RuntimeDoubleJson(intent.sl)+",\"tp\":"+
+      EEA_RuntimeDoubleJson(intent.tp)+",\"intent_created_at_utc\":\""+
+      EEA_IsoUtc((datetime)intent.intent_created_at_utc)+"\"}";
+   bool ok1=EEA_WriteAtomicText(root+"/current/execution_intent.json",json);
+   bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
+   return ok1 && ok2;
+  }
 
+bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &result)
+  {
+   string json="{\"schema_version\":\""+EEA_JsonEscape(result.schema_version)+
+      "\",\"document_version\":\"execution-result-v0.1.0\",\"intent_id\":\""+
+      EEA_JsonEscape(result.intent_id)+"\",\"correlation_id\":\""+
+      EEA_JsonEscape(result.correlation_id)+"\",\"idempotency_key\":\""+
+      EEA_JsonEscape(result.idempotency_key)+"\",\"request_sent\":"+
+      (result.request_sent ? "true" : "false")+",\"request_retcode\":\""+
+      EEA_JsonEscape(result.request_retcode)+"\",\"request_ticket\":"+
+      IntegerToString(result.request_ticket)+",\"confirmation_state\":\""+
+      EEA_JsonEscape(result.confirmation_state)+"\",\"reason_code\":\""+
+      EEA_JsonEscape(result.reason_code)+"\",\"observed_at_utc\":\""+
+      EEA_IsoUtc((datetime)result.observed_at_utc)+"\"}";
+   bool ok1=EEA_WriteAtomicText(root+"/current/execution_result.json",json);
+   bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
+   return ok1 && ok2;
+  }
+
+#endif

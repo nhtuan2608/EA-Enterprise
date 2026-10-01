@@ -246,6 +246,16 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "s.positions[i].ticket", "s.orders[i].ticket", "s.deals[i].deal_ticket"):
             self.assertIn(field, source)
 
+    def test_reconciliation_store_serializes_position_sl_tp_and_history_orders(self):
+        source = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        self.assertIn("s.positions[i].sl", source)
+        self.assertIn("s.positions[i].tp", source)
+        self.assertIn("history_orders_complete", source)
+        self.assertIn("history_order_count", source)
+        self.assertIn("history_orders", source)
+        for field in ('\\"ticket\\"', '\\"order_id\\"', '\\"symbol\\"', '\\"type\\"', '\\"volume\\"', '\\"price\\"', '\\"sl\\"', '\\"tp\\"', '\\"setup\\"', '\\"expiration\\"'):
+            self.assertIn(field, source)
+
     def test_startup_checks_checkpoint_then_forces_fresh_refresh(self):
         source = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         check_at = source.find("EEA_RuntimeStoreCheckStatus")
