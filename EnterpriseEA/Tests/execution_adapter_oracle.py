@@ -51,6 +51,61 @@ def apply_result(state, result):
         "request_sent": result.get("request_sent", False)
     }
 
+def reconcile_result(result, snapshot, request_ticket, request_action, intent_fields):
+    if result.get("confirmation_state") == "CONFIRMED":
+        return result
+
+    deals = snapshot.get("deals", [])
+    orders = snapshot.get("orders", [])
+    positions = snapshot.get("positions", [])
+
+    if request_action in ("SUBMIT_MARKET", "SUBMIT_PENDING"):
+        deal_found = any(d.get("order_ticket") == request_ticket for d in deals)
+        order_found = any(o.get("ticket") == request_ticket for o in orders)
+        pos_found = any(p.get("ticket") == request_ticket for p in positions)
+        
+        if deal_found or order_found or pos_found:
+            result["confirmation_state"] = "CONFIRMED"
+            result["reason_code"] = "OK"
+        else:
+            result["confirmation_state"] = "EXECUTION_UNKNOWN"
+            result["reason_code"] = "EVIDENCE_MISSING"
+
+    elif request_action == "CANCEL_PENDING":
+        order_found = any(o.get("ticket") == request_ticket for o in orders)
+        deal_found = any(d.get("order_ticket") == request_ticket for d in deals)
+        
+        if not order_found and deal_found:
+            result["confirmation_state"] = "CONFIRMED"
+            result["reason_code"] = "OK"
+        else:
+            result["confirmation_state"] = "EXECUTION_UNKNOWN"
+            result["reason_code"] = "EVIDENCE_MISSING_OR_ACTIVE"
+
+    elif request_action == "MODIFY_PROTECTIVE":
+        sl = intent_fields.get("sl")
+        tp = intent_fields.get("tp")
+        
+        order = next((o for o in orders if o.get("ticket") == request_ticket), None)
+        pos = next((p for p in positions if p.get("ticket") == request_ticket), None)
+        
+        if order and _close(order.get("sl"), sl) and _close(order.get("tp"), tp):
+            result["confirmation_state"] = "CONFIRMED"
+            result["reason_code"] = "OK"
+        elif pos and _close(pos.get("sl"), sl) and _close(pos.get("tp"), tp):
+            result["confirmation_state"] = "CONFIRMED"
+            result["reason_code"] = "OK"
+        else:
+            result["confirmation_state"] = "EXECUTION_UNKNOWN"
+            result["reason_code"] = "MODIFICATION_NOT_REFLECTED"
+            
+    return result
+
+def _close(a, b):
+    import math
+    if a is None or b is None: return False
+    return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
+
 def intent():
     return {
         "schema_version": "0.1.0",
