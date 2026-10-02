@@ -100,6 +100,16 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    ctx.status.runtime_state="BLOCKED";
    ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
    ctx.status.new_entries_blocked=true;
+   bool missing_broker_mapping=false;
+   for(int i=0;i<ctx.symbol_count;i++)
+      if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) && ctx.broker_symbols[i]=="") missing_broker_mapping=true;
+   if(missing_broker_mapping)
+     {
+      string rediscover_reason=""; string rediscovered[];
+      if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
+         for(int i=0;i<ctx.symbol_count;i++) ctx.broker_symbols[i]=rediscovered[i];
+      else { ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code=rediscover_reason; ctx.status.new_entries_blocked=true; }
+     }
    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,reason))
      {
       ctx.status.refresh_in_progress = false;
@@ -293,6 +303,7 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
                                                  const string &old_broker_symbols[],
                                                  const EEA_RuntimeSymbolSpec &old_symbol_specs[],
                                                  const int old_count,
+                                                 const EEA_RuntimeAccountSnapshot &old_account,
                                                  const EEA_RuntimeReconciliationSnapshot &old_reconciliation,
                                                  const EEA_RuntimeStatus &old_status,
                                                  const bool old_stale,
@@ -309,6 +320,7 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
       ctx.symbol_specs[i]=old_symbol_specs[i];
      }
    ctx.symbol_count=old_count;
+   ctx.account=old_account;
    ctx.reconciliation=old_reconciliation;
    ctx.status=old_status;
    ctx.status = old_status;
@@ -318,7 +330,8 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
    ctx.last_refresh_utc=old_last_refresh_utc;
    ctx.previous_deal_watermark=old_previous_deal_watermark;
    ctx.status.previous_deal_watermark_time=old_previous_deal_watermark_time;
-   return EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
+   return EEA_RuntimeStoreWriteAccount(ctx.root,ctx.account) &&
+      EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
                                        ctx.config_version,ctx.account.account_fingerprint) &&
       EEA_RuntimeStoreWriteReconciliation(ctx.root,ctx.reconciliation) &&
       EEA_RuntimeStoreWriteSymbolSelection(ctx.root,ctx.config_version,ctx.account.account_fingerprint,
@@ -338,6 +351,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
    string old_canons[EEA_RUNTIME_MAX_SYMBOLS];
    string old_brokers[EEA_RUNTIME_MAX_SYMBOLS];
    EEA_RuntimeSymbolSpec old_specs[EEA_RUNTIME_MAX_SYMBOLS];
+   EEA_RuntimeAccountSnapshot old_account=ctx.account;
    EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
    EEA_RuntimeStatus old_status=ctx.status;
    bool old_stale=ctx.stale;
@@ -362,7 +376,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
    EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED", audit);
    if(EEA_ObserverRuntimeRefresh(ctx, audit)) return true;
    bool rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canons,old_brokers,
-      old_specs,old_count,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
+      old_specs,old_count,old_account,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
       old_previous_deal_watermark,old_previous_deal_watermark_time);
    if(rollback_persisted)
       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status);

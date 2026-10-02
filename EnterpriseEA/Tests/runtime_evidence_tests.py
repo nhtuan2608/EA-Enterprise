@@ -597,6 +597,44 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
             self.assertIn(token, apply)
         self.assertIn("EEA_ObserverRuntimeRestoreSelectionSnapshot", runtime)
 
+    def test_apply_snapshots_complete_runtime_and_policy_identity(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/PolicySettingsStore.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        for token in ("old_account", "old_staged_daily", "old_staged_overall",
+                      "old_policy_confirmed", "old_authorization_input_gmt7",
+                      "old_authorization_utc", "old_policy_file_contents",
+                      "old_policy_revision", "EEA_SymbolPanelRestorePolicyFile",
+                      "EEA_SymbolPanelVerifyPersistedPolicy"):
+            self.assertIn(token, apply)
+        self.assertIn("EEA_RuntimeStoreWriteAccount", runtime)
+        for token in ("authorization_input_gmt7", "policy_confirmed"):
+            self.assertIn(token, store)
+
+    def test_non_apply_persistence_failure_restores_visible_policy_state(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        handler = panel.split("void EEA_SymbolPanelHandleChartEvent", 1)[1]
+        for token in ("old_authorization_input_gmt7", "old_authorization_utc",
+                      "POLICY_SETTINGS_PERSISTENCE_FAILED", "policy_confirmed"):
+            self.assertIn(token, handler)
+        self.assertIn("bool EEA_SymbolPanelPersistPolicy", panel)
+
+    def test_degraded_refresh_retries_blank_broker_discovery(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        refresh = runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
+        for token in ("broker_symbols[i]==\"\"", "EEA_ObserverRuntimeAutoDiscover",
+                      "RUNTIME_INIT_DEGRADED", "ctx.status.runtime_state=\"DEGRADED\""):
+            self.assertIn(token, refresh + runtime)
+
+    def test_gmt7_parser_is_timezone_independent_and_restores_input(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        parser = panel.split("bool EEA_SymbolPanelParseGmtPlus7", 1)[1].split("void EEA_SymbolPanelAuditPolicy", 1)[0]
+        self.assertNotIn("StringToTime", parser)
+        for token in ("EEA_SymbolPanelDaysFromCivil", "authorization_input_gmt7",
+                      "old_authorization_input_gmt7"):
+            self.assertIn(token, panel)
+
     def test_degraded_startup_copies_canonical_rows_before_resolution(self):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]

@@ -15,6 +15,8 @@ struct EEA_PolicySettings
    bool committed_daily_continuation;
    bool proposed_overall_continuation;
    bool committed_overall_continuation;
+   bool policy_confirmed;
+   string authorization_input_gmt7;
    long authorization_utc;
   };
 
@@ -30,7 +32,7 @@ void EEA_PolicySettingsDefaults(EEA_PolicySettings &s)
    s.revision=0; s.proposed_policy="UNSELECTED"; s.committed_policy="UNSELECTED";
    s.proposed_daily_continuation=true; s.committed_daily_continuation=true;
    s.proposed_overall_continuation=true; s.committed_overall_continuation=true;
-   s.authorization_utc=0;
+   s.policy_confirmed=false; s.authorization_input_gmt7=""; s.authorization_utc=0;
   }
 
 string EEA_PolicySettingsJsonEscape(const string value)
@@ -57,7 +59,9 @@ string EEA_PolicySettingsToJson(const EEA_PolicySettings &s)
       ",\"committed_daily_continuation\":"+(s.committed_daily_continuation ? "true" : "false")+
       ",\"proposed_overall_continuation\":"+(s.proposed_overall_continuation ? "true" : "false")+
       ",\"committed_overall_continuation\":"+(s.committed_overall_continuation ? "true" : "false")+
-      ",\"authorization_utc\":"+IntegerToString(s.authorization_utc)+"}";
+      ",\"policy_confirmed\":"+(s.policy_confirmed ? "true" : "false")+
+      ",\"authorization_input_gmt7\":\""+EEA_PolicySettingsJsonEscape(s.authorization_input_gmt7)+
+      "\",\"authorization_utc\":"+IntegerToString(s.authorization_utc)+"}";
   }
 
 bool EEA_PolicySettingsReadFile(const string path,string &json)
@@ -88,9 +92,11 @@ bool EEA_PolicySettingsStoreLoad(const string path,const string config_version,c
    s.revision=StringToInteger(EEA_PolicySettingsField(json,"revision"));
    s.proposed_policy=EEA_PolicySettingsField(json,"proposed_policy"); s.committed_policy=EEA_PolicySettingsField(json,"committed_policy");
    s.proposed_daily_continuation=EEA_PolicySettingsField(json,"proposed_daily_continuation")=="true";
-    s.committed_daily_continuation=EEA_PolicySettingsField(json,"committed_daily_continuation")=="true";
+   s.committed_daily_continuation=EEA_PolicySettingsField(json,"committed_daily_continuation")=="true";
    s.proposed_overall_continuation=EEA_PolicySettingsField(json,"proposed_overall_continuation")=="true";
-    s.committed_overall_continuation=EEA_PolicySettingsField(json,"committed_overall_continuation")=="true";
+   s.committed_overall_continuation=EEA_PolicySettingsField(json,"committed_overall_continuation")=="true";
+   s.policy_confirmed=EEA_PolicySettingsField(json,"policy_confirmed")=="true";
+   s.authorization_input_gmt7=EEA_PolicySettingsField(json,"authorization_input_gmt7");
    s.authorization_utc=StringToInteger(EEA_PolicySettingsField(json,"authorization_utc"));
    return s.revision>0 && EEA_PolicyIdValid(s.proposed_policy) && EEA_PolicyIdValid(s.committed_policy);
   }
