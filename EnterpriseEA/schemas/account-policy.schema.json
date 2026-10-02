@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["policy_id", "config_version", "source_url", "policy_timezone", "account_currency", "initial_capital", "daily_reset_hour", "daily_reset_minute", "daily_loss_percent_of_initial", "overall_loss_percent_of_initial", "overall_floor_mode", "safety_buffer", "internal_daily_loss_limit", "internal_weekly_drawdown_limit", "status"],
   "properties": {
-    "policy_id": {"type": ["string", "null"], "enum": ["FTMO_1_STEP", "FTMO_2_STEP", "CUSTOM", null]},
+    "policy_id": {"type": ["string", "null"], "enum": ["FTMO_1_STEP", "FTMO_2_STEP", "BALANCE_BASED_FTMO_V1", "CUSTOM", null]},
     "config_version": {"type": ["string", "null"]},
     "source_url": {"type": ["string", "null"]},
     "policy_timezone": {"type": ["string", "null"]},
@@ -19,15 +19,18 @@
     "safety_buffer": {"type": ["number", "null"], "minimum": 0},
     "internal_daily_loss_limit": {"type": ["number", "null"], "minimum": 0},
     "internal_weekly_drawdown_limit": {"type": ["number", "null"], "minimum": 0},
-    "status": {"enum": ["UNSELECTED", "ACTIVE", "POLICY_DATA_UNKNOWN"]}
+    "status": {"enum": ["UNSELECTED", "ACTIVE", "POLICY_DATA_UNKNOWN"]},
+    "continue_after_daily_profit_target": {"type": ["boolean", "null"]},
+    "continue_after_overall_profit_target": {"type": ["boolean", "null"]}
   },
   "allOf": [
     {"if": {"properties": {"status": {"const": "UNSELECTED"}}}, "then": {"properties": {"policy_id": {"const": null}, "config_version": {"const": null}}}},
     {"if": {"properties": {"status": {"const": "ACTIVE"}}, "required": ["status"]}, "then": {
       "required": ["policy_id", "config_version", "source_url", "policy_timezone", "account_currency", "initial_capital", "daily_reset_hour", "daily_reset_minute", "daily_loss_percent_of_initial", "overall_loss_percent_of_initial", "overall_floor_mode", "safety_buffer"],
-      "properties": {"policy_id": {"type": "string"}, "config_version": {"type": "string", "minLength": 1}, "source_url": {"type": "string", "minLength": 1}, "policy_timezone": {"type": "string", "minLength": 1}, "account_currency": {"type": "string", "minLength": 1}, "initial_capital": {"type": "number", "exclusiveMinimum": 0}, "daily_reset_hour": {"type": "integer"}, "daily_reset_minute": {"type": "integer"}, "daily_loss_percent_of_initial": {"type": "number"}, "overall_loss_percent_of_initial": {"type": "number"}, "overall_floor_mode": {"type": "string"}, "safety_buffer": {"type": "number", "minimum": 0}}
+      "properties": {"policy_id": {"type": "string"}, "config_version": {"type": "string", "minLength": 1}, "source_url": {"type": "string", "minLength": 1}, "policy_timezone": {"type": "string", "minLength": 1}, "account_currency": {"type": "string", "minLength": 1}, "initial_capital": {"type": "number", "exclusiveMinimum": 0}, "daily_reset_hour": {"type": "integer"}, "daily_reset_minute": {"type": "integer"}, "daily_loss_percent_of_initial": {"type": "number"}, "overall_loss_percent_of_initial": {"type": "number"}, "overall_floor_mode": {"type": "string"}, "safety_buffer": {"type": "number", "minimum": 0}, "continue_after_daily_profit_target": {"type": "boolean"}, "continue_after_overall_profit_target": {"type": "boolean"}}
     }},
     {"if": {"properties": {"status": {"const": "ACTIVE"}, "policy_id": {"const": "FTMO_1_STEP"}}}, "then": {"properties": {"daily_loss_percent_of_initial": {"const": 3}, "overall_loss_percent_of_initial": {"const": 10}, "overall_floor_mode": {"const": "TRAILING_DAILY_BALANCE"}}}},
-    {"if": {"properties": {"status": {"const": "ACTIVE"}, "policy_id": {"const": "FTMO_2_STEP"}}}, "then": {"properties": {"daily_loss_percent_of_initial": {"const": 5}, "overall_loss_percent_of_initial": {"const": 10}, "overall_floor_mode": {"const": "STATIC_FROM_INITIAL"}}}}
+    {"if": {"properties": {"status": {"const": "ACTIVE"}, "policy_id": {"const": "FTMO_2_STEP"}}}, "then": {"properties": {"daily_loss_percent_of_initial": {"const": 5}, "overall_loss_percent_of_initial": {"const": 10}, "overall_floor_mode": {"const": "STATIC_FROM_INITIAL"}}}},
+    {"if": {"properties": {"status": {"const": "ACTIVE"}, "policy_id": {"const": "BALANCE_BASED_FTMO_V1"}}}, "then": {"properties": {"daily_loss_percent_of_initial": {"const": 5}, "overall_loss_percent_of_initial": {"const": 10}, "overall_floor_mode": {"const": "STATIC_FROM_INITIAL"}}}}
   ]
 }

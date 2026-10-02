@@ -21,14 +21,96 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         self.assertEqual(res["confirmation_state"], "NOT_SENT")
         self.assertEqual(res["reason_code"], "RECONCILIATION_STALE")
 
+    def test_missing_execution_identifiers_fail_closed(self):
+        for field, reason in (
+            ("intent_id", "INTENT_ID_MISSING"),
+            ("correlation_id", "CORRELATION_ID_MISSING"),
+            ("idempotency_key", "IDEMPOTENCY_KEY_MISSING"),
+        ):
+            with self.subTest(field=field):
+                i = intent()
+                i[field] = ""
+                res = preflight(i, context(execution_enabled=True))
+                self.assertEqual(res["confirmation_state"], "NOT_SENT")
+                self.assertEqual(res["reason_code"], reason)
+                self.assertFalse(res["request_sent"])
+
+    def test_config_and_runtime_identity_must_match(self):
+        for field, reason in (
+            ("config_version", "CONFIG_VERSION_MISSING"),
+            ("account_snapshot_id", "ACCOUNT_SNAPSHOT_INVALID"),
+            ("reconciliation_snapshot_id", "RECONCILIATION_STALE"),
+            ("symbol_fingerprint", "SYMBOL_FINGERPRINT_MISSING"),
+        ):
+            with self.subTest(field=field):
+                i = intent()
+                ctx = context(execution_enabled=True)
+                if field in i:
+                    i[field] = ""
+                else:
+                    ctx[field] = ""
+                res = preflight(i, ctx)
+                self.assertEqual(res["confirmation_state"], "NOT_SENT")
+                self.assertEqual(res["reason_code"], reason)
+
+        ctx = context(execution_enabled=True)
+        ctx["config_version"] = "old-config"
+        res = preflight(intent(), ctx)
+        self.assertEqual(res["reason_code"], "CONFIG_VERSION_MISMATCH")
+
+    def test_symbol_binding_and_fingerprint_must_match(self):
+        for field, reason in (
+            ("canonical_symbol", "CANONICAL_SYMBOL_MISMATCH"),
+            ("broker_symbol", "BROKER_SYMBOL_MISMATCH"),
+            ("symbol_fingerprint", "SYMBOL_FINGERPRINT_MISMATCH"),
+        ):
+            with self.subTest(field=field):
+                ctx = context(execution_enabled=True)
+                ctx[field] = "other"
+                res = preflight(intent(), ctx)
+                self.assertEqual(res["reason_code"], reason)
+
+    def test_freshness_state_and_symbol_geometry_fail_closed(self):
+        cases = (
+            ({"runtime_state": "DEGRADED"}, "EXECUTION_STATE_INVALID"),
+            ({"reconciliation_valid_until_utc": 99, "now_utc": 100}, "RECONCILIATION_STALE"),
+            ({"volume": 0.105}, "VOLUME_STEP_INVALID"),
+            ({"price": 1.100034}, "PRICE_GEOMETRY_INVALID"),
+        )
+        for overrides, reason in cases:
+            with self.subTest(reason=reason):
+                i = intent()
+                ctx = context(execution_enabled=True)
+                for key, value in overrides.items():
+                    if key in i:
+                        i[key] = value
+                    else:
+                        ctx[key] = value
+                res = preflight(i, ctx)
+                self.assertEqual(res["reason_code"], reason)
+
     def test_duplicate_idempotency_key_never_sends_second_request(self):
         state = {"accepted_keys": ["idem-001"]}
         res = idempotency_decision(state, "idem-001")
         self.assertEqual(res, {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"})
 
+    def test_empty_idempotency_key_is_rejected(self):
+        res = idempotency_decision({"accepted_keys": []}, "")
+        self.assertEqual(res, {"accepted": False, "reason_code": "IDEMPOTENCY_KEY_MISSING"})
+
     def test_acknowledgement_requires_reconciliation_confirmation(self):
         res = apply_result({}, {"request_sent": True, "request_retcode": "DONE", "broker_confirmed": False})
         self.assertEqual(res["confirmation_state"], "EXECUTION_UNKNOWN")
+
+    def test_failed_retcode_is_rejected_without_confirmation(self):
+        res = apply_result({}, {"request_sent": True, "request_retcode": "10004"})
+        self.assertEqual(res["confirmation_state"], "REJECTED")
+        self.assertEqual(res["reason_code"], "ORDER_SEND_FAILED_10004")
+
+    def test_missing_retcode_fails_closed(self):
+        res = apply_result({}, {"request_sent": True})
+        self.assertEqual(res["confirmation_state"], "REJECTED")
+        self.assertEqual(res["reason_code"], "REQUEST_RETCODE_MISSING")
 
     def test_redaction_no_raw_login_or_credentials_in_intent(self):
         i = intent()

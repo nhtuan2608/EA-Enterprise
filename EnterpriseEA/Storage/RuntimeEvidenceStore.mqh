@@ -20,7 +20,11 @@ bool EEA_RuntimeStoreWriteAccount(const string root,const EEA_RuntimeAccountSnap
       "\",\"account_fingerprint\":\""+EEA_JsonEscape(account.account_fingerprint)+
       "\",\"broker_server\":\""+EEA_JsonEscape(account.broker_server)+
       "\",\"account_currency\":\""+EEA_JsonEscape(account.account_currency)+
-      "\",\"account_margin_mode\":\""+EEA_JsonEscape(account.account_margin_mode)+"\"}";
+      "\",\"account_margin_mode\":\""+EEA_JsonEscape(account.account_margin_mode)+
+      "\",\"balance\":"+EEA_RuntimeDoubleJson(account.balance)+
+      ",\"equity\":"+EEA_RuntimeDoubleJson(account.equity)+
+      ",\"margin\":"+EEA_RuntimeDoubleJson(account.margin)+
+      ",\"margin_free\":"+EEA_RuntimeDoubleJson(account.margin_free)+"}";
    return EEA_WriteAtomicText(root+"/current/account_snapshot.json",json);
   }
 
@@ -49,7 +53,8 @@ bool EEA_RuntimeStoreWriteSymbols(const string root,const string &canonical[],
          EEA_JsonEscape(symbols[i].calculation_mode)+"\",\"base_currency\":\""+
          EEA_JsonEscape(symbols[i].base_currency)+"\",\"profit_currency\":\""+
          EEA_JsonEscape(symbols[i].profit_currency)+"\",\"margin_currency\":\""+
-         EEA_JsonEscape(symbols[i].margin_currency)+"\"}";
+         EEA_JsonEscape(symbols[i].margin_currency)+"\",\"metadata_fingerprint\":\""+
+         EEA_JsonEscape(symbols[i].metadata_fingerprint)+"\"}";
      }
    rows+="]";
    string json="{\"schema_version\":\"runtime-evidence-v0.1.0\",\"document_version\":\"runtime-symbols-v0.1.0\",\"config_version\":\""+
@@ -265,14 +270,36 @@ bool EEA_ExecutionStoreWriteIntent(const string root,const EEA_ExecutionIntent &
       EEA_JsonEscape(intent.broker_server)+"\",\"canonical_symbol\":\""+
       EEA_JsonEscape(intent.canonical_symbol)+"\",\"broker_symbol\":\""+
       EEA_JsonEscape(intent.broker_symbol)+"\",\"symbol_fingerprint\":\""+
-      EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"action\":"+
+      EEA_JsonEscape(intent.symbol_fingerprint)+"\",\"candidate_id\":\""+
+      EEA_JsonEscape(intent.candidate_id)+"\",\"setup_id\":\""+
+      EEA_JsonEscape(intent.setup_id)+"\",\"setup_version\":\""+
+      EEA_JsonEscape(intent.setup_version)+"\",\"risk_decision_id\":\""+
+      EEA_JsonEscape(intent.risk_decision_id)+"\",\"risk_decision_status\":\""+
+      EEA_JsonEscape(intent.risk_decision_status)+"\",\"risk_policy_snapshot_id\":\""+
+      EEA_JsonEscape(intent.risk_policy_snapshot_id)+"\",\"portfolio_snapshot_id\":\""+
+      EEA_JsonEscape(intent.portfolio_snapshot_id)+"\",\"quote_snapshot_id\":\""+
+      EEA_JsonEscape(intent.quote_snapshot_id)+"\",\"reconciliation_snapshot_id\":\""+
+      EEA_JsonEscape(intent.reconciliation_snapshot_id)+"\",\"entry_reference\":\""+
+      EEA_JsonEscape(intent.entry_reference)+"\",\"risk_budget\":"+
+      EEA_RuntimeDoubleJson(intent.risk_budget)+",\"projected_loss\":"+
+      EEA_RuntimeDoubleJson(intent.projected_loss)+",\"net_reward_risk\":"+
+      EEA_RuntimeDoubleJson(intent.net_reward_risk)+",\"reconciliation_observed_at_utc\":\""+
+      EEA_IsoUtc((datetime)intent.reconciliation_observed_at_utc)+"\",\"action\":"+
       IntegerToString(intent.action)+",\"order_type\":"+
       IntegerToString(intent.order_type)+",\"volume\":"+
-      EEA_RuntimeDoubleJson(intent.volume)+",\"price\":"+
+      EEA_RuntimeDoubleJson(intent.volume)+",\"risk_policy_id\":\""+
+      EEA_JsonEscape(intent.risk_policy_id)+"\",\"price\":"+
       EEA_RuntimeDoubleJson(intent.price)+",\"sl\":"+
       EEA_RuntimeDoubleJson(intent.sl)+",\"tp\":"+
       EEA_RuntimeDoubleJson(intent.tp)+",\"intent_created_at_utc\":\""+
-      EEA_IsoUtc((datetime)intent.intent_created_at_utc)+"\"}";
+      EEA_IsoUtc((datetime)intent.intent_created_at_utc)+"\",\"ticket\":"+
+      IntegerToString(intent.ticket)+",\"position_ticket\":"+
+      IntegerToString(intent.position_ticket)+",\"expiration\":\""+
+      EEA_IsoUtc((datetime)intent.expiration)+"\",\"magic\":"+
+      IntegerToString(intent.magic)+",\"deviation\":"+
+      IntegerToString(intent.deviation)+",\"filling_mode\":"+
+      IntegerToString(intent.filling_mode)+",\"request_ticket_kind\":\""+
+      EEA_JsonEscape(intent.request_ticket_kind)+"\"}";
    bool ok1=EEA_WriteAtomicText(root+"/current/execution_intent.json",json);
    bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
    return ok1 && ok2;
@@ -284,10 +311,15 @@ bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &
       "\",\"document_version\":\"execution-result-v0.1.0\",\"intent_id\":\""+
       EEA_JsonEscape(result.intent_id)+"\",\"correlation_id\":\""+
       EEA_JsonEscape(result.correlation_id)+"\",\"idempotency_key\":\""+
-      EEA_JsonEscape(result.idempotency_key)+"\",\"request_sent\":"+
+      EEA_JsonEscape(result.idempotency_key)+"\",\"risk_decision_id\":\""+
+      EEA_JsonEscape(result.risk_decision_id)+"\",\"authorization_id\":\""+
+      EEA_JsonEscape(result.authorization_id)+
+      "\",\"build_hash\":\""+EEA_JsonEscape(result.build_hash)+
+      "\",\"request_sent\":"+
       (result.request_sent ? "true" : "false")+",\"request_retcode\":\""+
       EEA_JsonEscape(result.request_retcode)+"\",\"request_ticket\":"+
-      IntegerToString(result.request_ticket)+",\"confirmation_state\":\""+
+      IntegerToString(result.request_ticket)+",\"request_ticket_kind\":\""+
+      EEA_JsonEscape(result.request_ticket_kind)+"\",\"confirmation_state\":\""+
       EEA_JsonEscape(result.confirmation_state)+"\",\"reason_code\":\""+
       EEA_JsonEscape(result.reason_code)+"\",\"observed_at_utc\":\""+
       EEA_IsoUtc((datetime)result.observed_at_utc)+"\"}";

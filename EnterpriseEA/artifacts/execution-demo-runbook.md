@@ -5,7 +5,7 @@ This runbook defines the operational protocol, safety controls, and governance c
 
 ## 2. Component States & Authorization Matrix
 - **Execution Adapter (`Runtime/ExecutionAdapter.mqh`):** `IMPLEMENTED_DISABLED_BY_DEFAULT`. All order placement, modification, and cancellation functions are fully implemented in MQL5 but strictly guarded by `EEA_ExecutionGateCheck` where `execution_enabled = false` by default. No execution path is invoked from EA lifecycle events (`OnInit`, `OnTick`, `OnTimer`, `OnChartEvent`, `OnTradeTransaction`).
-- **Paper Ledger (`Storage/LedgerCheckpoint.mqh`, `Runtime/BrokerReconciliationAdapter.mqh`):** `PAPER_PENDING / NOT_IMPLEMENTED`. Paper trade simulation ledgers and automated forward testing hooks are pending full integration and validation.
+- **Paper Ledger:** `PAPER_EXCLUDED_PERMANENTLY`. No Paper, virtual, simulated, or shadow execution ledger is implemented or accepted as evidence.
 - **Live Trading Authorization:** `NOT_AUTHORIZED`. Live production deployment, real-money execution, and unverified broker interactions are strictly prohibited.
 - **Retained Runtime & Observer (`Runtime/ObserverRuntime.mqh`):** `OPERATIONAL_OFFLINE / RUNTIME_PENDING`. Read-only telemetry, multi-symbol selection persistence, revision tracking, and atomic persistence are verified in offline unit test suites and isolated tester runs; live terminal persistence and soak verification remain pending.
 
@@ -17,8 +17,8 @@ This runbook defines the operational protocol, safety controls, and governance c
 
 ## 4. Verification Protocol
 1. **Static Analysis:** Scan codebase for prohibited execution API calls outside of `ExecutionAdapter.mqh` and audited documentation.
-2. **Offline Unit Tests:** Run the complete unittest suite across all risk, checkpoint, pending order, and execution adapter modules:
+2. **Offline Unit Tests:** Run the complete unittest suite across all risk, checkpoint, pending order, authorization, and execution adapter modules:
    ```powershell
    python -m unittest discover -s EnterpriseEA/Tests -p '*tests.py' -v
    ```
-3. **MQL Compilation Check:** Compile `EnterpriseEA.mq5` in MetaEditor build 6230 to verify zero compilation errors and zero warnings.
+3. **MQL Compilation Check:** Compile `EnterpriseEA.mq5` in MetaEditor build 6230 to verify zero compilation errors and zero warnings. The current isolated build log is `artifacts/metaeditor-paperless-controlled-live-build.log`.

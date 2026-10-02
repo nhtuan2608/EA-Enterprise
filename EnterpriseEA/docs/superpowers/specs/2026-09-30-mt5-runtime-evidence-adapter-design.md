@@ -242,7 +242,7 @@ Deploy source/includes into the installed terminal data path, run or attach the 
 5. The EA runs against VTMarkets-Demo in observer mode and writes versioned runtime evidence.
 6. A restart forces fresh read/reconciliation and does not use persisted evidence as broker truth.
 7. No order, position, or account balance change is caused by the verification run.
-8. Documentation accurately marks each component as one of: `OFFLINE_VERIFIED`, `MQL_COMPILED`, `RUNTIME_OBSERVED`, `BROKER_RECONCILED_BOUNDED`, `PAPER_PENDING`, or `NOT_IMPLEMENTED`.
+8. Documentation accurately marks each component as one of: `OFFLINE_VERIFIED`, `MQL_COMPILED`, `RUNTIME_OBSERVED`, `BROKER_RECONCILED_BOUNDED`, `PAPER_EXCLUDED_PERMANENTLY`, or `NOT_IMPLEMENTED`.
 9. Phase 3/4 are not marked complete merely because the adapter compiles or observes a bounded history window.
 
 ## 12. Traceability impact
@@ -262,7 +262,7 @@ If every acceptance criterion passes:
 - Runtime account/symbol/reconciliation adapters: `OFFLINE_VERIFIED`, `MQL_COMPILED`, `RUNTIME_OBSERVED`.
 - Bounded positions/orders/deals snapshot: `BROKER_RECONCILED_BOUNDED`, explicitly not full historical lineage.
 - Pending-order execution/cancellation: `NOT_IMPLEMENTED`.
-- Virtual/Paper execution, Strategy Tester trading, Paper soak, and Live: `PAPER_PENDING`.
+- Virtual/Paper execution and Paper soak: `PAPER_EXCLUDED_PERMANENTLY`; Strategy Tester trading and Live remain `NOT_AUTHORIZED` until the controlled-live gates are satisfied.
 - Dashboard, News Center, MCP AI runtime, Telegram gateway: `NOT_IMPLEMENTED` or paused as documented.
 
 ## 14. Operational constraints

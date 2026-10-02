@@ -1,14 +1,14 @@
 # Disabled-by-Default Execution Adapter Design
 
-**Status:** Approved by user in chat; implementation pending  
+**Status:** Design approved; implementation and controlled-live evidence remain incomplete
 **Date:** 2026-10-01  
 **Target:** MetaTrader 5 build 6230, VTMarkets-Demo  
-**Paper ledger:** Explicitly excluded.  
+**Paper ledger:** Permanently excluded. No paper or virtual execution ledger will be added, maintained, or used as a readiness substitute.
 **Default authority:** Observer-only; execution disabled by default.
 
 ## Purpose
 
-Add a real but disabled-by-default execution boundary for placing pending/market orders, modifying protective SL/TP, and cancelling pending orders. The adapter must be callable only after current account-wide reconciliation, symbol-spec validation, idempotency checks, audit persistence, and a fail-closed execution gate. It must not create a Paper ledger and must not be enabled against live trading as part of this increment.
+Add a real but disabled-by-default execution boundary for placing pending/market orders, modifying protective SL/TP, and cancelling pending orders. The adapter must be callable only after current account-wide reconciliation, symbol-spec validation, idempotency checks, audit persistence, and a fail-closed execution gate. It must not create a Paper ledger and must not be enabled against live trading as part of this increment. The later paperless controlled-live route is governed by the mandatory gates in [the controlled-live design](2026-10-01-paperless-controlled-live-design.md); it is not implied by this adapter design.
 
 ## Scope
 
@@ -25,7 +25,7 @@ Included:
 
 Excluded:
 
-- Paper/virtual execution ledger.
+- Paper/virtual execution ledger, permanently and architecturally excluded.
 - Automatic strategy signal generation.
 - Telegram/AI direct execution.
 - Live enablement or go-live authorization.
@@ -43,6 +43,20 @@ Excluded:
 8. No Paper ledger is created or implied.
 9. The execution adapter is never called from `OnTick`, timer refresh, symbol panel Refresh, or automatic startup reconciliation.
 10. Existing orders/positions are never modified by verification unless a future explicit controlled execution test invokes the adapter with a valid intent.
+
+## Paperless controlled-live boundary
+
+Paperless controlled-live means broker execution through this adapter without a Paper ledger. It is a separately gated operating mode, not a status claim and not a replacement for evidence. The mode cannot be authorized until every applicable gate below is closed with retained evidence:
+
+1. **Runtime compile:** the exact target source and configuration compile in the target MetaEditor build with `0 errors, 0 warnings`; the build identity is retained.
+2. **Demo/retained evidence:** controlled demo evidence and retained runtime evidence are collected when applicable. Missing, non-retained, synthetic-only, or bounded evidence leaves the gate open.
+3. **Risk policy:** a versioned, approved account/symbol risk policy is bound to the execution intent and its current reconciliation snapshot.
+4. **Manual authorization:** an identified human explicitly authorizes the exact account/server, symbols, scope, and time window after reviewing the evidence. No automatic or inferred authorization is valid.
+5. **Kill switch:** a reachable, tested kill switch disables new execution requests and leaves the system fail-closed; its test evidence is retained.
+6. **Rollback:** a tested disable/rollback procedure covers request acknowledgement, partial execution, timeout, restart, race, and `EXECUTION_UNKNOWN` without silent retry.
+7. **Audit:** redacted durable audit records link intent, authorization, risk decision, request acknowledgement, reconciliation, kill-switch/rollback events, and operator identity or authorization reference.
+
+If any gate is missing or stale, paperless controlled-live remains `NOT_AUTHORIZED`. A compile result, a demo result, an offline test, or the existence of an adapter alone never establishes live readiness.
 
 ## Contracts
 
@@ -110,13 +124,14 @@ Each mutating function first checks the gate and idempotency guard. It uses the 
 ## Testing and activation
 
 - Python oracle tests cover disabled default, missing/stale/mismatched reconciliation, wrong symbol spec, duplicate idempotency, allowed demo preflight, request acknowledgement versus confirmation, timeout/unknown, cancel/fill race and redaction.
-- MQL static tests prove no adapter call path is reachable from startup/timer/OnTick/panel events and that Paper ledger files are absent.
+- MQL static tests prove no adapter call path is reachable from startup/timer/OnTick/panel events and that no Paper ledger files or contracts exist.
 - MetaEditor build 6230 must report `0 errors, 0 warnings`.
 - The first controlled demo operation requires a separate explicit user confirmation after compile and preflight verification. No operation is automatically executed by this increment.
-- Live deployment remains blocked until retained-terminal observer evidence, demo execution evidence and a separate live authorization review pass.
+- Paperless controlled-live remains blocked until the mandatory runtime compile, applicable demo/retained evidence, risk-policy, manual-authorization, kill-switch, rollback, and audit gates are independently evidenced and reviewed.
+- No operation is automatically executed by this increment, and no live readiness is claimed.
 
 ## Traceability
 
 - Pending submission/modify/cancel changes from `NOT_IMPLEMENTED` to `IMPLEMENTED_DISABLED_BY_DEFAULT` only after source/tests compile.
-- Paper ledger remains `PAPER_PENDING` and `NOT_IMPLEMENTED`.
-- Go-live remains `NOT_AUTHORIZED` until all runtime/demo gates are independently evidenced.
+- Paper ledger is `PAPER_EXCLUDED_PERMANENTLY`; there is no Paper parity gate.
+- Paperless controlled-live and go-live remain `NOT_AUTHORIZED` until every mandatory gate is independently evidenced; current bounded or synthetic evidence does not close those gates.

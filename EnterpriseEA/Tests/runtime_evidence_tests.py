@@ -79,6 +79,28 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         for token in FORBIDDEN_RUNTIME_CORE_TOKENS:
             self.assertNotIn(token, source)
 
+    def test_account_financial_snapshot_is_read_and_persisted(self):
+        adapter = (ROOT / "Runtime/AccountSnapshotAdapter.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        contract = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
+        for field in ("balance", "equity", "margin", "margin_free"):
+            self.assertIn("AccountInfoDouble(ACCOUNT_" + field.upper() + ")", adapter)
+            self.assertIn("snapshot." + field, adapter)
+            self.assertIn("account." + field, store)
+            self.assertIn("double " + field, contract)
+        self.assertIn("ACCOUNT_FINANCIAL_STATE_UNAVAILABLE", adapter)
+
+    def test_trade_quote_adapter_is_read_only_and_binds_account_symbol_evidence(self):
+        source = (ROOT / "Runtime/TradeQuoteAdapter.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        for token in ("SymbolInfoTick", "OrderCalcProfit", "OrderCalcMargin",
+                      "available_margin", "projected_loss", "symbol_fingerprint",
+                      "TRADE_QUOTE_UNAVAILABLE", "LOSS_CALCULATION_INVALID"):
+            self.assertIn(token, source)
+        self.assertIn('"Runtime/TradeQuoteAdapter.mqh"', shell)
+        for forbidden in ("OrderSend", "OrderSendAsync", "CTrade"):
+            self.assertNotIn(forbidden, source)
+
     def test_mql_validation_contains_duplicate_and_finite_checks(self):
         """Regression: MQL validation must contain loops/checks for duplicates
         and finite numeric fields, not only names."""
@@ -475,6 +497,19 @@ class RetainedRuntimeLifecycleWiringTests(unittest.TestCase):
         obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
         self.assertIn("ctx.canonical_symbols[i] = old_canons[i]", obs_mqh)
         self.assertIn("ctx.status.selection_revision = old_revision", obs_mqh)
+
+    def test_status_serialization_occurs_after_final_telemetry(self):
+        obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
+        write_status_pos = obs_mqh.find("EEA_RuntimeStoreWriteStatus")
+        refresh_false_pos = obs_mqh.find("ctx.status.refresh_in_progress = false")
+        duration_pos = obs_mqh.find("ctx.status.last_refresh_duration_ms =")
+        
+        self.assertNotEqual(write_status_pos, -1, "EEA_RuntimeStoreWriteStatus must exist")
+        self.assertNotEqual(refresh_false_pos, -1, "refresh_in_progress = false assignment must exist")
+        self.assertNotEqual(duration_pos, -1, "duration assignment must exist")
+        
+        self.assertGreater(write_status_pos, duration_pos, "Status serialization must occur after duration assignment")
+        self.assertGreater(write_status_pos, refresh_false_pos, "Status serialization must occur after refresh_in_progress = false")
 
 
 if __name__ == "__main__":

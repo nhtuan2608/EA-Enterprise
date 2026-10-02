@@ -2,7 +2,7 @@
 
 ## 1. Execution Boundary & State Summary
 - **Execution Adapter Status:** `IMPLEMENTED_DISABLED_BY_DEFAULT`
-- **Paper Ledger Status:** `PAPER_PENDING / NOT_IMPLEMENTED`
+- **Paper Ledger Status:** `PAPER_EXCLUDED_PERMANENTLY`
 - **Live Authorization Status:** `NOT_AUTHORIZED`
 - **Retained Runtime Status:** `OPERATIONAL_OFFLINE / RUNTIME_PENDING`
 - **Live/Demo Operation:** `ZERO_LIVE_OPERATION` (Strictly prohibited and unexecuted)
@@ -14,12 +14,12 @@
 ## 3. Offline Test Suite Verification
 - **Test Framework:** Python `unittest` discovering all test suites under `EnterpriseEA/Tests`.
 - **Test Modules:** Account risk, daily reset, checkpoint, dry-run gate, expected path, FTMO headroom, pending audit, pending checkpoint, pending order lifecycle, portfolio budget, remote control, runtime evidence, S02 setup, structural levels, symbol registry, trade economics, volume sizing, and execution adapter contracts (`execution_adapter_tests.py`).
-- **Result:** `144/144 tests passed successfully (OK)`.
+- **Result:** `198/198 tests passed successfully (OK)`.
 
 ## 4. MQL5 Compilation Verification
 - **Compiler:** MetaEditor 64-bit build 6230 (`metaeditor64.exe`).
 - **Target:** `EnterpriseEA.mq5`
-- **Result:** `0 errors, 0 warnings`.
+- **Result:** `0 errors, 0 warnings` in the isolated build log `artifacts/metaeditor-paperless-controlled-live-build.log`.
 
 ## 5. Audit & Idempotency Governance
 - **Idempotency Key Verification:** `EEA_ExecutionIsDuplicateIdempotency` checks `logs/execution_audit.jsonl` to prevent duplicate transaction submissions under identical idempotency keys.

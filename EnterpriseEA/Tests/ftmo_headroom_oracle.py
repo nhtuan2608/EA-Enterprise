@@ -8,7 +8,7 @@ def calculate(policy: dict, inputs: dict) -> dict:
     def unknown(reason: str) -> dict:
         return {"valid": False, "headroom_status": "POLICY_DATA_UNKNOWN", "reason_code": reason}
 
-    if policy["status"] != "ACTIVE" or policy["policy_id"] not in {"FTMO_1_STEP", "FTMO_2_STEP"}:
+    if policy["status"] != "ACTIVE" or policy["policy_id"] not in {"FTMO_1_STEP", "FTMO_2_STEP", "BALANCE_BASED_FTMO_V1"}:
         return unknown("POLICY_NOT_SELECTED_OR_UNSUPPORTED")
     if (not policy["config_version"] or not policy["source_version"] or not policy["source_reference"] or
             policy["policy_timezone"] != "Europe/Prague" or not policy["account_currency"] or
