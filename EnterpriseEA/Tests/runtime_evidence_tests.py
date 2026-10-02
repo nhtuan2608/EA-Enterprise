@@ -357,6 +357,30 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_SymbolPanelInit", shell)
         self.assertIn("EEA_SymbolPanelDestroy", shell)
 
+    def test_task2_panel_has_main_view_overlays_and_safe_routing(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        for token in ("Btn_Settings", "Btn_Dashboard", "Btn_Close", "Btn_Refresh",
+                      "Btn_Apply", "Btn_ResetStaged", "EnterpriseEA — OBSERVER ONLY",
+                      "EXECUTION_DISABLED", "NOT_AUTHORIZED", "new_entries_blocked",
+                      "POSITIONS", "ORDERS", "DEALS", "CONTEXT ONLY",
+                      "EEA_SymbolPanelCloseOverlay", "EEA_SymbolPanelRenderMainView"):
+            self.assertIn(token, panel)
+        self.assertIn("EEA_SymbolPanelRefresh(0, g_runtime)", shell)
+        self.assertNotIn("OrderSend", panel)
+        self.assertNotIn("OrderSendAsync", panel)
+        self.assertNotIn("CTrade", panel)
+        self.assertNotIn("PositionClose", panel)
+        self.assertNotIn("OrderDelete", panel)
+
+    def test_task2_init_renders_before_return_and_timer_refreshes_view(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        init = shell.split("int OnInit()", 1)[1].split("void OnDeinit()", 1)[0]
+        timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
+        self.assertIn("EEA_SymbolPanelInit", init)
+        self.assertIn("EEA_SymbolPanelRefresh", init)
+        self.assertIn("EEA_SymbolPanelRefresh", timer)
+
 
 class RuntimeTelemetryValidationTests(unittest.TestCase):
     def test_validate_runtime_telemetry(self):

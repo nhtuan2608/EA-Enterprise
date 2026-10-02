@@ -108,6 +108,7 @@ int OnInit()
    if(InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, 0);
+      EEA_SymbolPanelRefresh(0, g_runtime);
      }
    Print("EnterpriseEA observer runtime initialized without execution authority.");
    return INIT_SUCCEEDED;
@@ -144,7 +145,10 @@ void OnTick()
 void OnTimer()
   {
    if(InpRuntimeEvidenceEnabled)
-      EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+      {
+       EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+       if(InpShowSymbolPanel) EEA_SymbolPanelRefresh(0,g_runtime);
+      }
   }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,
