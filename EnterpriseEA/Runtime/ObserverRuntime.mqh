@@ -286,7 +286,7 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
    for(int i=0;i<old_count;i++)
      {
       ctx.canonical_symbols[i]=old_canonical_symbols[i];
-      ctx.canonical_symbols[i]=old_canonical_symbols[i];
+      // rollback equivalent: ctx.canonical_symbols[i] = old_canons[i];
       ctx.broker_symbols[i]=old_broker_symbols[i];
       ctx.symbol_specs[i]=old_symbol_specs[i];
      }
