@@ -64,6 +64,24 @@
     "profit_currency": "USD",
     "margin_currency": "EUR"
   },
+  "observer_panel": {
+    "status_defaults": {
+      "runtime_state": "BLOCKED",
+      "reason_code": "RUNTIME_RECONCILIATION_REQUIRED",
+      "execution_status": "EXECUTION_DISABLED",
+      "live_status": "NOT_AUTHORIZED",
+      "new_entries_blocked": true
+    },
+    "context_market_row": {
+      "canonical": "DXY",
+      "broker": "USDX.",
+      "status": "CONTEXT ONLY",
+      "context_only": true,
+      "digits": 2,
+      "trade_mode": "DISABLED",
+      "freshness_text": "UNAVAILABLE"
+    }
+  },
   "degraded_cases": [
     {
       "field": "positions_complete",

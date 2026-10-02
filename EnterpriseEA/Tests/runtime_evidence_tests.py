@@ -61,6 +61,30 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         changed["volume_step"] = 0.1
         self.assertFalse(material_spec_equal(FIXTURE["symbol_spec"], changed))
 
+    def test_panel_model_contract_names_and_context_only_dxy(self):
+        source = (ROOT / "Runtime/ObserverPanelModel.mqh").read_text(encoding="utf-8")
+        for token in ("EEA_ObserverPanelMarketRow", "context_only", "NOT_AUTHORIZED", "EXECUTION_DISABLED"):
+            self.assertIn(token, source)
+        self.assertIn("EEA_ObserverPanelFormatStatus", source)
+        self.assertIn("EEA_ObserverPanelStatusDefaults", source)
+        self.assertIn("CONTEXT ONLY", source)
+
+    def test_panel_model_fixture_defaults_and_purity(self):
+        source = (ROOT / "Runtime/ObserverPanelModel.mqh").read_text(encoding="utf-8")
+        panel = FIXTURE["observer_panel"]
+        self.assertEqual(panel["status_defaults"]["execution_status"], "EXECUTION_DISABLED")
+        self.assertEqual(panel["status_defaults"]["live_status"], "NOT_AUTHORIZED")
+        row = panel["context_market_row"]
+        self.assertEqual(row["canonical"], "DXY")
+        self.assertEqual(row["broker"], "USDX.")
+        self.assertTrue(row["context_only"])
+        self.assertEqual(row["status"], "CONTEXT ONLY")
+        self.assertIn('Runtime/RuntimeEvidence.mqh', source)
+        for forbidden in ("ObjectCreate", "ChartRedraw", "AccountInfo", "TerminalInfo", "SymbolInfo",
+                          "FileOpen", "FileWrite", "FileRead", "OrderSend", "OrderSendAsync",
+                          "CTrade", "PositionClose", "PositionModify", "OrderDelete"):
+            self.assertNotIn(forbidden, source)
+
     def test_mql_pure_contract_structure_and_purity(self):
         source = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
         for name in ("EEA_RuntimeAccountSnapshot", "EEA_RuntimeSymbolSpec",
