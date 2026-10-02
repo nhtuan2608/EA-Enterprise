@@ -381,6 +381,41 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_SymbolPanelRefresh", init)
         self.assertIn("EEA_SymbolPanelRefresh", timer)
 
+    def test_important_settings_controls_are_staged_and_display_only(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in ("FTMO_1_STEP", "FTMO_2_STEP", "BALANCE_BASED_FTMO_V1",
+                      "Btn_Policy_FTMO_1_STEP", "Btn_Policy_FTMO_2_STEP",
+                      "Btn_Policy_BALANCE_BASED_FTMO_V1", "Btn_DailyContinuation",
+                      "Btn_OverallContinuation", "Btn_ConfirmPolicy",
+                      "confirmation", "GMT+7", "UTC", "Apply status", "proposal"):
+            self.assertIn(token, panel)
+        apply_handler = panel.split("if(sparam==EEA_PANEL_OVERLAY_PREFIX+\"Btn_Apply\")", 1)[1]
+        self.assertNotIn("ExecutionAdapter", apply_handler)
+        self.assertNotIn("OrderSend", apply_handler)
+
+    def test_main_market_rows_use_display_model_and_do_not_omit_selection(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in ("EEA_ObserverPanelMarketRow", "digits", "trade_mode",
+                      "freshness_text", "EEA_ObserverPanelMarketRowFromRuntime"):
+            self.assertIn(token, panel)
+        self.assertNotIn("line<EEA_PANEL_MAX_ROWS-1", panel)
+
+    def test_dashboard_has_specs_watermarks_risk_and_freshness(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in ("Digits:", "Trade mode:", "Evidence freshness:",
+                      "Deal watermark:", "Watermark time:", "Risk policy:",
+                      "Headroom:", "valid_until_utc", "observed_at_utc"):
+            self.assertIn(token, panel)
+
+    def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("OBJPROP_SUBWINDOW", panel)
+        init = shell.split("int OnInit()", 1)[1].split("void OnDeinit()", 1)[0]
+        self.assertIn("if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh", init)
+        timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
+        self.assertIn("if(InpRuntimeEvidenceEnabled)", timer)
+
 
 class RuntimeTelemetryValidationTests(unittest.TestCase):
     def test_validate_runtime_telemetry(self):

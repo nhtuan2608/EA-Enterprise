@@ -24,6 +24,7 @@ input int    InpRuntimeRefreshSeconds  = 30;
 input int    InpHistoryLookbackDays    = 7;
 input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD";
 input bool   InpShowSymbolPanel        = true;
+input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -107,8 +108,8 @@ int OnInit()
      }
    if(InpShowSymbolPanel)
      {
-      EEA_SymbolPanelInit(0, 0);
-      EEA_SymbolPanelRefresh(0, g_runtime);
+      EEA_SymbolPanelInit(0, InpPanelSubWindow);
+      if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
      }
    Print("EnterpriseEA observer runtime initialized without execution authority.");
    return INIT_SUCCEEDED;

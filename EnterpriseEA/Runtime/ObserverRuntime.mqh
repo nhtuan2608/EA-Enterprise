@@ -303,6 +303,8 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
 
    string old_canons[EEA_RUNTIME_MAX_SYMBOLS];
    string old_brokers[EEA_RUNTIME_MAX_SYMBOLS];
+    EEA_RuntimeSymbolSpec old_specs[EEA_RUNTIME_MAX_SYMBOLS];
+    EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
    int old_count = ctx.symbol_count;
    long old_revision = ctx.status.selection_revision;
 
@@ -310,6 +312,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
      {
       old_canons[i] = ctx.canonical_symbols[i];
       old_brokers[i] = ctx.broker_symbols[i];
+       old_specs[i] = ctx.symbol_specs[i];
      }
 
    for(int i=0; i<count; i++)
@@ -332,8 +335,10 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
         {
          ctx.canonical_symbols[i] = old_canons[i];
          ctx.broker_symbols[i] = old_brokers[i];
+          ctx.symbol_specs[i] = old_specs[i];
         }
       ctx.symbol_count = old_count;
+       ctx.reconciliation = old_reconciliation;
       ctx.status.selection_revision = old_revision;
       return false;
      }
