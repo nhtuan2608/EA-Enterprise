@@ -1,5 +1,5 @@
 #ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
-#ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
+#define ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 
 #include "ObserverRuntime.mqh"
 #include "ObserverPanelModel.mqh"
@@ -679,7 +679,7 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
           {
            EEA_SymbolPanelRestorePolicySnapshot(old_policy);
            g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
-           if(rollback_persisted && policy_file_restored) EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+           EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
                                       old_policy.staged_policy,old_policy.authorization_utc);
           }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
