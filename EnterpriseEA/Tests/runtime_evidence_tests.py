@@ -572,12 +572,42 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
         self.assertIn("SetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",10,316", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,318", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",10,350", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,374", settings)
+        self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,22)", panel)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,350", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",10,374", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,398", settings)
         self.assertNotEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 2)
         rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
-        self.assertIn("402+i*24", rows)
+        self.assertIn("426+i*24", rows)
+
+    def test_policy_verification_failure_checks_runtime_and_policy_rollback_results(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        verification = apply.split("if(!EEA_SymbolPanelVerifyPersistedPolicy", 1)[1]
+        for token in (
+            "bool runtime_rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot",
+            "bool policy_file_restored=EEA_SymbolPanelRestorePolicyFile",
+            "EEA_SymbolPanelRestorePolicySnapshot(old_policy)",
+            "if(!runtime_rollback_persisted || !policy_file_restored)",
+            "ctx.status.runtime_state=\"BLOCKED\"",
+            "ctx.status.new_entries_blocked=true",
+            "POLICY_ROLLBACK_FAILED",
+            "POLICY_ROLLBACK_PERSISTENCE_FAILED",
+        ):
+            self.assertIn(token, verification)
+
+    def test_policy_snapshot_restores_all_visible_staged_and_status_fields(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        snapshot = panel.split("struct EEA_SymbolPanelPolicySnapshot", 1)[1].split("void EEA_SymbolPanelCapturePolicySnapshot", 1)[0]
+        restore = panel.split("void EEA_SymbolPanelRestorePolicySnapshot", 1)[1].split("string EEA_SymbolPanelUtcText", 1)[0]
+        for token in (
+            "committed_policy", "committed_daily_continuation", "committed_overall_continuation",
+            "staged_policy", "staged_daily_continuation", "staged_overall_continuation",
+            "policy_confirmed", "authorization_input_gmt7", "authorization_utc",
+            "status_message", "apply_reason",
+        ):
+            self.assertIn(token, snapshot)
+            self.assertIn(token, restore)
 
     def test_policy_persist_returns_explicit_success_or_failure(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
