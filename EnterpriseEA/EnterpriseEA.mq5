@@ -104,8 +104,14 @@ int OnInit()
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
                                   canonical,count))
-         return INIT_FAILED;
-      if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
+         {
+          g_runtime.initialized=true;
+          g_runtime.status.runtime_state="DEGRADED";
+          g_runtime.status.reason_code="RUNTIME_INIT_DEGRADED";
+          g_runtime.status.new_entries_blocked=true;
+          EEA_ObserverRuntimeAudit(g_audit,g_config.config_version,"RUNTIME_INIT_DEGRADED",g_runtime.status);
+         }
+       if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
    if(InpShowSymbolPanel)
      {

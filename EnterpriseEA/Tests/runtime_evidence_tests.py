@@ -484,6 +484,54 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("Z", panel)
         self.assertNotIn('TimeToString((datetime)value,TIME_DATE|TIME_SECONDS)+" UTC"', panel)
 
+    def test_degraded_runtime_still_initializes_and_renders_panel(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("EEA_SymbolPanelInit(0, InpPanelSubWindow);", shell)
+        init = shell.split("int OnInit()", 1)[1].split("void OnDeinit()", 1)[0]
+        runtime_init = init.index("EEA_ObserverRuntimeInit")
+        panel_init = init.index("EEA_SymbolPanelInit")
+        self.assertGreater(panel_init, runtime_init)
+        self.assertIn("RUNTIME_INIT_DEGRADED", init)
+        self.assertNotIn("return INIT_FAILED;", init[init.index("if(!EEA_ObserverRuntimeInit"):init.index("if(!EventSetTimer")])
+        self.assertIn("EEA_SymbolPanelRefresh(0, g_runtime)", init)
+
+    def test_dxy_is_context_only_and_never_selected_for_runtime_apply(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_SymbolPanelIsContextOnly", panel)
+        self.assertIn('"DXY"', panel)
+        self.assertIn('"USDX"', panel)
+        row = panel.split("EEA_ObserverPanelMarketRow EEA_ObserverPanelMarketRowFromRuntime", 1)[1].split("void EEA_SymbolPanelRenderMainView", 1)[0]
+        self.assertIn("row.context_only=EEA_SymbolPanelIsContextOnly", row)
+        refresh = panel.split("void EEA_SymbolPanelRefresh", 1)[1].split("void EEA_SymbolPanelRefreshOpenOverlay", 1)[0]
+        self.assertIn("context_only=EEA_SymbolPanelIsContextOnly", refresh)
+        self.assertIn("CONTEXT ONLY", panel)
+
+    def test_timer_refresh_does_not_overwrite_staged_policy(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        refresh = panel.split("void EEA_SymbolPanelRefresh", 1)[1].split("void EEA_SymbolPanelRefreshOpenOverlay", 1)[0]
+        self.assertIn("if(!g_panel_state.staged_initialized)", refresh)
+        self.assertIn("EEA_SymbolPanelLoadPolicy(ctx)", refresh)
+        self.assertLess(refresh.index("EEA_SymbolPanelLoadPolicy(ctx)"), refresh.index("g_panel_state.staged_initialized=true;"))
+
+    def test_policy_persist_failure_restores_policy_state_and_audits_rejection(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("void EEA_SymbolPanelPersistPolicy", panel)
+        persist = panel.split("void EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
+        self.assertIn("POLICY_APPLY_REJECTED", persist)
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        for token in ("old_committed_policy", "old_staged_policy", "POLICY_SETTINGS_PERSISTENCE_FAILED",
+                      "g_panel_state.committed_policy=old_committed_policy"):
+            self.assertIn(token, apply)
+
+    def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
+        self.assertIn("SetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",10,316", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,350", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,374", settings)
+        rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
+        self.assertIn("402+i*24", rows)
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
