@@ -432,8 +432,23 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
    bool rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canons,old_brokers,
       old_specs,old_count,old_account,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
       old_previous_deal_watermark,old_previous_deal_watermark_time);
-   if(rollback_persisted)
-      if(!audit.IsOpen() || !EEA_ObserverRuntimeAuditChecked(ctx,audit,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status)) { ctx.status.runtime_state="BLOCKED"; ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"; ctx.status.new_entries_blocked=true; EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc); }
+   if(!rollback_persisted)
+     {
+      ctx.status.runtime_state="BLOCKED";
+      ctx.status.reason_code="POLICY/SELECTION_ROLLBACK_PERSISTENCE_FAILED";
+      ctx.status.new_entries_blocked=true;
+      EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+         ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"SELECTION_ROLLBACK_PERSISTENCE_FAILED",ctx.status);
+     }
+   else if(!audit.IsOpen() || !EEA_ObserverRuntimeAuditChecked(ctx,audit,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status))
+     {
+      ctx.status.runtime_state="BLOCKED";
+      ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+      ctx.status.new_entries_blocked=true;
+      EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+         ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+     }
    return false;
   }
 

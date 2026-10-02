@@ -870,8 +870,33 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_RuntimeStoreWriteStatus", runtime)
         require = panel.split("bool EEA_SymbolPanelRequirePolicyAudit", 1)[1].split("void EEA_SymbolPanelClearOverlay", 1)[0]
         self.assertIn("bool status_persisted=EEA_RuntimeStoreWriteStatus", require)
-        self.assertIn("return status_persisted", require)
+        self.assertIn("return false", require)
         self.assertIn("EEA_ObserverRuntimeAuditChecked", shell + runtime)
+
+    def test_policy_audit_append_failure_never_reports_success_when_status_persists(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        require = panel.split("bool EEA_SymbolPanelRequirePolicyAudit", 1)[1].split("void EEA_SymbolPanelClearOverlay", 1)[0]
+        self.assertIn("if(EEA_SymbolPanelAuditPolicy(audit,event_type,reason,policy,authorization_utc)) return true;", require)
+        self.assertIn("bool status_persisted=EEA_RuntimeStoreWriteStatus", require)
+        self.assertIn("return false;", require)
+        self.assertNotIn("return status_persisted", require)
+
+    def test_selection_rollback_persistence_failure_blocks_persists_and_checks_audit(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        apply = runtime.split("bool EEA_ObserverRuntimeApplySelection", 1)[1]
+        failure = apply.split("if(!rollback_persisted)", 1)[1].split("else if", 1)[0]
+        for token in (
+            'ctx.status.runtime_state="BLOCKED"',
+            'ctx.status.reason_code="POLICY/SELECTION_ROLLBACK_PERSISTENCE_FAILED"',
+            "ctx.status.new_entries_blocked=true",
+            "EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status",
+            'EEA_ObserverRuntimeAuditChecked(ctx,audit,"SELECTION_ROLLBACK_PERSISTENCE_FAILED",ctx.status)',
+        ):
+            self.assertIn(token, failure)
+        self.assertLess(failure.index('ctx.status.reason_code="POLICY/SELECTION_ROLLBACK_PERSISTENCE_FAILED"'),
+                        failure.index("EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status"))
+        self.assertLess(failure.index("EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status"),
+                        failure.index("EEA_ObserverRuntimeAuditChecked(ctx,audit"))
 
     def test_audit_failure_does_not_introduce_paper_or_execution(self):
         for path in (ROOT / "Runtime/ObserverRuntime.mqh", ROOT / "Runtime/SymbolSelectionPanel.mqh"):

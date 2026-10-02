@@ -196,7 +196,7 @@ bool EEA_SymbolPanelRequirePolicyAudit(EEA_ObserverRuntimeContext &ctx,CAuditLog
    ctx.status.new_entries_blocked=true;
    bool status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
       ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
-   return status_persisted;
+   return false;
   }
 
 void EEA_SymbolPanelClearOverlay(const long chart_id)
