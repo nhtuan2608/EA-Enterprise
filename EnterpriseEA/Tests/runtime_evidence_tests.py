@@ -609,6 +609,14 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
             self.assertIn(token, snapshot)
             self.assertIn(token, restore)
 
+    def test_failed_policy_rollback_persists_blocked_runtime_state_and_audits(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        failure = apply.split("if(!runtime_rollback_persisted || !policy_file_restored)", 1)[1]
+        self.assertIn("EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status", failure)
+        self.assertIn('EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status)', failure)
+        self.assertIn("POLICY_ROLLBACK_PERSISTENCE_FAILED", failure)
+
     def test_policy_persist_returns_explicit_success_or_failure(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
