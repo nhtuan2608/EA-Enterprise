@@ -840,6 +840,46 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("g_panel_state.rows[i].checked=old_row_checked[i]", apply)
         self.assertGreaterEqual(apply.count("g_panel_state.rows[i].checked=old_row_checked[i]"), 2)
 
+    def test_runtime_failure_branch_restores_checked_snapshot_before_reporting_failure(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        runtime_failure = apply[apply.rfind("else") :]
+        self.assertIn("old_row_checked[i]", runtime_failure)
+        self.assertIn("g_panel_state.rows[i].checked=old_row_checked[i]", runtime_failure)
+
+    def test_selection_revision_is_parsed_validated_and_restored_on_init(self):
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_RuntimeStoreLoadSymbolSelectionRevision", store)
+        self.assertIn("selection_revision", store)
+        self.assertIn("revision<=0", store)
+        self.assertIn("EEA_RuntimeStoreLoadSymbolSelectionRevision", runtime)
+        self.assertIn("ctx.status.selection_revision=", runtime)
+        self.assertNotIn("ctx.status.selection_revision = 1;", runtime)
+
+    def test_audit_failures_are_checked_and_blocked_status_is_persisted(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("EEA_ObserverRuntimeAuditChecked", runtime)
+        for lifecycle in ("RUNTIME_ACCOUNT_REFRESH_FAILED", "RUNTIME_SYMBOL_DISCOVERY_DEGRADED",
+                          "RUNTIME_REFRESH_FAILED", "RUNTIME_PERSISTENCE_FAILED",
+                          "RUNTIME_CHECKPOINT_OBSERVED", "BROKER_TRANSACTION_OBSERVED",
+                          "RUNTIME_STOPPED"):
+            self.assertIn("EEA_ObserverRuntimeAuditChecked", runtime)
+        self.assertIn("EEA_RuntimeStoreWriteStatus", runtime)
+        require = panel.split("bool EEA_SymbolPanelRequirePolicyAudit", 1)[1].split("void EEA_SymbolPanelClearOverlay", 1)[0]
+        self.assertIn("bool status_persisted=EEA_RuntimeStoreWriteStatus", require)
+        self.assertIn("return status_persisted", require)
+        self.assertIn("EEA_ObserverRuntimeAuditChecked", shell + runtime)
+
+    def test_audit_failure_does_not_introduce_paper_or_execution(self):
+        for path in (ROOT / "Runtime/ObserverRuntime.mqh", ROOT / "Runtime/SymbolSelectionPanel.mqh"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("PAPER", source.upper())
+            self.assertNotIn("OrderSend", source)
+            self.assertNotIn("CTrade", source)
+
     def test_rollback_and_policy_rejection_require_durable_audit_append_success(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")

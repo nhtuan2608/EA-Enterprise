@@ -46,6 +46,9 @@ bool EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
    return audit.Append(e,"EA_RUNTIME_OBSERVER");
   }
 
+bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
+                                     const string event_type,const EEA_RuntimeStatus &status);
+
 bool EEA_ObserverRuntimeIsContextOnly(const string canonical,const string broker)
   {
    string c=EEA_TrimUpper(canonical), b=EEA_TrimUpper(broker);
@@ -111,7 +114,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
        ctx.status.new_entries_blocked=true;
        ctx.stale=true;
        ctx.stale_reason=account_refresh_reason;
-       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_ACCOUNT_REFRESH_FAILED",ctx.status);
+       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_ACCOUNT_REFRESH_FAILED",ctx.status);
        return false;
       }
    string reason="";
@@ -127,7 +130,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       string rediscover_reason=""; string rediscovered[];
       if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
          for(int i=0;i<ctx.symbol_count;i++) ctx.broker_symbols[i]=rediscovered[i];
-      else { ctx.stale=true; ctx.stale_reason="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.pending_refresh=true; ctx.status.refresh_in_progress=false; ctx.status.refresh_failure_count++; ctx.status.consecutive_refresh_failures++; ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.new_entries_blocked=true; EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_DEGRADED",ctx.status); return false; }
+      else { ctx.stale=true; ctx.stale_reason="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.pending_refresh=true; ctx.status.refresh_in_progress=false; ctx.status.refresh_failure_count++; ctx.status.consecutive_refresh_failures++; ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.new_entries_blocked=true; EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_DEGRADED",ctx.status); return false; }
      }
    for(int i=0;i<ctx.symbol_count;i++)
      if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) &&
@@ -138,7 +141,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
         ctx.status.refresh_failure_count++;
         ctx.status.consecutive_refresh_failures++;
         ctx.status.reason_code=reason;
-        EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
+        EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_FAILED",ctx.status);
         return false;
        }
    if(!EEA_ReadRuntimeReconciliation(ctx.account,ctx.config_version,ctx.history_lookback_days,
@@ -148,7 +151,7 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       ctx.status.refresh_failure_count++;
       ctx.status.consecutive_refresh_failures++;
       ctx.status.reason_code=reason;
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_FAILED",ctx.status);
       return false;
      }
    ctx.reconciliation.symbol_count=ctx.symbol_count;
@@ -205,11 +208,24 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       ctx.status.consecutive_refresh_failures++;
       ctx.status.runtime_state="BLOCKED"; ctx.status.reason_code="RUNTIME_PERSISTENCE_FAILED";
       ctx.status.new_entries_blocked=true;
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_PERSISTENCE_FAILED",ctx.status);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_PERSISTENCE_FAILED",ctx.status);
       return false;
      }
-   EEA_ObserverRuntimeAudit(audit,ctx.config_version,prior.runtime_state=="" ? "RUNTIME_INITIALIZED" : "RUNTIME_REFRESHED",ctx.status);
+   EEA_ObserverRuntimeAuditChecked(ctx,audit,prior.runtime_state=="" ? "RUNTIME_INITIALIZED" : "RUNTIME_REFRESHED",ctx.status);
    return ctx.status.runtime_state=="OBSERVING";
+  }
+
+bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
+                                     const string event_type,const EEA_RuntimeStatus &status)
+  {
+   if(EEA_ObserverRuntimeAudit(audit,ctx.config_version,event_type,status)) return true;
+   ctx.status.runtime_state="BLOCKED";
+   ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+   ctx.status.new_entries_blocked=true;
+   bool status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+                                      ctx.account.account_fingerprint,
+                                      ctx.reconciliation.observed_at_utc);
+   return status_persisted;
   }
 
 bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
@@ -219,7 +235,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
   {
    EEA_RuntimeDefaults(ctx.status);
    ctx.status.runtime_instance_id = (long)GetTickCount64() + (long)TimeGMT();
-   ctx.status.selection_revision = 1;
+   long persisted_selection_revision=0;
+   // Start from an invalid sentinel; a valid persisted revision is mandatory for recovery.
+   ctx.status.selection_revision = 0;
    for(int i=0;i<count && i<EEA_RUNTIME_MAX_SYMBOLS;i++)
      {
       ctx.canonical_symbols[i]=canonical[i];
@@ -242,7 +260,7 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
       ctx.status.reason_code=discover_reason;
       ctx.status.new_entries_blocked=true;
       ctx.initialized=true;
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_INIT_DEGRADED",ctx.status);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_INIT_DEGRADED",ctx.status);
       return false;
      }
    for(int i=0;i<count;i++)
@@ -254,13 +272,21 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
       ctx.root+"/current/runtime_status.json",ctx.config_version,ctx.account.account_fingerprint);
    EEAStateLoadResult selection_check=EEA_RuntimeStoreCheckSymbolSelection(
       ctx.root+"/current/symbol_selection.json",ctx.config_version,ctx.account.account_fingerprint);
+   if(selection_check==EEA_STATE_COMPATIBLE &&
+      EEA_RuntimeStoreLoadSymbolSelectionRevision(ctx.root+"/current/symbol_selection.json",
+         ctx.config_version,ctx.account.account_fingerprint,persisted_selection_revision))
+      ctx.status.selection_revision=persisted_selection_revision;
+   else if(selection_check==EEA_STATE_INCOMPATIBLE)
+      { ctx.status.reason_code="RUNTIME_SELECTION_INCOMPATIBLE"; ctx.status.selection_revision=1; }
+   else if(selection_check==EEA_STATE_MISSING)
+      ctx.status.selection_revision=1;
    EEA_RuntimeStatus checkpoint_status;
    EEA_RuntimeDefaults(checkpoint_status);
    checkpoint_status.reason_code=(checkpoint==EEA_STATE_MISSING ? "RUNTIME_CHECKPOINT_MISSING" :
                                   checkpoint==EEA_STATE_INCOMPATIBLE ? "RUNTIME_CHECKPOINT_INCOMPATIBLE" :
                                   selection_check==EEA_STATE_INCOMPATIBLE ? "RUNTIME_SELECTION_INCOMPATIBLE" :
                                   "RUNTIME_RECONCILIATION_REQUIRED");
-   EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status);
+   EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status);
    ctx.initialized=true;
    return EEA_ObserverRuntimeRefresh(ctx,audit);
   }
@@ -277,7 +303,7 @@ void EEA_ObserverRuntimeMarkStale(EEA_ObserverRuntimeContext &ctx,const string r
       ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
       ctx.status.new_entries_blocked=true;
       ctx.status.pending_refresh=true;
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"BROKER_TRANSACTION_OBSERVED",ctx.status);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"BROKER_TRANSACTION_OBSERVED",ctx.status);
      }
    else
      {
@@ -304,7 +330,7 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
    if(!ctx.initialized) return;
    EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
       ctx.account.account_fingerprint,(long)TimeGMT());
-   EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_STOPPED",ctx.status);
+   EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_STOPPED",ctx.status);
    ctx.initialized=false;
   }
 
@@ -389,7 +415,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
       old_specs,old_count,old_account,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
       old_previous_deal_watermark,old_previous_deal_watermark_time);
    if(rollback_persisted)
-      if(!audit.IsOpen() || !EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status)) { ctx.status.runtime_state="BLOCKED"; ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"; ctx.status.new_entries_blocked=true; EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc); }
+      if(!audit.IsOpen() || !EEA_ObserverRuntimeAuditChecked(ctx,audit,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status)) { ctx.status.runtime_state="BLOCKED"; ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"; ctx.status.new_entries_blocked=true; EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc); }
    return false;
   }
 

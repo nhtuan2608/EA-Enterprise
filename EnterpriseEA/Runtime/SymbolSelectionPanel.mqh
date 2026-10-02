@@ -194,9 +194,9 @@ bool EEA_SymbolPanelRequirePolicyAudit(EEA_ObserverRuntimeContext &ctx,CAuditLog
    ctx.status.runtime_state="BLOCKED";
    ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
    ctx.status.new_entries_blocked=true;
-   EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+   bool status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
       ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
-   return false;
+   return status_persisted;
   }
 
 void EEA_SymbolPanelClearOverlay(const long chart_id)
@@ -694,6 +694,8 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
           EEA_SymbolPanelRequirePolicyAudit(ctx,audit,"POLICY_APPLY_REJECTED","POLICY_ROLLBACK_PERSISTENCE_FAILED",
                                      old_committed_policy,g_panel_state.authorization_utc);
          }
+       for(int i=0;i<g_panel_state.row_count && i<EEA_PANEL_MAX_ROWS;i++)
+          g_panel_state.rows[i].checked=old_row_checked[i];
        g_panel_state.status_message="FAILED; previous committed state retained";
       g_panel_state.apply_reason="RUNTIME_RECONCILIATION_OR_PERSISTENCE_FAILED";
       g_panel_state.staged_policy=g_panel_state.committed_policy;
