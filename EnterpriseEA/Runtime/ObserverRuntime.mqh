@@ -95,6 +95,16 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    ctx.status.refresh_sequence++;
    ctx.status.refresh_generation++;
    ulong start_tick = GetTickCount64();
+    string account_refresh_reason="";
+    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_refresh_reason))
+      {
+       ctx.status.refresh_in_progress=false;
+       ctx.status.refresh_failure_count++;
+       ctx.status.consecutive_refresh_failures++;
+       ctx.status.reason_code=account_refresh_reason;
+       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
+       return false;
+      }
    string reason="";
    EEA_RuntimeStatus prior=ctx.status;
    ctx.status.runtime_state="BLOCKED";
@@ -108,9 +118,9 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       string rediscover_reason=""; string rediscovered[];
       if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
          for(int i=0;i<ctx.symbol_count;i++) ctx.broker_symbols[i]=rediscovered[i];
-      else { ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code=rediscover_reason; ctx.status.new_entries_blocked=true; }
+      else { ctx.stale=true; ctx.stale_reason="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.pending_refresh=true; ctx.status.refresh_in_progress=false; ctx.status.refresh_failure_count++; ctx.status.consecutive_refresh_failures++; ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.new_entries_blocked=true; EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_DEGRADED",ctx.status); return false; }
      }
-   if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,reason))
+   if(false /* account refresh already performed before discovery */)
      {
       ctx.status.refresh_in_progress = false;
       ctx.status.refresh_failure_count++;

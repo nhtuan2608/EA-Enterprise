@@ -635,6 +635,40 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "old_authorization_input_gmt7"):
             self.assertIn(token, panel)
 
+    def test_apply_rollback_restores_exact_policy_file_and_does_not_double_restore(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        for token in ("old_policy_file_exists", "old_policy_file_contents",
+                      "EEA_SymbolPanelRestorePolicyFile", "old_status_message", "old_apply_reason"):
+            self.assertIn(token, apply)
+        self.assertEqual(apply.count("EEA_ObserverRuntimeRestoreSelectionSnapshot"), 2,
+                         "apply must restore once per failure branch, not twice in one branch")
+        self.assertIn("EEA_SymbolPanelVerifyPersistedPolicy(ctx,stored)", panel)
+
+    def test_non_apply_policy_failures_restore_all_staged_state_and_reason(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        handler = panel.split("void EEA_SymbolPanelHandleChartEvent", 1)[1]
+        for token in ("old_staged_daily", "old_staged_overall", "old_policy_confirmed",
+                      "old_status_message", "old_apply_reason", "POLICY_SETTINGS_PERSISTENCE_FAILED"):
+            self.assertIn(token, handler)
+        self.assertIn("bool policy_persisted", handler)
+
+    def test_degraded_refresh_retries_after_account_refresh_and_fails_closed(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        refresh = runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
+        self.assertLess(refresh.index("EEA_ReadRuntimeAccount"), refresh.index("EEA_ObserverRuntimeAutoDiscover"))
+        for token in ("ctx.stale=true", "ctx.status.pending_refresh=true",
+                      "RUNTIME_SYMBOL_DISCOVERY_DEGRADED", "ctx.status.runtime_state=\"DEGRADED\""):
+            self.assertIn(token, refresh)
+
+    def test_runtime_rollback_restores_account_and_pending_retry_context(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        restore = runtime.split("bool EEA_ObserverRuntimeRestoreSelectionSnapshot", 1)[1].split("bool EEA_ObserverRuntimeApplySelection", 1)[0]
+        for token in ("ctx.account=old_account", "ctx.stale=old_stale", "ctx.stale_reason=old_stale_reason",
+                      "ctx.last_refresh_utc=old_last_refresh_utc", "ctx.previous_deal_watermark=old_previous_deal_watermark",
+                      "ctx.status=old_status", "EEA_RuntimeStoreWriteAccount"):
+            self.assertIn(token, restore)
+
     def test_degraded_startup_copies_canonical_rows_before_resolution(self):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
