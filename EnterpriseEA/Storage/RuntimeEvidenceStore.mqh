@@ -204,6 +204,26 @@ EEAStateLoadResult EEA_RuntimeStoreCheckStatus(const string path,const string co
    return EEA_STATE_COMPATIBLE;
   }
 
+bool EEA_RuntimeStoreCheckBlockedAuditStatus(const string path,const string config_version,
+                                              const string account_fingerprint)
+  {
+   if(EEA_RuntimeStoreCheckStatus(path,config_version,account_fingerprint)!=EEA_STATE_COMPATIBLE)
+      return false;
+   int h=FileOpen(path,FILE_READ|FILE_BIN);
+   if(h==INVALID_HANDLE) return false;
+   ulong size=FileSize(h);
+   if(size==0 || size>1048576) { FileClose(h); return false; }
+   uchar bytes[];
+   if(ArrayResize(bytes,(int)size)!=(int)size) { FileClose(h); return false; }
+   uint read=FileReadArray(h,bytes,0,(int)size);
+   FileClose(h);
+   if(read!=(uint)size) return false;
+   string json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
+   return StringFind(json,"\"runtime_state\":\"BLOCKED\"")>=0 &&
+      StringFind(json,"\"reason_code\":\"AUDIT_PERSISTENCE_FAILED\"")>=0 &&
+      StringFind(json,"\"new_entries_blocked\":true")>=0;
+  }
+
 bool EEA_RuntimeStoreWriteSymbolSelection(const string root, const string config_version, const string account_fingerprint,
                                           const string broker_server, const long selection_revision,
                                           const string &canonical[], const string &broker[], const int count)

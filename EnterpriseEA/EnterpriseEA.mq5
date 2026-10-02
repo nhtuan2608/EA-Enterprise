@@ -109,7 +109,14 @@ int OnInit()
           g_runtime.status.runtime_state="DEGRADED";
           g_runtime.status.reason_code="RUNTIME_INIT_DEGRADED";
           g_runtime.status.new_entries_blocked=true;
-          EEA_ObserverRuntimeAudit(g_audit,g_config.config_version,"RUNTIME_INIT_DEGRADED",g_runtime.status);
+          if(!EEA_ObserverRuntimeAuditChecked(g_runtime,g_audit,"RUNTIME_INIT_DEGRADED",g_runtime.status))
+             {
+              g_runtime.status.runtime_state="BLOCKED";
+              g_runtime.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+              g_runtime.status.new_entries_blocked=true;
+              EEA_RuntimeStoreWriteStatus(g_runtime.root,g_runtime.status,g_runtime.config_version,
+                 g_runtime.account.account_fingerprint,g_runtime.reconciliation.observed_at_utc);
+             }
          }
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }

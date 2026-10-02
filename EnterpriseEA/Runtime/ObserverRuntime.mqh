@@ -225,7 +225,16 @@ bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &
    bool status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
                                       ctx.account.account_fingerprint,
                                       ctx.reconciliation.observed_at_utc);
-   return status_persisted;
+   bool status_validated=status_persisted &&
+      EEA_RuntimeStoreCheckBlockedAuditStatus(ctx.root+"/current/runtime_status.json",ctx.config_version,
+                                              ctx.account.account_fingerprint);
+   if(!status_validated)
+     {
+      ctx.status.runtime_state="BLOCKED";
+      ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+      ctx.status.new_entries_blocked=true;
+     }
+   return false;
   }
 
 bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
@@ -286,7 +295,16 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
                                   checkpoint==EEA_STATE_INCOMPATIBLE ? "RUNTIME_CHECKPOINT_INCOMPATIBLE" :
                                   selection_check==EEA_STATE_INCOMPATIBLE ? "RUNTIME_SELECTION_INCOMPATIBLE" :
                                   "RUNTIME_RECONCILIATION_REQUIRED");
-   EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status);
+   if(!EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_CHECKPOINT_OBSERVED",checkpoint_status))
+     {
+      ctx.status.runtime_state="BLOCKED";
+      ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+      ctx.status.new_entries_blocked=true;
+      EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+         ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+      ctx.initialized=true;
+      return false;
+     }
    ctx.initialized=true;
    return EEA_ObserverRuntimeRefresh(ctx,audit);
   }

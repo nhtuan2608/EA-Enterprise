@@ -653,7 +653,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
         failure = apply.split("if(!runtime_rollback_persisted || !policy_file_restored)", 1)[1]
         self.assertIn("EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status", failure)
-        self.assertIn('EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status)', failure)
+        self.assertIn('EEA_ObserverRuntimeAuditChecked(ctx,audit,"POLICY_ROLLBACK_FAILED",ctx.status)', failure)
         self.assertIn("POLICY_ROLLBACK_PERSISTENCE_FAILED", failure)
 
     def test_policy_persist_returns_explicit_success_or_failure(self):
@@ -891,6 +891,37 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_RuntimeStoreWriteStatus", panel + runtime)
         self.assertIn("EEA_SymbolPanelAuditPolicy(audit", panel)
         self.assertIn("!EEA_ObserverRuntimeAudit", panel + runtime)
+    def test_audit_helper_failure_persists_blocked_status_and_returns_failure(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("bool EEA_ObserverRuntimeAuditChecked", runtime)
+        helper = runtime.split("bool EEA_ObserverRuntimeAuditChecked", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
+        self.assertIn("if(EEA_ObserverRuntimeAudit(audit,ctx.config_version,event_type,status)) return true;", helper)
+        self.assertIn('ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"', helper)
+        self.assertIn("bool status_persisted=EEA_RuntimeStoreWriteStatus", helper)
+        self.assertIn("EEA_RuntimeStoreCheckBlockedAuditStatus", helper)
+        self.assertIn("return false", helper)
+        degraded = shell.split("if(!EEA_ObserverRuntimeInit", 1)[1].split("if(!EventSetTimer", 1)[0]
+        self.assertIn("!EEA_ObserverRuntimeAuditChecked", degraded)
+        self.assertNotIn("EEA_ObserverRuntimeAudit(g_audit", degraded)
+
+    def test_checkpoint_audit_failure_blocks_before_refresh(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        checkpoint = init.split("if(!EEA_ObserverRuntimeAuditChecked(ctx,audit,\"RUNTIME_CHECKPOINT_OBSERVED\"", 1)[1]
+        failure = checkpoint.split("ctx.initialized=true", 1)[0]
+        self.assertIn('ctx.status.runtime_state="BLOCKED"', failure)
+        self.assertIn('ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"', failure)
+        self.assertIn("EEA_RuntimeStoreWriteStatus", failure)
+        self.assertNotIn("EEA_ObserverRuntimeRefresh(ctx,audit)", failure)
+
+    def test_rollback_audits_use_checked_helper_and_block_on_failure(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        self.assertNotIn('EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status)', apply)
+        self.assertGreaterEqual(apply.count("!EEA_ObserverRuntimeAuditChecked"), 2)
+        self.assertIn('ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"', apply)
+        self.assertIn("EEA_RuntimeStoreWriteStatus", apply)
 
 
 class RuntimeTelemetryValidationTests(unittest.TestCase):
