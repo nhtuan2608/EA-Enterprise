@@ -459,6 +459,31 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertNotIn("OrderSend", panel)
         self.assertNotIn("PAPER", panel.upper())
 
+    def test_policy_choices_persist_proposals_without_execution_or_refresh_dependency(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for button in ("Btn_Policy_FTMO_1_STEP", "Btn_Policy_FTMO_2_STEP", "Btn_Policy_BALANCE_BASED_FTMO_V1"):
+            branch = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"' + button + '"', 1)[1].split("return;", 1)[0]
+            self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,false)", branch)
+        apply_branch = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply"', 1)[1].split("return;", 1)[0]
+        self.assertIn("EEA_SymbolPanelApplyStaged", apply_branch)
+        self.assertNotIn("EEA_ExecutionAdapter", apply_branch)
+        self.assertNotIn("OrderSend", apply_branch)
+
+    def test_policy_store_rejects_unknown_policy_and_non_monotonic_revision(self):
+        store = (ROOT / "Storage/PolicySettingsStore.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_PolicyIdValid", store)
+        self.assertIn("proposed_policy==\"\"", store)
+        self.assertIn("committed_policy==\"\"", store)
+        self.assertIn("existing.revision", store)
+        self.assertIn("POLICY_REVISION_ROLLBACK", store)
+
+    def test_utc_display_uses_explicit_utc_formatter_not_terminal_local_rendering(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_SymbolPanelUtcText", panel)
+        self.assertIn("TimeToStruct", panel)
+        self.assertIn("Z", panel)
+        self.assertNotIn('TimeToString((datetime)value,TIME_DATE|TIME_SECONDS)+" UTC"', panel)
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")

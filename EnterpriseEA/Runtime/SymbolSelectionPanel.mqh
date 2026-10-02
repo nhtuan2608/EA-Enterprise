@@ -49,10 +49,18 @@ struct EEA_SymbolPanelState
 
 static EEA_SymbolPanelState g_panel_state;
 
-string EEA_SymbolPanelReadableUtc(const long value)
+string EEA_SymbolPanelUtcText(const long value)
   {
    if(value<=0) return "UNAVAILABLE";
-   return TimeToString((datetime)value,TIME_DATE|TIME_SECONDS)+" UTC";
+   MqlDateTime dt;
+   TimeToStruct((datetime)value,dt);
+   return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",dt.year,dt.mon,dt.day,dt.hour,dt.min,dt.sec);
+  }
+
+string EEA_SymbolPanelReadableUtc(const long value)
+  {
+   string text=EEA_SymbolPanelUtcText(value);
+   return text=="UNAVAILABLE" ? text : text+" UTC";
   }
 
 void EEA_SymbolPanelSetLabel(const long chart_id,const string name,const int x,const int y,
@@ -290,7 +298,7 @@ void EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &aud
    EEA_PolicySettings stored;
    EEA_PolicySettingsDefaults(stored);
    stored.config_version=ctx.config_version; stored.account_fingerprint=ctx.account.account_fingerprint;
-   stored.broker_server=ctx.account.broker_server; stored.revision=(long)TimeGMT();
+   stored.broker_server=ctx.account.broker_server; stored.revision=(long)GetTickCount64()+(long)TimeGMT();
    stored.proposed_policy=g_panel_state.staged_policy; stored.committed_policy=g_panel_state.committed_policy;
    stored.committed_daily_continuation=g_panel_state.committed_daily_continuation;
    stored.committed_overall_continuation=g_panel_state.committed_overall_continuation;
@@ -459,9 +467,9 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply")
      { EEA_SymbolPanelApplyStaged(ctx,audit); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP") { g_panel_state.staged_policy="FTMO_1_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP") { g_panel_state.staged_policy="FTMO_2_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1") { g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP") { g_panel_state.staged_policy="FTMO_1_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP") { g_panel_state.staged_policy="FTMO_2_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1") { g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation") { g_panel_state.staged_daily_continuation=!g_panel_state.staged_daily_continuation; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation") { g_panel_state.staged_overall_continuation=!g_panel_state.staged_overall_continuation; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy") { g_panel_state.policy_confirmed=true; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }

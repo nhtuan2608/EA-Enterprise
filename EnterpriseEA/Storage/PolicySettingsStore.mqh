@@ -16,6 +16,12 @@ struct EEA_PolicySettings
    long authorization_utc;
   };
 
+bool EEA_PolicyIdValid(const string policy)
+  {
+   return policy=="UNSELECTED" || policy=="FTMO_1_STEP" || policy=="FTMO_2_STEP" ||
+          policy=="BALANCE_BASED_FTMO_V1";
+  }
+
 void EEA_PolicySettingsDefaults(EEA_PolicySettings &s)
   {
    s.config_version=""; s.account_fingerprint=""; s.broker_server="";
@@ -78,13 +84,18 @@ bool EEA_PolicySettingsStoreLoad(const string path,const string config_version,c
    s.proposed_policy=EEA_PolicySettingsField(json,"proposed_policy"); s.committed_policy=EEA_PolicySettingsField(json,"committed_policy");
    s.committed_daily_continuation=EEA_PolicySettingsField(json,"committed_daily_continuation")=="true";
    s.committed_overall_continuation=EEA_PolicySettingsField(json,"committed_overall_continuation")=="true";
-   s.authorization_utc=StringToInteger(EEA_PolicySettingsField(json,"authorization_utc")); return s.revision>0;
+   s.authorization_utc=StringToInteger(EEA_PolicySettingsField(json,"authorization_utc"));
+   return s.revision>0 && EEA_PolicyIdValid(s.proposed_policy) && EEA_PolicyIdValid(s.committed_policy);
   }
 
 bool EEA_PolicySettingsStoreWrite(const string path,const EEA_PolicySettings &s)
   {
+   EEA_PolicySettings existing;
+   bool exists=EEA_PolicySettingsStoreLoad(path,s.config_version,s.account_fingerprint,s.broker_server,existing);
    if(s.config_version=="" || s.account_fingerprint=="" || s.broker_server=="" || s.revision<=0 ||
-      s.committed_policy=="" || s.proposed_policy=="") return false;
+      s.proposed_policy=="" || s.committed_policy=="" ||
+      !EEA_PolicyIdValid(s.proposed_policy) || !EEA_PolicyIdValid(s.committed_policy)) return false;
+   if(exists && s.revision<=existing.revision) { string reason="POLICY_REVISION_ROLLBACK"; return false; }
    return EEA_WriteAtomicText(path,EEA_PolicySettingsToJson(s));
   }
 
