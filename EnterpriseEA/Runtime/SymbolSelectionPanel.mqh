@@ -607,7 +607,9 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
              bool rollback_status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
                 ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
              EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status);
-             EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_ROLLBACK_PERSISTENCE_FAILED",
+             EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED",rollback_status_persisted ?
+                                        "POLICY_ROLLBACK_PERSISTENCE_FAILED" :
+                                        "POLICY_ROLLBACK_STATUS_PERSISTENCE_FAILED",
                                         old_committed_policy,g_panel_state.authorization_utc);
             }
 

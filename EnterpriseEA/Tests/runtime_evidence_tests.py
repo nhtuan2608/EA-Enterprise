@@ -559,6 +559,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true,persisted_policy)", apply)
         self.assertIn("EEA_SymbolPanelVerifyPersistedPolicy(ctx,persisted_policy)", apply)
         self.assertNotIn("expected.revision=", apply)
+        self.assertNotIn("EEA_PolicySettings expected", apply)
+        self.assertNotIn("GetTickCount64", apply)
 
     def test_policy_persist_failure_fails_closed_when_any_rollback_write_fails(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -569,6 +571,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("if(!rollback_persisted || !policy_file_restored)", persist_failure)
         self.assertIn('ctx.status.runtime_state="BLOCKED"', persist_failure)
         self.assertIn("EEA_RuntimeStoreWriteStatus", persist_failure)
+        self.assertIn("bool rollback_status_persisted=", persist_failure)
+        self.assertIn("rollback_status_persisted ?", persist_failure)
         self.assertIn("EEA_ObserverRuntimeAudit", persist_failure)
 
     def test_runtime_selection_failure_restores_persisted_policy_proposal_file(self):
@@ -580,6 +584,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("old_policy_file_exists", runtime_failure)
         self.assertIn('ctx.status.runtime_state="BLOCKED"', runtime_failure)
         self.assertIn("POLICY_ROLLBACK_PERSISTENCE_FAILED", runtime_failure)
+        self.assertIn("EEA_ObserverRuntimeAudit", runtime_failure)
 
     def test_context_only_rows_are_never_rechecked_by_reset_or_apply(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
