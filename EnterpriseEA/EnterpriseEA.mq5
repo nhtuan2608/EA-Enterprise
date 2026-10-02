@@ -8,6 +8,7 @@
 #include "Storage/AtomicWriter.mqh"
 #include "Storage/AuditLog.mqh"
 #include "Storage/SharedStateStore.mqh"
+#include "Storage/PolicySettingsStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
 #include "Runtime/ExecutionAdapter.mqh"
 #include "Runtime/ExecutionControllerState.mqh"

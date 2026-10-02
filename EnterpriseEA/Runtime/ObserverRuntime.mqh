@@ -306,6 +306,11 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
     EEA_RuntimeSymbolSpec old_specs[EEA_RUNTIME_MAX_SYMBOLS];
     EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
     EEA_RuntimeStatus old_status=ctx.status;
+    bool old_stale=ctx.stale;
+    string old_stale_reason=ctx.stale_reason;
+    long old_last_refresh_utc=ctx.last_refresh_utc;
+    long old_previous_deal_watermark=ctx.previous_deal_watermark;
+    long old_previous_deal_watermark_time=ctx.status.previous_deal_watermark_time;
    int old_count = ctx.symbol_count;
    long old_revision = ctx.status.selection_revision;
 
@@ -340,7 +345,12 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
         }
       ctx.symbol_count = old_count;
        ctx.reconciliation = old_reconciliation;
-      ctx.status = old_status;
+       ctx.stale = old_stale;
+       ctx.stale_reason = old_stale_reason;
+       ctx.last_refresh_utc = old_last_refresh_utc;
+       ctx.previous_deal_watermark = old_previous_deal_watermark;
+       ctx.status = old_status;
+       ctx.status.previous_deal_watermark_time = old_previous_deal_watermark_time;
        bool rollback_persisted=EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
                                     ctx.config_version,ctx.account.account_fingerprint) &&
           EEA_RuntimeStoreWriteReconciliation(ctx.root,ctx.reconciliation) &&

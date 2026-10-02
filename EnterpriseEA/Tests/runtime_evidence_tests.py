@@ -428,6 +428,37 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("proposal only; no execution", panel)
         self.assertIn("APPLIED (DISPLAY/CONTROLLER PROPOSAL ONLY)", panel)
 
+    def test_gmt7_authorization_is_editable_validated_and_rendered_as_utc(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "OBJ_EDIT", "OBJPROP_TEXT", "CHARTEVENT_OBJECT_ENDEDIT",
+            "EEA_SymbolPanelParseGmtPlus7", "GMT_PLUS_7_INVALID",
+            "GMT_PLUS_7_VALIDATED", "authorization_utc", "-7*60*60",
+            "INVALID_GMT_PLUS_7_DATETIME",
+        ):
+            self.assertIn(token, panel)
+        settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1]
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\"", settings)
+        self.assertIn("EEA_SymbolPanelReadableUtc(g_panel_state.authorization_utc)", settings)
+
+    def test_policy_proposal_and_apply_are_durable_and_policy_audited(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/PolicySettingsStore.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_PolicySettings", "EEA_PolicySettingsStoreLoad",
+            "EEA_PolicySettingsStoreWrite", "EEA_WriteAtomicText",
+            "policy_settings.json", "proposed_policy", "committed_policy",
+            "POLICY_PROPOSED", "POLICY_APPLIED", "POLICY_APPLY_REJECTED",
+            "EEA_SymbolPanelAuditPolicy",
+        ):
+            self.assertIn(token, panel + store)
+        self.assertIn("EEA_SymbolPanelPersistPolicy", panel)
+        self.assertIn("EEA_SymbolPanelLoadPolicy", panel)
+        self.assertIn("EEA_PolicySettingsStoreWrite", panel)
+        self.assertNotIn("ExecutionAdapter", panel)
+        self.assertNotIn("OrderSend", panel)
+        self.assertNotIn("PAPER", panel.upper())
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
@@ -442,6 +473,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_selection_rollback_repersists_previous_committed_evidence(self):
         obs = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         for token in ("EEA_RuntimeStatus old_status", "old_reconciliation",
+                      "old_stale", "old_stale_reason", "old_last_refresh_utc",
+                      "old_previous_deal_watermark", "old_previous_deal_watermark_time",
                       "EEA_RuntimeStoreWriteSymbols", "EEA_RuntimeStoreWriteReconciliation",
                       "EEA_RuntimeStoreWriteSymbolSelection", "EEA_RuntimeStoreWriteStatus",
                       "SELECTION_APPLY_ROLLBACK_PERSISTED"):
