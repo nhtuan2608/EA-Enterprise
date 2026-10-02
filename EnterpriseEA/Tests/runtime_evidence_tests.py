@@ -603,6 +603,30 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertLess(init.index("ctx.canonical_symbols[i]"), init.index("EEA_ObserverRuntimeAutoDiscover"))
         self.assertIn("ctx.broker_symbols[i]=\"\"", init)
 
+    def test_auto_discover_initializes_all_rows_before_partial_resolution(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        discover = runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("bool EEA_ObserverRuntimeRefresh", 1)[0]
+        self.assertIn("ArrayResize(brokers, count)", discover)
+        self.assertIn("ArrayResize(brokers,count)", discover)
+        self.assertIn("brokers[i]=\"\"", discover)
+        self.assertLess(discover.index("brokers[i]=\"\""), discover.index("if(!results[i].resolved)"))
+
+    def test_degraded_init_preserves_rows_and_marks_status_degraded(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        self.assertIn("ctx.status.runtime_state=\"DEGRADED\"", init)
+        self.assertIn("ctx.status.new_entries_blocked=true", init)
+        self.assertIn("ctx.initialized=true", init)
+        self.assertLess(init.index("ctx.canonical_symbols[i]"), init.index("ctx.status.runtime_state=\"DEGRADED\""))
+
+    def test_dxy_context_only_does_not_block_discovery_or_refresh(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_ObserverRuntimeIsContextOnly", runtime)
+        discover = runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("bool EEA_ObserverRuntimeRefresh", 1)[0]
+        refresh = runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
+        self.assertIn("EEA_ObserverRuntimeIsContextOnly", discover)
+        self.assertIn("EEA_ObserverRuntimeIsContextOnly", refresh)
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")

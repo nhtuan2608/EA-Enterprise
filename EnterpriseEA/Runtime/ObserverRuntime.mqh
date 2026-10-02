@@ -46,6 +46,12 @@ void EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
    audit.Append(e,"EA_RUNTIME_OBSERVER");
   }
 
+bool EEA_ObserverRuntimeIsContextOnly(const string canonical,const string broker)
+  {
+   string c=EEA_TrimUpper(canonical), b=EEA_TrimUpper(broker);
+   return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX.";
+  }
+
 bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers[], const int count, const string server, string &out_reason)
   {
    out_reason = "";
@@ -64,6 +70,10 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
    ArrayResize(brokers, count);
+   ArrayResize(brokers,count);
+   for(int i = 0; i < count; i++) brokers[i]="";
+   for(int i = 0; i < count; i++)
+      if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],"")) brokers[i]="";
    for(int i = 0; i < count; i++)
      {
       if(!results[i].resolved)
@@ -100,7 +110,8 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       return false;
      }
    for(int i=0;i<ctx.symbol_count;i++)
-     if(!EEA_ReadRuntimeSymbolSpec(ctx.canonical_symbols[i],ctx.broker_symbols[i],
+     if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) &&
+        !EEA_ReadRuntimeSymbolSpec(ctx.canonical_symbols[i],ctx.broker_symbols[i],
                                    ctx.account.broker_server,ctx.symbol_specs[i],reason))
        {
         ctx.status.refresh_in_progress = false;
@@ -206,7 +217,14 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
-     { ctx.status.reason_code=discover_reason; return false; }
+     {
+      ctx.status.runtime_state="DEGRADED";
+      ctx.status.reason_code=discover_reason;
+      ctx.status.new_entries_blocked=true;
+      ctx.initialized=true;
+      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_INIT_DEGRADED",ctx.status);
+      return false;
+     }
    for(int i=0;i<count;i++)
      {
       ctx.canonical_symbols[i]=canonical[i];
