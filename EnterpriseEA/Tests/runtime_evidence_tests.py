@@ -549,6 +549,38 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "g_panel_state.committed_policy=old_committed_policy"):
             self.assertIn(token, apply)
 
+    def test_apply_verifies_the_exact_policy_settings_that_persist_wrote(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        self.assertIn("EEA_PolicySettings &written", persist)
+        self.assertIn("written=stored", persist)
+        self.assertIn("EEA_PolicySettings persisted_policy", apply)
+        self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true,persisted_policy)", apply)
+        self.assertIn("EEA_SymbolPanelVerifyPersistedPolicy(ctx,persisted_policy)", apply)
+        self.assertNotIn("expected.revision=", apply)
+
+    def test_policy_persist_failure_fails_closed_when_any_rollback_write_fails(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        persist_failure = apply.split("EEA_PolicySettings persisted_policy", 1)[1].split("if(!EEA_SymbolPanelVerifyPersistedPolicy", 1)[0]
+        self.assertIn("bool rollback_persisted=", persist_failure)
+        self.assertIn("bool policy_file_restored=", persist_failure)
+        self.assertIn("if(!rollback_persisted || !policy_file_restored)", persist_failure)
+        self.assertIn('ctx.status.runtime_state="BLOCKED"', persist_failure)
+        self.assertIn("EEA_RuntimeStoreWriteStatus", persist_failure)
+        self.assertIn("EEA_ObserverRuntimeAudit", persist_failure)
+
+    def test_runtime_selection_failure_restores_persisted_policy_proposal_file(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        runtime_failure = apply[apply.rfind("else"):]
+        self.assertIn("EEA_SymbolPanelRestorePolicyFile", runtime_failure)
+        self.assertIn("old_policy_file_contents", runtime_failure)
+        self.assertIn("old_policy_file_exists", runtime_failure)
+        self.assertIn('ctx.status.runtime_state="BLOCKED"', runtime_failure)
+        self.assertIn("POLICY_ROLLBACK_PERSISTENCE_FAILED", runtime_failure)
+
     def test_context_only_rows_are_never_rechecked_by_reset_or_apply(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         reset = panel.split("void EEA_SymbolPanelResetStaged", 1)[1].split("void EEA_SymbolPanelApplyStaged", 1)[0]
@@ -565,7 +597,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
             self.assertTrue("EEA_SymbolPanelPersistPolicy(ctx,audit,false)" in branch)
             self.assertTrue("EEA_SymbolPanelRestorePolicySnapshot(old_policy)" in branch)
         apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
-        self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true)", apply)
+        self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true,persisted_policy)", apply)
         self.assertIn("POLICY_SETTINGS_PERSISTENCE_FAILED", apply)
 
     def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):

@@ -369,7 +369,8 @@ void EEA_SymbolPanelLoadPolicy(EEA_ObserverRuntimeContext &ctx)
      }
   }
 
-bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,const bool applied)
+bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,const bool applied,
+                                   EEA_PolicySettings &written)
   {
    EEA_PolicySettings stored;
    EEA_PolicySettingsDefaults(stored);
@@ -380,13 +381,12 @@ bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &aud
     stored.committed_daily_continuation=g_panel_state.committed_daily_continuation;
     stored.proposed_overall_continuation=g_panel_state.staged_overall_continuation;
     stored.committed_overall_continuation=g_panel_state.committed_overall_continuation;
-   stored.committed_daily_continuation=g_panel_state.committed_daily_continuation;
-   stored.committed_overall_continuation=g_panel_state.committed_overall_continuation;
    stored.policy_confirmed=g_panel_state.policy_confirmed;
     stored.authorization_input_gmt7=g_panel_state.authorization_input_gmt7;
     stored.authorization_utc=g_panel_state.authorization_utc;
    if(EEA_PolicySettingsStoreWrite(ctx.root+"/current/policy_settings.json",stored))
      {
+      written=stored;
       EEA_SymbolPanelAuditPolicy(audit,applied ? "POLICY_APPLIED" : "POLICY_PROPOSED",
                                  applied ? "POLICY_APPLY_PERSISTED" : "POLICY_PROPOSAL_PERSISTED",
                                  applied ? stored.committed_policy : stored.proposed_policy,stored.authorization_utc);
@@ -395,6 +395,12 @@ bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &aud
    EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
                               stored.proposed_policy,stored.authorization_utc);
    return false;
+  }
+
+bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,const bool applied)
+  {
+   EEA_PolicySettings written;
+   return EEA_SymbolPanelPersistPolicy(ctx,audit,applied,written);
   }
 
 bool EEA_SymbolPanelVerifyPersistedPolicy(EEA_ObserverRuntimeContext &ctx,const EEA_PolicySettings &expected)
@@ -570,7 +576,8 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       g_panel_state.committed_overall_continuation=g_panel_state.staged_overall_continuation;
       g_panel_state.status_message="APPLIED (DISPLAY/CONTROLLER PROPOSAL ONLY)";
       g_panel_state.apply_reason="FRESH_RECONCILIATION_COMPLETE";
-      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,true))
+      EEA_PolicySettings persisted_policy;
+       if(!EEA_SymbolPanelPersistPolicy(ctx,audit,true,persisted_policy))
         {
          bool rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,
             old_broker_symbols,old_symbol_specs,old_symbol_count,old_account,old_reconciliation,old_status,
@@ -590,22 +597,24 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
          g_panel_state.apply_reason=old_apply_reason;
          EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
                                     old_committed_policy,g_panel_state.authorization_utc);
+          if(!rollback_persisted || !policy_file_restored)
+            {
+             ctx.status.runtime_state="BLOCKED";
+             ctx.status.reason_code="POLICY_ROLLBACK_FAILED";
+             ctx.status.new_entries_blocked=true;
+             g_panel_state.status_message="FAILED; rollback persistence failed";
+             g_panel_state.apply_reason="POLICY_ROLLBACK_PERSISTENCE_FAILED";
+             bool rollback_status_persisted=EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+                ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+             EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status);
+             EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_ROLLBACK_PERSISTENCE_FAILED",
+                                        old_committed_policy,g_panel_state.authorization_utc);
+            }
+
          return;
         }
-      EEA_PolicySettings verify;
-       EEA_PolicySettings expected;
-       EEA_PolicySettingsDefaults(expected);
-       expected.config_version=ctx.config_version; expected.account_fingerprint=ctx.account.account_fingerprint;
-       expected.broker_server=ctx.account.broker_server; expected.revision=(long)GetTickCount64()+(long)TimeGMT();
-       expected.proposed_policy=g_panel_state.staged_policy; expected.committed_policy=g_panel_state.committed_policy;
-       expected.proposed_daily_continuation=g_panel_state.staged_daily_continuation;
-       expected.committed_daily_continuation=g_panel_state.committed_daily_continuation;
-       expected.proposed_overall_continuation=g_panel_state.staged_overall_continuation;
-       expected.committed_overall_continuation=g_panel_state.committed_overall_continuation;
-       expected.policy_confirmed=g_panel_state.policy_confirmed;
-       expected.authorization_input_gmt7=g_panel_state.authorization_input_gmt7;
-       expected.authorization_utc=g_panel_state.authorization_utc;
-       if(!EEA_SymbolPanelVerifyPersistedPolicy(ctx,expected))
+
+       if(!EEA_SymbolPanelVerifyPersistedPolicy(ctx,persisted_policy))
        {
          bool runtime_rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,old_broker_symbols,
              old_symbol_specs,old_symbol_count,old_account,old_reconciliation,old_status,old_stale,
@@ -638,7 +647,19 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
      }
    else
      {
-      g_panel_state.status_message="FAILED; previous committed state retained";
+      bool policy_file_restored=EEA_SymbolPanelRestorePolicyFile(ctx.root+"/current/policy_settings.json",old_policy_file_contents,old_policy_file_exists);
+       if(!policy_file_restored)
+         {
+          ctx.status.runtime_state="BLOCKED";
+          ctx.status.reason_code="POLICY_ROLLBACK_FAILED";
+          ctx.status.new_entries_blocked=true;
+          EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+             ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+          EEA_ObserverRuntimeAudit(audit,ctx.config_version,"POLICY_ROLLBACK_FAILED",ctx.status);
+          EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_ROLLBACK_PERSISTENCE_FAILED",
+                                     old_committed_policy,g_panel_state.authorization_utc);
+         }
+       g_panel_state.status_message="FAILED; previous committed state retained";
       g_panel_state.apply_reason="RUNTIME_RECONCILIATION_OR_PERSISTENCE_FAILED";
       g_panel_state.staged_policy=g_panel_state.committed_policy;
       g_panel_state.staged_daily_continuation=g_panel_state.committed_daily_continuation;
