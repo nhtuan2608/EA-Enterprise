@@ -574,6 +574,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("bool rollback_status_persisted=", persist_failure)
         self.assertIn("rollback_status_persisted ?", persist_failure)
         self.assertIn("EEA_ObserverRuntimeAudit", persist_failure)
+        self.assertGreaterEqual(persist_failure.count("EEA_SymbolPanelAuditPolicy"), 1)
+        self.assertIn("POLICY_ROLLBACK_STATUS_PERSISTENCE_FAILED", persist_failure)
 
     def test_runtime_selection_failure_restores_persisted_policy_proposal_file(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
