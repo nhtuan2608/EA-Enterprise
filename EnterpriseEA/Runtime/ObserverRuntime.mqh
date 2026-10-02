@@ -29,10 +29,10 @@ struct EEA_ObserverRuntimeContext
    EEA_RuntimeStatus status;
   };
 
-void EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
+bool EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
                               const string event_type,const EEA_RuntimeStatus &status)
   {
-   if(!audit.IsOpen()) return;
+   if(!audit.IsOpen()) return false;
    EEAEvent e;
    EEAEvent_Init(e,event_type,TimeGMT(),"","runtime-evidence","",status.runtime_state,
                  status.runtime_state=="OBSERVING" ? "OK" : "DEGRADED");
@@ -43,7 +43,7 @@ void EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
                   "\"refresh_sequence\":" + IntegerToString(status.refresh_sequence) + "," +
                   "\"refresh_generation\":" + IntegerToString(status.refresh_generation) + "," +
                   "\"selection_revision\":" + IntegerToString(status.selection_revision) + "}";
-   audit.Append(e,"EA_RUNTIME_OBSERVER");
+   return audit.Append(e,"EA_RUNTIME_OBSERVER");
   }
 
 bool EEA_ObserverRuntimeIsContextOnly(const string canonical,const string broker)
@@ -389,7 +389,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
       old_specs,old_count,old_account,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
       old_previous_deal_watermark,old_previous_deal_watermark_time);
    if(rollback_persisted)
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status);
+      if(!audit.IsOpen() || !EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status)) { ctx.status.runtime_state="BLOCKED"; ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"; ctx.status.new_entries_blocked=true; EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc); }
    return false;
   }
 

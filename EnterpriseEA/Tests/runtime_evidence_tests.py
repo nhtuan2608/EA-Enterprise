@@ -574,7 +574,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("bool rollback_status_persisted=", persist_failure)
         self.assertIn("rollback_status_persisted ?", persist_failure)
         self.assertIn("EEA_ObserverRuntimeAudit", persist_failure)
-        self.assertGreaterEqual(persist_failure.count("EEA_SymbolPanelAuditPolicy"), 1)
+        self.assertGreaterEqual(persist_failure.count("EEA_SymbolPanelRequirePolicyAudit"), 1)
         self.assertIn("POLICY_ROLLBACK_STATUS_PERSISTENCE_FAILED", persist_failure)
 
     def test_runtime_selection_failure_restores_persisted_policy_proposal_file(self):
@@ -822,6 +822,35 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "EEA_RuntimeStoreWriteSymbolSelection", "EEA_RuntimeStoreWriteStatus",
                       "SELECTION_APPLY_ROLLBACK_PERSISTED"):
             self.assertIn(token, obs)
+    def test_policy_revision_is_loaded_and_incremented_durably(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("bool EEA_SymbolPanelPersistPolicy", 2)[0]
+        self.assertIn("EEA_PolicySettings existing", persist)
+        self.assertIn("EEA_PolicySettingsStoreLoad", persist)
+        self.assertIn("existing.revision+1", persist)
+        self.assertIn("FileIsExist", persist)
+        self.assertIn("POLICY_SETTINGS_REVISION_UNAVAILABLE", persist)
+        self.assertNotIn("GetTickCount64", persist)
+
+    def test_selection_apply_failure_restores_exact_staged_row_checked_states(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        self.assertIn("old_row_checked[EEA_PANEL_MAX_ROWS]", apply)
+        self.assertIn("old_row_checked[i]=g_panel_state.rows[i].checked", apply)
+        self.assertIn("g_panel_state.rows[i].checked=old_row_checked[i]", apply)
+        self.assertGreaterEqual(apply.count("g_panel_state.rows[i].checked=old_row_checked[i]"), 2)
+
+    def test_rollback_and_policy_rejection_require_durable_audit_append_success(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        audit_panel = panel.split("bool EEA_SymbolPanelAuditPolicy", 1)[1].split("void EEA_SymbolPanelClearOverlay", 1)[0]
+        audit_runtime = runtime.split("bool EEA_ObserverRuntimeAudit", 1)[1].split("bool EEA_ObserverRuntimeIsContextOnly", 1)[0]
+        self.assertIn("return audit.Append", audit_panel)
+        self.assertIn("return audit.Append", audit_runtime)
+        self.assertIn("AUDIT_PERSISTENCE_FAILED", panel + runtime)
+        self.assertIn("EEA_RuntimeStoreWriteStatus", panel + runtime)
+        self.assertIn("EEA_SymbolPanelAuditPolicy(audit", panel)
+        self.assertIn("!EEA_ObserverRuntimeAudit", panel + runtime)
 
 
 class RuntimeTelemetryValidationTests(unittest.TestCase):
