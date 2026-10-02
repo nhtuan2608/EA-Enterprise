@@ -10,6 +10,7 @@
 #define EEA_PANEL_MAIN_PREFIX "EEA_Panel_Main_"
 #define EEA_PANEL_OVERLAY_PREFIX "EEA_Panel_Overlay_"
 // EnterpriseEA — OBSERVER ONLY; explicit confirmation is required for proposals.
+#define EEA_PANEL_POLICY_PROPOSAL_ONLY "POLICY_PROPOSAL_ONLY"
 
 struct EEA_SymbolPanelRow
   {
@@ -184,6 +185,21 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
    return true;
   }
 
+void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
+  {
+   if(g_panel_state.overlay_name!="SETTINGS") return;
+   for(int i=0;i<g_panel_state.row_count && i<EEA_PANEL_MAX_ROWS;i++)
+     {
+      string prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_";
+      EEA_SymbolPanelSetButton(chart_id,prefix+"Chk",10,370+i*24,25,
+                               g_panel_state.rows[i].checked ? "[X]" : "[ ]");
+      EEA_SymbolPanelSetLabel(chart_id,prefix+"Lbl",42,373+i*24,
+                              g_panel_state.rows[i].canonical_symbol+" -> "+
+                              (g_panel_state.rows[i].broker_symbol=="" ? "[UNRESOLVED]" : g_panel_state.rows[i].broker_symbol)+
+                              " ("+g_panel_state.rows[i].status+")");
+     }
+  }
+
 void EEA_SymbolPanelRefresh(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    g_panel_state.chart_id=chart_id;
@@ -200,6 +216,14 @@ void EEA_SymbolPanelRefresh(const long chart_id,EEA_ObserverRuntimeContext &ctx)
      }
    g_panel_state.staged_initialized=true;
    EEA_SymbolPanelRenderMainView(chart_id,ctx);
+   EEA_SymbolPanelRenderSettingsRows(chart_id);
+  }
+
+void EEA_SymbolPanelRefreshOpenOverlay(const long chart_id,EEA_ObserverRuntimeContext &ctx)
+  {
+   if(!g_panel_state.overlay_open) return;
+   if(g_panel_state.overlay_name=="DASHBOARD") EEA_SymbolPanelRenderDashboard(chart_id,ctx);
+   else if(g_panel_state.overlay_name=="SETTINGS") EEA_SymbolPanelRenderSettings(chart_id,ctx);
   }
 
 void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContext &ctx)
@@ -229,8 +253,8 @@ void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContex
                            "Apply status: "+(g_panel_state.status_message=="" ? "READY" : g_panel_state.status_message)+
                            " | reason: "+(g_panel_state.apply_reason=="" ? "NONE" : g_panel_state.apply_reason));
    EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Safety",10,342,
-                           "Safety: EXECUTION_DISABLED | NOT_AUTHORIZED | proposal only; no execution");
-   EEA_SymbolPanelRefresh(chart_id,ctx);
+                           "Safety: EXECUTION_DISABLED | NOT_AUTHORIZED | "+EEA_PANEL_POLICY_PROPOSAL_ONLY+"; proposal only; no execution");
+   EEA_SymbolPanelRenderSettingsRows(chart_id);
   }
 
 void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeContext &ctx)

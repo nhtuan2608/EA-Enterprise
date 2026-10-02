@@ -407,14 +407,45 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "Headroom:", "valid_until_utc", "observed_at_utc"):
             self.assertIn(token, panel)
 
+    def test_settings_renders_actual_symbol_rows(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_SymbolPanelRenderSettingsRows", panel)
+        self.assertIn('EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_Chk"', panel)
+        self.assertIn('prefix+"Lbl"', panel)
+        self.assertIn("g_panel_state.overlay_name==\"SETTINGS\"", panel)
+
+    def test_dashboard_rerenders_when_open_on_timer(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", panel)
+        timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
+        self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", timer)
+        self.assertIn("EEA_SymbolPanelRenderDashboard", panel)
+
+    def test_policy_is_explicitly_proposal_only(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("POLICY_PROPOSAL_ONLY", panel)
+        self.assertIn("proposal only; no execution", panel)
+        self.assertIn("APPLIED (DISPLAY/CONTROLLER PROPOSAL ONLY)", panel)
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        self.assertIn("OBJPROP_SUBWINDOW", panel)
+        self.assertIn("ObjectCreate(chart_id,name,OBJ_LABEL,g_panel_state.sub_window,0,0)", panel)
+        self.assertIn("ObjectCreate(chart_id,name,OBJ_BUTTON,g_panel_state.sub_window,0,0)", panel)
+        self.assertNotIn("OBJPROP_SUBWINDOW", panel)
         init = shell.split("int OnInit()", 1)[1].split("void OnDeinit()", 1)[0]
         self.assertIn("if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh", init)
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("if(InpRuntimeEvidenceEnabled)", timer)
+
+    def test_selection_rollback_repersists_previous_committed_evidence(self):
+        obs = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        for token in ("EEA_RuntimeStatus old_status", "old_reconciliation",
+                      "EEA_RuntimeStoreWriteSymbols", "EEA_RuntimeStoreWriteReconciliation",
+                      "EEA_RuntimeStoreWriteSymbolSelection", "EEA_RuntimeStoreWriteStatus",
+                      "SELECTION_APPLY_ROLLBACK_PERSISTED"):
+            self.assertIn(token, obs)
 
 
 class RuntimeTelemetryValidationTests(unittest.TestCase):
@@ -579,7 +610,7 @@ class RetainedRuntimeLifecycleWiringTests(unittest.TestCase):
     def test_apply_selection_rollback(self):
         obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
         self.assertIn("ctx.canonical_symbols[i] = old_canons[i]", obs_mqh)
-        self.assertIn("ctx.status.selection_revision = old_revision", obs_mqh)
+        self.assertIn("ctx.status = old_status", obs_mqh)
 
     def test_status_serialization_occurs_after_final_telemetry(self):
         obs_mqh = (ROOT / 'Runtime/ObserverRuntime.mqh').read_text(encoding='utf-8')
