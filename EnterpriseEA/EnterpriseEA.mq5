@@ -155,8 +155,11 @@ void OnTimer()
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
-       if(InpShowSymbolPanel) EEA_SymbolPanelRefresh(0,g_runtime);
-           EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
+       if(InpShowSymbolPanel)
+         {
+          EEA_SymbolPanelRefresh(0,g_runtime);
+          EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
+         }
       }
   }
 

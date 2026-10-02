@@ -11,7 +11,9 @@ struct EEA_PolicySettings
    long revision;
    string proposed_policy;
    string committed_policy;
+   bool proposed_daily_continuation;
    bool committed_daily_continuation;
+   bool proposed_overall_continuation;
    bool committed_overall_continuation;
    long authorization_utc;
   };
@@ -26,7 +28,8 @@ void EEA_PolicySettingsDefaults(EEA_PolicySettings &s)
   {
    s.config_version=""; s.account_fingerprint=""; s.broker_server="";
    s.revision=0; s.proposed_policy="UNSELECTED"; s.committed_policy="UNSELECTED";
-   s.committed_daily_continuation=true; s.committed_overall_continuation=true;
+   s.proposed_daily_continuation=true; s.committed_daily_continuation=true;
+   s.proposed_overall_continuation=true; s.committed_overall_continuation=true;
    s.authorization_utc=0;
   }
 
@@ -50,7 +53,9 @@ string EEA_PolicySettingsToJson(const EEA_PolicySettings &s)
       EEA_PolicySettingsJsonEscape(s.broker_server)+"\",\"revision\":"+IntegerToString(s.revision)+
       ",\"proposed_policy\":\""+EEA_PolicySettingsJsonEscape(s.proposed_policy)+
       "\",\"committed_policy\":\""+EEA_PolicySettingsJsonEscape(s.committed_policy)+
-      "\",\"committed_daily_continuation\":"+(s.committed_daily_continuation ? "true" : "false")+
+      "\",\"proposed_daily_continuation\":"+(s.proposed_daily_continuation ? "true" : "false")+
+      ",\"committed_daily_continuation\":"+(s.committed_daily_continuation ? "true" : "false")+
+      ",\"proposed_overall_continuation\":"+(s.proposed_overall_continuation ? "true" : "false")+
       ",\"committed_overall_continuation\":"+(s.committed_overall_continuation ? "true" : "false")+
       ",\"authorization_utc\":"+IntegerToString(s.authorization_utc)+"}";
   }
@@ -82,8 +87,10 @@ bool EEA_PolicySettingsStoreLoad(const string path,const string config_version,c
    s.config_version=config_version; s.account_fingerprint=account_fingerprint; s.broker_server=broker_server;
    s.revision=StringToInteger(EEA_PolicySettingsField(json,"revision"));
    s.proposed_policy=EEA_PolicySettingsField(json,"proposed_policy"); s.committed_policy=EEA_PolicySettingsField(json,"committed_policy");
-   s.committed_daily_continuation=EEA_PolicySettingsField(json,"committed_daily_continuation")=="true";
-   s.committed_overall_continuation=EEA_PolicySettingsField(json,"committed_overall_continuation")=="true";
+   s.proposed_daily_continuation=EEA_PolicySettingsField(json,"proposed_daily_continuation")=="true";
+    s.committed_daily_continuation=EEA_PolicySettingsField(json,"committed_daily_continuation")=="true";
+   s.proposed_overall_continuation=EEA_PolicySettingsField(json,"proposed_overall_continuation")=="true";
+    s.committed_overall_continuation=EEA_PolicySettingsField(json,"committed_overall_continuation")=="true";
    s.authorization_utc=StringToInteger(EEA_PolicySettingsField(json,"authorization_utc"));
    return s.revision>0 && EEA_PolicyIdValid(s.proposed_policy) && EEA_PolicyIdValid(s.committed_policy);
   }

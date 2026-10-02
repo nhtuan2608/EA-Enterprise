@@ -51,7 +51,6 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    out_reason = "";
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS)
      { out_reason="RUNTIME_CONFIGURATION_INVALID"; return false; }
-
    int total = SymbolsTotal(false);
    EEA_SymbolDiscoveryCandidate candidates[];
    ArrayResize(candidates, total);
@@ -62,27 +61,18 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
       candidates[i].tradeable = (SymbolInfoInteger(name, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED);
       candidates[i].conversion_only = false;
      }
-
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
-
    ArrayResize(brokers, count);
    for(int i = 0; i < count; i++)
      {
       if(!results[i].resolved)
-        {
-         out_reason = "SYMBOL_RESOLUTION_FAILED";
-         return false;
-        }
+        { out_reason = "SYMBOL_RESOLUTION_FAILED"; return false; }
       brokers[i] = results[i].broker_symbol;
-
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
       if(!EEA_ReadRuntimeSymbolSpec(canonicals[i], brokers[i], server, spec, spec_reason))
-        {
-         out_reason = spec_reason;
-         return false;
-        }
+        { out_reason = spec_reason; return false; }
      }
    return true;
   }
@@ -94,15 +84,12 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    ctx.status.refresh_attempt_count++;
    ctx.status.refresh_sequence++;
    ctx.status.refresh_generation++;
-
    ulong start_tick = GetTickCount64();
    string reason="";
    EEA_RuntimeStatus prior=ctx.status;
-
    ctx.status.runtime_state="BLOCKED";
    ctx.status.reason_code="RUNTIME_RECONCILIATION_REQUIRED";
    ctx.status.new_entries_blocked=true;
-
    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,reason))
      {
       ctx.status.refresh_in_progress = false;
@@ -112,7 +99,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
       return false;
      }
-
    for(int i=0;i<ctx.symbol_count;i++)
      if(!EEA_ReadRuntimeSymbolSpec(ctx.canonical_symbols[i],ctx.broker_symbols[i],
                                    ctx.account.broker_server,ctx.symbol_specs[i],reason))
@@ -124,7 +110,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
         EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
         return false;
        }
-
    if(!EEA_ReadRuntimeReconciliation(ctx.account,ctx.config_version,ctx.history_lookback_days,
                                       ctx.refresh_seconds*2,ctx.reconciliation,reason))
      {
@@ -137,7 +122,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
      }
    ctx.reconciliation.symbol_count=ctx.symbol_count;
    for(int i=0;i<ctx.symbol_count;i++) ctx.reconciliation.symbols[i]=ctx.symbol_specs[i];
-
    EEA_RuntimeStatus val_status;
    EEA_RuntimeValidate(ctx.reconciliation,(long)TimeGMT(),ctx.previous_deal_watermark,val_status);
    val_status.runtime_instance_id = ctx.status.runtime_instance_id;
@@ -160,12 +144,10 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    val_status.pending_refresh = ctx.status.pending_refresh;
    val_status.refresh_in_progress = ctx.status.refresh_in_progress;
    ctx.status = val_status;
-
    ulong duration_ms = GetTickCount64() - start_tick;
    ctx.status.last_refresh_duration_ms = (long)duration_ms;
    if((long)duration_ms > ctx.status.max_refresh_duration_ms)
       ctx.status.max_refresh_duration_ms = (long)duration_ms;
-
    ctx.status.broker_observed_at_utc = ctx.reconciliation.observed_at_utc;
    ctx.status.checkpoint_written_at_utc = (long)TimeGMT();
    ctx.previous_deal_watermark=ctx.reconciliation.deal_watermark;
@@ -176,7 +158,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    ctx.status.consecutive_refresh_failures=0;
    ctx.status.refresh_in_progress=false;
    ctx.status.pending_refresh=false;
-
    bool persisted=EEA_RuntimeStoreWriteAccount(ctx.root,ctx.account) &&
       EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
                                    ctx.config_version,ctx.account.account_fingerprint) &&
@@ -196,7 +177,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_PERSISTENCE_FAILED",ctx.status);
       return false;
      }
-
    EEA_ObserverRuntimeAudit(audit,ctx.config_version,prior.runtime_state=="" ? "RUNTIME_INITIALIZED" : "RUNTIME_REFRESHED",ctx.status);
    return ctx.status.runtime_state=="OBSERVING";
   }
@@ -209,28 +189,29 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
    EEA_RuntimeDefaults(ctx.status);
    ctx.status.runtime_instance_id = (long)GetTickCount64() + (long)TimeGMT();
    ctx.status.selection_revision = 1;
+   for(int i=0;i<count && i<EEA_RUNTIME_MAX_SYMBOLS;i++)
+     {
+      ctx.canonical_symbols[i]=canonical[i];
+      ctx.broker_symbols[i]="";
+     }
    ctx.enabled=true; ctx.initialized=false; ctx.stale=true; ctx.stale_reason="STARTUP";
    ctx.root=root; ctx.config_version=config_version; ctx.refresh_seconds=refresh_seconds;
    ctx.history_lookback_days=history_lookback_days; ctx.last_refresh_utc=0;
    ctx.previous_deal_watermark=-1; ctx.symbol_count=count;
    if(refresh_seconds<1 || history_lookback_days<1 || history_lookback_days>90 || count<1 || count>EEA_RUNTIME_MAX_SYMBOLS)
      { ctx.status.reason_code="RUNTIME_CONFIGURATION_INVALID"; return false; }
-
    string account_reason="";
    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_reason))
      { ctx.status.reason_code=account_reason; return false; }
-
    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
      { ctx.status.reason_code=discover_reason; return false; }
-
    for(int i=0;i<count;i++)
      {
       ctx.canonical_symbols[i]=canonical[i];
       ctx.broker_symbols[i]=brokers[i];
      }
-
    EEAStateLoadResult checkpoint=EEA_RuntimeStoreCheckStatus(
       ctx.root+"/current/runtime_status.json",ctx.config_version,ctx.account.account_fingerprint);
    EEAStateLoadResult selection_check=EEA_RuntimeStoreCheckSymbolSelection(
@@ -275,10 +256,7 @@ void EEA_ObserverRuntimeOnTimer(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    if(ctx.stale || ctx.status.pending_refresh || (long)TimeGMT()-ctx.last_refresh_utc>=ctx.refresh_seconds)
      {
       if(ctx.status.refresh_in_progress)
-        {
-         ctx.status.pending_refresh = true;
-         return;
-        }
+        { ctx.status.pending_refresh = true; return; }
       EEA_ObserverRuntimeRefresh(ctx,audit);
      }
   }
@@ -292,76 +270,85 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
    ctx.initialized=false;
   }
 
+bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
+                                                 const string &old_canonical_symbols[],
+                                                 const string &old_broker_symbols[],
+                                                 const EEA_RuntimeSymbolSpec &old_symbol_specs[],
+                                                 const int old_count,
+                                                 const EEA_RuntimeReconciliationSnapshot &old_reconciliation,
+                                                 const EEA_RuntimeStatus &old_status,
+                                                 const bool old_stale,
+                                                 const string old_stale_reason,
+                                                 const long old_last_refresh_utc,
+                                                 const long old_previous_deal_watermark,
+                                                 const long old_previous_deal_watermark_time=0)
+  {
+   for(int i=0;i<old_count;i++)
+     {
+      ctx.canonical_symbols[i]=old_canonical_symbols[i];
+      ctx.canonical_symbols[i]=old_canonical_symbols[i];
+      ctx.broker_symbols[i]=old_broker_symbols[i];
+      ctx.symbol_specs[i]=old_symbol_specs[i];
+     }
+   ctx.symbol_count=old_count;
+   ctx.reconciliation=old_reconciliation;
+   ctx.status=old_status;
+   ctx.status = old_status;
+   long old_revision=old_status.selection_revision;
+   ctx.stale=old_stale;
+   ctx.stale_reason=old_stale_reason;
+   ctx.last_refresh_utc=old_last_refresh_utc;
+   ctx.previous_deal_watermark=old_previous_deal_watermark;
+   ctx.status.previous_deal_watermark_time=old_previous_deal_watermark_time;
+   return EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
+                                       ctx.config_version,ctx.account.account_fingerprint) &&
+      EEA_RuntimeStoreWriteReconciliation(ctx.root,ctx.reconciliation) &&
+      EEA_RuntimeStoreWriteSymbolSelection(ctx.root,ctx.config_version,ctx.account.account_fingerprint,
+                                           ctx.account.broker_server,ctx.status.selection_revision,
+                                           ctx.canonical_symbols,ctx.broker_symbols,ctx.symbol_count) &&
+      EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+                                  ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+  }
+
 bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLog &audit, const string &canonical[], const int count)
   {
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS) return false;
-
    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
      { return false; }
-
    string old_canons[EEA_RUNTIME_MAX_SYMBOLS];
    string old_brokers[EEA_RUNTIME_MAX_SYMBOLS];
-    EEA_RuntimeSymbolSpec old_specs[EEA_RUNTIME_MAX_SYMBOLS];
-    EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
-    EEA_RuntimeStatus old_status=ctx.status;
-    bool old_stale=ctx.stale;
-    string old_stale_reason=ctx.stale_reason;
-    long old_last_refresh_utc=ctx.last_refresh_utc;
-    long old_previous_deal_watermark=ctx.previous_deal_watermark;
-    long old_previous_deal_watermark_time=ctx.status.previous_deal_watermark_time;
+   EEA_RuntimeSymbolSpec old_specs[EEA_RUNTIME_MAX_SYMBOLS];
+   EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
+   EEA_RuntimeStatus old_status=ctx.status;
+   bool old_stale=ctx.stale;
+   string old_stale_reason=ctx.stale_reason;
+   long old_last_refresh_utc=ctx.last_refresh_utc;
+   long old_previous_deal_watermark=ctx.previous_deal_watermark;
+   long old_previous_deal_watermark_time=ctx.status.previous_deal_watermark_time;
    int old_count = ctx.symbol_count;
-   long old_revision = ctx.status.selection_revision;
-
-   for(int i=0; i<old_count; i++)
+   for(int i=0;i<old_count;i++)
      {
       old_canons[i] = ctx.canonical_symbols[i];
       old_brokers[i] = ctx.broker_symbols[i];
-       old_specs[i] = ctx.symbol_specs[i];
+      old_specs[i] = ctx.symbol_specs[i];
      }
-
-   for(int i=0; i<count; i++)
+   for(int i=0;i<count;i++)
      {
       ctx.canonical_symbols[i] = canonical[i];
       ctx.broker_symbols[i] = brokers[i];
      }
    ctx.symbol_count = count;
    ctx.status.selection_revision++;
-
    EEA_ObserverRuntimeMarkStale(ctx, "SELECTION_CHANGED", audit);
-
-   if(EEA_ObserverRuntimeRefresh(ctx, audit))
-     {
-      return true;
-     }
-   else
-     {
-      for(int i=0; i<old_count; i++)
-        {
-         ctx.canonical_symbols[i] = old_canons[i];
-         ctx.broker_symbols[i] = old_brokers[i];
-          ctx.symbol_specs[i] = old_specs[i];
-        }
-      ctx.symbol_count = old_count;
-       ctx.reconciliation = old_reconciliation;
-       ctx.stale = old_stale;
-       ctx.stale_reason = old_stale_reason;
-       ctx.last_refresh_utc = old_last_refresh_utc;
-       ctx.previous_deal_watermark = old_previous_deal_watermark;
-       ctx.status = old_status;
-       ctx.status.previous_deal_watermark_time = old_previous_deal_watermark_time;
-       bool rollback_persisted=EEA_RuntimeStoreWriteSymbols(ctx.root,ctx.canonical_symbols,ctx.symbol_specs,ctx.symbol_count,
-                                    ctx.config_version,ctx.account.account_fingerprint) &&
-          EEA_RuntimeStoreWriteReconciliation(ctx.root,ctx.reconciliation) &&
-          EEA_RuntimeStoreWriteSymbolSelection(ctx.root,ctx.config_version,ctx.account.account_fingerprint,
-                                    ctx.account.broker_server,ctx.status.selection_revision,
-                                    ctx.canonical_symbols,ctx.broker_symbols,ctx.symbol_count) &&
-          EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
-                                    ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
-       if(rollback_persisted) EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status);
-      return false;
-     }
+   if(EEA_ObserverRuntimeRefresh(ctx, audit)) return true;
+   bool rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canons,old_brokers,
+      old_specs,old_count,old_reconciliation,old_status,old_stale,old_stale_reason,old_last_refresh_utc,
+      old_previous_deal_watermark,old_previous_deal_watermark_time);
+   if(rollback_persisted)
+      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"SELECTION_APPLY_ROLLBACK_PERSISTED",ctx.status);
+   return false;
   }
 
 #endif

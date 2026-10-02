@@ -421,6 +421,15 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", timer)
         self.assertIn("EEA_SymbolPanelRenderDashboard", panel)
+        self.assertIn("if(InpShowSymbolPanel)", timer)
+
+    def test_overlay_timer_guard_prevents_disabled_or_uninitialized_access(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        refresh_open = panel.split("void EEA_SymbolPanelRefreshOpenOverlay", 1)[1].split("void EEA_SymbolPanelLoadPolicy", 1)[0]
+        self.assertIn("if(!g_panel_state.overlay_open) return;", refresh_open)
+        timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
+        self.assertLess(timer.index("if(InpShowSymbolPanel)"), timer.index("EEA_SymbolPanelRefreshOpenOverlay"))
 
     def test_policy_is_explicitly_proposal_only(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -515,22 +524,84 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
 
     def test_policy_persist_failure_restores_policy_state_and_audits_rejection(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
-        self.assertIn("void EEA_SymbolPanelPersistPolicy", panel)
-        persist = panel.split("void EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
+        self.assertIn("bool EEA_SymbolPanelPersistPolicy", panel)
+        persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
         self.assertIn("POLICY_APPLY_REJECTED", persist)
         apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
         for token in ("old_committed_policy", "old_staged_policy", "POLICY_SETTINGS_PERSISTENCE_FAILED",
                       "g_panel_state.committed_policy=old_committed_policy"):
             self.assertIn(token, apply)
 
+    def test_context_only_rows_are_never_rechecked_by_reset_or_apply(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        reset = panel.split("void EEA_SymbolPanelResetStaged", 1)[1].split("void EEA_SymbolPanelApplyStaged", 1)[0]
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        self.assertIn("!g_panel_state.rows[i].context_only", reset)
+        self.assertIn("!g_panel_state.rows[i].context_only", apply)
+        self.assertIn("CONTEXT ONLY", panel)
+
+    def test_policy_proposal_persist_failure_rolls_back_staged_state(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("bool EEA_SymbolPanelPersistPolicy", panel)
+        for button in ("Btn_Policy_FTMO_1_STEP", "Btn_Policy_FTMO_2_STEP", "Btn_Policy_BALANCE_BASED_FTMO_V1"):
+            branch = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"' + button + '"', 1)[1].split("return;", 1)[0]
+            self.assertIn("if(!EEA_SymbolPanelPersistPolicy", branch)
+            self.assertIn("g_panel_state.staged_policy=old_staged_policy", branch)
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true)", apply)
+        self.assertIn("POLICY_SETTINGS_PERSISTENCE_FAILED", apply)
+
     def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
         self.assertIn("SetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",10,316", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,350", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,318", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",10,350", settings)
         self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,374", settings)
+        self.assertNotEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 2)
         rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
         self.assertIn("402+i*24", rows)
+
+    def test_policy_persist_returns_explicit_success_or_failure(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
+        self.assertIn("return true;", persist)
+        self.assertIn("return false;", persist)
+        self.assertNotIn("void EEA_SymbolPanelPersistPolicy", panel)
+
+    def test_staged_continuation_values_are_durable_and_restored_as_proposed(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        store = (ROOT / "Storage/PolicySettingsStore.mqh").read_text(encoding="utf-8")
+        for token in ("proposed_daily_continuation", "proposed_overall_continuation"):
+            self.assertIn(token, panel + store)
+        self.assertIn("stored.proposed_daily_continuation=g_panel_state.staged_daily_continuation", panel)
+        self.assertIn("stored.proposed_overall_continuation=g_panel_state.staged_overall_continuation", panel)
+        self.assertIn("g_panel_state.staged_daily_continuation=stored.proposed_daily_continuation", panel)
+        self.assertIn("g_panel_state.staged_overall_continuation=stored.proposed_overall_continuation", panel)
+
+    def test_dxy_context_rows_are_disabled_at_render_and_click_boundaries(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
+        handler = panel.split("void EEA_SymbolPanelHandleChartEvent", 1)[1]
+        self.assertIn("context_only ? \"N/A\"", rows)
+        self.assertIn("if(g_panel_state.rows[i].context_only) return;", handler)
+        self.assertIn("!g_panel_state.rows[i].context_only", handler)
+
+    def test_policy_failure_restores_runtime_snapshot_and_repersists_it(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
+        for token in ("old_canonical_symbols", "old_broker_symbols", "old_symbol_specs",
+                      "old_reconciliation", "old_status", "EEA_ObserverRuntimeRestoreSelectionSnapshot",
+                      "POLICY_APPLY_REJECTED"):
+            self.assertIn(token, apply)
+        self.assertIn("EEA_ObserverRuntimeRestoreSelectionSnapshot", runtime)
+
+    def test_degraded_startup_copies_canonical_rows_before_resolution(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        self.assertLess(init.index("ctx.canonical_symbols[i]"), init.index("EEA_ObserverRuntimeAutoDiscover"))
+        self.assertIn("ctx.broker_symbols[i]=\"\"", init)
 
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")

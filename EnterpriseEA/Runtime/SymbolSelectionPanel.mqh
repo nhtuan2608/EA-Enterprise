@@ -248,7 +248,9 @@ void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
      {
       string prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_";
       EEA_SymbolPanelSetButton(chart_id,prefix+"Chk",10,402+i*24,25,
-                               g_panel_state.rows[i].checked ? "[X]" : "[ ]");
+                               g_panel_state.rows[i].context_only ? "N/A" :
+                               (g_panel_state.rows[i].checked ? "[X]" : "[ ]"));
+      ObjectSetInteger(chart_id,prefix+"Chk",OBJPROP_STATE,false);
       EEA_SymbolPanelSetLabel(chart_id,prefix+"Lbl",42,405+i*24,
                               g_panel_state.rows[i].canonical_symbol+" -> "+
                               (g_panel_state.rows[i].broker_symbol=="" ? "[UNRESOLVED]" : g_panel_state.rows[i].broker_symbol)+
@@ -294,30 +296,37 @@ void EEA_SymbolPanelLoadPolicy(EEA_ObserverRuntimeContext &ctx)
       g_panel_state.committed_policy=stored.committed_policy;
       g_panel_state.staged_policy=stored.proposed_policy;
       g_panel_state.committed_daily_continuation=stored.committed_daily_continuation;
-      g_panel_state.staged_daily_continuation=stored.committed_daily_continuation;
+      g_panel_state.staged_daily_continuation=stored.proposed_daily_continuation;
       g_panel_state.committed_overall_continuation=stored.committed_overall_continuation;
-      g_panel_state.staged_overall_continuation=stored.committed_overall_continuation;
+      g_panel_state.staged_overall_continuation=stored.proposed_overall_continuation;
       g_panel_state.authorization_utc=stored.authorization_utc;
      }
   }
 
-void EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,const bool applied)
+bool EEA_SymbolPanelPersistPolicy(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,const bool applied)
   {
    EEA_PolicySettings stored;
    EEA_PolicySettingsDefaults(stored);
    stored.config_version=ctx.config_version; stored.account_fingerprint=ctx.account.account_fingerprint;
    stored.broker_server=ctx.account.broker_server; stored.revision=(long)GetTickCount64()+(long)TimeGMT();
    stored.proposed_policy=g_panel_state.staged_policy; stored.committed_policy=g_panel_state.committed_policy;
+    stored.proposed_daily_continuation=g_panel_state.staged_daily_continuation;
+    stored.committed_daily_continuation=g_panel_state.committed_daily_continuation;
+    stored.proposed_overall_continuation=g_panel_state.staged_overall_continuation;
+    stored.committed_overall_continuation=g_panel_state.committed_overall_continuation;
    stored.committed_daily_continuation=g_panel_state.committed_daily_continuation;
    stored.committed_overall_continuation=g_panel_state.committed_overall_continuation;
    stored.authorization_utc=g_panel_state.authorization_utc;
    if(EEA_PolicySettingsStoreWrite(ctx.root+"/current/policy_settings.json",stored))
+     {
       EEA_SymbolPanelAuditPolicy(audit,applied ? "POLICY_APPLIED" : "POLICY_PROPOSED",
                                  applied ? "POLICY_APPLY_PERSISTED" : "POLICY_PROPOSAL_PERSISTED",
                                  applied ? stored.committed_policy : stored.proposed_policy,stored.authorization_utc);
-   else
-      EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
-                                 stored.proposed_policy,stored.authorization_utc);
+      return true;
+     }
+   EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                              stored.proposed_policy,stored.authorization_utc);
+   return false;
   }
 
 void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContext &ctx)
@@ -350,7 +359,7 @@ void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus",10,318,
                            "Apply status: "+(g_panel_state.status_message=="" ? "READY" : g_panel_state.status_message)+
                            " | reason: "+(g_panel_state.apply_reason=="" ? "NONE" : g_panel_state.apply_reason));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus",10,350,
+   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_PersistenceStatus",10,350,
                            "Persistence: durable proposal/apply audit; observer-only");
    EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Safety",10,374,
                            "Safety: EXECUTION_DISABLED | NOT_AUTHORIZED | "+EEA_PANEL_POLICY_PROPOSAL_ONLY+"; proposal only; no execution");
@@ -410,7 +419,8 @@ void EEA_SymbolPanelResetStaged(EEA_ObserverRuntimeContext &ctx)
      {
       g_panel_state.rows[i].checked=false;
       for(int j=0;j<ctx.symbol_count;j++)
-         if(g_panel_state.rows[i].canonical_symbol==ctx.canonical_symbols[j]) g_panel_state.rows[i].checked=true;
+         if(!g_panel_state.rows[i].context_only &&
+            g_panel_state.rows[i].canonical_symbol==ctx.canonical_symbols[j]) g_panel_state.rows[i].checked=true;
      }
    g_panel_state.status_message="Staged settings reset";
    g_panel_state.apply_reason="NONE";
@@ -431,6 +441,23 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    string old_staged_policy=g_panel_state.staged_policy;
    bool old_committed_daily=g_panel_state.committed_daily_continuation;
    bool old_committed_overall=g_panel_state.committed_overall_continuation;
+   string old_canonical_symbols[EEA_RUNTIME_MAX_SYMBOLS];
+   string old_broker_symbols[EEA_RUNTIME_MAX_SYMBOLS];
+   EEA_RuntimeSymbolSpec old_symbol_specs[EEA_RUNTIME_MAX_SYMBOLS];
+   EEA_RuntimeReconciliationSnapshot old_reconciliation=ctx.reconciliation;
+   EEA_RuntimeStatus old_status=ctx.status;
+   bool old_stale=ctx.stale;
+   string old_stale_reason=ctx.stale_reason;
+   long old_last_refresh_utc=ctx.last_refresh_utc;
+   long old_previous_deal_watermark=ctx.previous_deal_watermark;
+   long old_previous_deal_watermark_time=ctx.status.previous_deal_watermark_time;
+   int old_symbol_count=ctx.symbol_count;
+   for(int i=0;i<old_symbol_count;i++)
+     {
+      old_canonical_symbols[i]=ctx.canonical_symbols[i];
+      old_broker_symbols[i]=ctx.broker_symbols[i];
+      old_symbol_specs[i]=ctx.symbol_specs[i];
+     }
    if(EEA_ObserverRuntimeApplySelection(ctx,audit,selected,count))
      {
       g_panel_state.committed_policy=g_panel_state.staged_policy;
@@ -438,7 +465,21 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       g_panel_state.committed_overall_continuation=g_panel_state.staged_overall_continuation;
       g_panel_state.status_message="APPLIED (DISPLAY/CONTROLLER PROPOSAL ONLY)";
       g_panel_state.apply_reason="FRESH_RECONCILIATION_COMPLETE";
-      EEA_SymbolPanelPersistPolicy(ctx,audit,true);
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,true))
+        {
+         bool restored=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,
+            old_broker_symbols,old_symbol_specs,old_symbol_count,old_reconciliation,old_status,
+            old_stale,old_stale_reason,old_last_refresh_utc,old_previous_deal_watermark,
+            old_previous_deal_watermark_time);
+         g_panel_state.committed_policy=old_committed_policy;
+         g_panel_state.staged_policy=old_staged_policy;
+         g_panel_state.committed_daily_continuation=old_committed_daily;
+         g_panel_state.committed_overall_continuation=old_committed_overall;
+         g_panel_state.status_message="FAILED; policy persistence rolled back";
+         g_panel_state.apply_reason=restored ? "POLICY_SETTINGS_PERSISTENCE_FAILED" : "POLICY_APPLY_ROLLBACK_FAILED";
+         EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                                    old_committed_policy,g_panel_state.authorization_utc);
+        }
       EEA_PolicySettings verify;
       if(!EEA_PolicySettingsStoreLoad(ctx.root+"/current/policy_settings.json",ctx.config_version,
                                       ctx.account.account_fingerprint,ctx.account.broker_server,verify) ||
@@ -495,15 +536,51 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply")
      { EEA_SymbolPanelApplyStaged(ctx,audit); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP") { g_panel_state.staged_policy="FTMO_1_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP") { g_panel_state.staged_policy="FTMO_2_STEP"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1") { g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false; EEA_SymbolPanelPersistPolicy(ctx,audit,false); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation") { g_panel_state.staged_daily_continuation=!g_panel_state.staged_daily_continuation; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation") { g_panel_state.staged_overall_continuation=!g_panel_state.staged_overall_continuation; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP")
+     {
+      string old_staged_policy=g_panel_state.staged_policy;
+      g_panel_state.staged_policy="FTMO_1_STEP"; g_panel_state.policy_confirmed=false;
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) g_panel_state.staged_policy=old_staged_policy;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP")
+     {
+      string old_staged_policy=g_panel_state.staged_policy;
+      g_panel_state.staged_policy="FTMO_2_STEP"; g_panel_state.policy_confirmed=false;
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) g_panel_state.staged_policy=old_staged_policy;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1")
+     {
+      string old_staged_policy=g_panel_state.staged_policy;
+      g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false;
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) g_panel_state.staged_policy=old_staged_policy;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation")
+     {
+      g_panel_state.staged_daily_continuation=!g_panel_state.staged_daily_continuation;
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false))
+        { g_panel_state.staged_daily_continuation=g_panel_state.committed_daily_continuation; }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation")
+     {
+      g_panel_state.staged_overall_continuation=!g_panel_state.staged_overall_continuation;
+      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false))
+        { g_panel_state.staged_overall_continuation=g_panel_state.committed_overall_continuation; }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy") { g_panel_state.policy_confirmed=true; EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    for(int i=0;i<g_panel_state.row_count;i++)
      if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_Chk")
-       { g_panel_state.rows[i].checked=!g_panel_state.rows[i].checked; ObjectSetString(g_panel_state.chart_id,sparam,OBJPROP_TEXT,g_panel_state.rows[i].checked ? "[X]" : "[ ]"); ChartRedraw(g_panel_state.chart_id); return; }
+       {
+        if(g_panel_state.rows[i].context_only) return;
+        if(!g_panel_state.rows[i].context_only)
+           g_panel_state.rows[i].checked=!g_panel_state.rows[i].checked;
+        ObjectSetString(g_panel_state.chart_id,sparam,OBJPROP_TEXT,g_panel_state.rows[i].checked ? "[X]" : "[ ]");
+        ChartRedraw(g_panel_state.chart_id); return;
+       }
   }
 
 void EEA_SymbolPanelDestroy(const long chart_id)
