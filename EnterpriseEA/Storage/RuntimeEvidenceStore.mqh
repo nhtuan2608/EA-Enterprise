@@ -204,6 +204,26 @@ EEAStateLoadResult EEA_RuntimeStoreCheckStatus(const string path,const string co
    return EEA_STATE_COMPATIBLE;
   }
 
+bool EEA_RuntimeStoreCheckBlockedAuditStatus(const string path,const string config_version,
+                                              const string account_fingerprint)
+  {
+   if(EEA_RuntimeStoreCheckStatus(path,config_version,account_fingerprint)!=EEA_STATE_COMPATIBLE)
+      return false;
+   int h=FileOpen(path,FILE_READ|FILE_BIN);
+   if(h==INVALID_HANDLE) return false;
+   ulong size=FileSize(h);
+   if(size==0 || size>1048576) { FileClose(h); return false; }
+   uchar bytes[];
+   if(ArrayResize(bytes,(int)size)!=(int)size) { FileClose(h); return false; }
+   uint read=FileReadArray(h,bytes,0,(int)size);
+   FileClose(h);
+   if(read!=(uint)size) return false;
+   string json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
+   return StringFind(json,"\"runtime_state\":\"BLOCKED\"")>=0 &&
+      StringFind(json,"\"reason_code\":\"AUDIT_PERSISTENCE_FAILED\"")>=0 &&
+      StringFind(json,"\"new_entries_blocked\":true")>=0;
+  }
+
 bool EEA_RuntimeStoreWriteSymbolSelection(const string root, const string config_version, const string account_fingerprint,
                                           const string broker_server, const long selection_revision,
                                           const string &canonical[], const string &broker[], const int count)
@@ -234,27 +254,52 @@ bool EEA_RuntimeStoreWriteSymbolSelection(const string root, const string config
    return EEA_WriteAtomicText(root+"/current/symbol_selection.json",json);
   }
 
+bool EEA_RuntimeStoreReadSymbolSelectionJson(const string path,const string config_version,
+                                              const string account_fingerprint,string &json)
+  {
+   json="";
+   if(!FileIsExist(path,0)) return false;
+   int h=FileOpen(path,FILE_READ|FILE_BIN);
+   if(h==INVALID_HANDLE) return false;
+   ulong size=FileSize(h);
+   if(size==0 || size>1048576) { FileClose(h); return false; }
+   uchar bytes[];
+   if(ArrayResize(bytes,(int)size)!=(int)size) { FileClose(h); return false; }
+   uint read=FileReadArray(h,bytes,0,(int)size);
+   FileClose(h);
+   if(read!=(uint)size) return false;
+   json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
+   return StringFind(json,"\"document_version\":\"runtime-selection-v0.1.0\"")>=0 &&
+      StringFind(json,"\"config_version\":\""+EEA_JsonEscape(config_version)+"\"")>=0 &&
+      StringFind(json,"\"account_fingerprint\":\""+EEA_JsonEscape(account_fingerprint)+"\"")>=0;
+  }
+
+bool EEA_RuntimeStoreLoadSymbolSelectionRevision(const string path,const string config_version,
+                                                  const string account_fingerprint,long &revision)
+  {
+   revision=0;
+   string json;
+   if(!EEA_RuntimeStoreReadSymbolSelectionJson(path,config_version,account_fingerprint,json)) return false;
+   int key=StringFind(json,"\"selection_revision\":");
+   if(key<0) return false;
+   int start=key+StringLen("\"selection_revision\":");
+   int end=StringFind(json,",",start);
+   if(end<0) end=StringFind(json,"}",start);
+   if(end<=start) return false;
+   revision=StringToInteger(StringSubstr(json,start,end-start));
+   if(revision<=0) return false;
+   return revision>0;
+  }
+
 EEAStateLoadResult EEA_RuntimeStoreCheckSymbolSelection(const string path, const string config_version, const string account_fingerprint)
   {
    if(!FileIsExist(path,0)) return EEA_STATE_MISSING;
-   int h=FileOpen(path,FILE_READ|FILE_BIN);
-   if(h==INVALID_HANDLE) return EEA_STATE_INCOMPATIBLE;
-   ulong size=FileSize(h);
-   if(size==0 || size>1048576) { FileClose(h); return EEA_STATE_INCOMPATIBLE; }
-   uchar bytes[];
-   if(ArrayResize(bytes,(int)size)!=(int)size) { FileClose(h); return EEA_STATE_INCOMPATIBLE; }
-   uint read=FileReadArray(h,bytes,0,(int)size);
-   FileClose(h);
-   if(read!=(uint)size) return EEA_STATE_INCOMPATIBLE;
-   string json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
-   
-   if(StringFind(json,"\"document_version\":\"runtime-selection-v0.1.0\"")<0 ||
-      StringFind(json,"\"config_version\":\""+EEA_JsonEscape(config_version)+"\"")<0 ||
-      StringFind(json,"\"account_fingerprint\":\""+EEA_JsonEscape(account_fingerprint)+"\"")<0)
+   string json;
+   long revision=0;
+   if(!EEA_RuntimeStoreReadSymbolSelectionJson(path,config_version,account_fingerprint,json) ||
+      !EEA_RuntimeStoreLoadSymbolSelectionRevision(path,config_version,account_fingerprint,revision))
       return EEA_STATE_INCOMPATIBLE;
-      
-   // Never returning broker mappings as truth is a business logic trait handled by the Oracle logic,
-   // here we just return the compatibility state.
+   // Broker mappings are re-discovered at runtime; only the validated revision is recovered.
    return EEA_STATE_COMPATIBLE;
   }
 

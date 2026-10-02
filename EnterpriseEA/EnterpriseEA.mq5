@@ -8,6 +8,7 @@
 #include "Storage/AtomicWriter.mqh"
 #include "Storage/AuditLog.mqh"
 #include "Storage/SharedStateStore.mqh"
+#include "Storage/PolicySettingsStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
 #include "Runtime/ExecutionAdapter.mqh"
 #include "Runtime/ExecutionControllerState.mqh"
@@ -24,6 +25,7 @@ input int    InpRuntimeRefreshSeconds  = 30;
 input int    InpHistoryLookbackDays    = 7;
 input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD";
 input bool   InpShowSymbolPanel        = true;
+input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -102,12 +104,26 @@ int OnInit()
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
                                   canonical,count))
-         return INIT_FAILED;
-      if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
+         {
+          g_runtime.initialized=true;
+          g_runtime.status.runtime_state="DEGRADED";
+          g_runtime.status.reason_code="RUNTIME_INIT_DEGRADED";
+          g_runtime.status.new_entries_blocked=true;
+          if(!EEA_ObserverRuntimeAuditChecked(g_runtime,g_audit,"RUNTIME_INIT_DEGRADED",g_runtime.status))
+             {
+              g_runtime.status.runtime_state="BLOCKED";
+              g_runtime.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+              g_runtime.status.new_entries_blocked=true;
+              EEA_RuntimeStoreWriteStatus(g_runtime.root,g_runtime.status,g_runtime.config_version,
+                 g_runtime.account.account_fingerprint,g_runtime.reconciliation.observed_at_utc);
+             }
+         }
+       if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
    if(InpShowSymbolPanel)
      {
-      EEA_SymbolPanelInit(0, 0);
+      EEA_SymbolPanelInit(0, InpPanelSubWindow);
+      if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
      }
    Print("EnterpriseEA observer runtime initialized without execution authority.");
    return INIT_SUCCEEDED;
@@ -144,7 +160,14 @@ void OnTick()
 void OnTimer()
   {
    if(InpRuntimeEvidenceEnabled)
-      EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+      {
+       EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+       if(InpShowSymbolPanel)
+         {
+          EEA_SymbolPanelRefresh(0,g_runtime);
+          EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
+         }
+      }
   }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,
