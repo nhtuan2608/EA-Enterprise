@@ -1,5 +1,5 @@
 #ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
-#define ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
+#ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 
 #include "ObserverRuntime.mqh"
 #include "ObserverPanelModel.mqh"
@@ -48,6 +48,42 @@ struct EEA_SymbolPanelState
   };
 
 static EEA_SymbolPanelState g_panel_state;
+
+struct EEA_SymbolPanelPolicySnapshot
+  {
+   string staged_policy;
+   bool staged_daily_continuation;
+   bool staged_overall_continuation;
+   bool policy_confirmed;
+   string authorization_input_gmt7;
+   long authorization_utc;
+   string status_message;
+   string apply_reason;
+  };
+
+void EEA_SymbolPanelCapturePolicySnapshot(EEA_SymbolPanelPolicySnapshot &snapshot)
+  {
+   snapshot.staged_policy=g_panel_state.staged_policy;
+   snapshot.staged_daily_continuation=g_panel_state.staged_daily_continuation;
+   snapshot.staged_overall_continuation=g_panel_state.staged_overall_continuation;
+   snapshot.policy_confirmed=g_panel_state.policy_confirmed;
+   snapshot.authorization_input_gmt7=g_panel_state.authorization_input_gmt7;
+   snapshot.authorization_utc=g_panel_state.authorization_utc;
+   snapshot.status_message=g_panel_state.status_message;
+   snapshot.apply_reason=g_panel_state.apply_reason;
+  }
+
+void EEA_SymbolPanelRestorePolicySnapshot(const EEA_SymbolPanelPolicySnapshot &snapshot)
+  {
+   g_panel_state.staged_policy=snapshot.staged_policy;
+   g_panel_state.staged_daily_continuation=snapshot.staged_daily_continuation;
+   g_panel_state.staged_overall_continuation=snapshot.staged_overall_continuation;
+   g_panel_state.policy_confirmed=snapshot.policy_confirmed;
+   g_panel_state.authorization_input_gmt7=snapshot.authorization_input_gmt7;
+   g_panel_state.authorization_utc=snapshot.authorization_utc;
+   g_panel_state.status_message=snapshot.status_message;
+   g_panel_state.apply_reason=snapshot.apply_reason;
+  }
 
 string EEA_SymbolPanelUtcText(const long value)
   {
@@ -482,7 +518,8 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
    if(g_panel_state.staged_policy!="UNSELECTED" && !g_panel_state.policy_confirmed) // confirmation gate
      { g_panel_state.status_message="FAILED"; g_panel_state.apply_reason="EXPLICIT_CONFIRMATION_REQUIRED"; return; }
    string old_committed_policy=g_panel_state.committed_policy;
-   string old_staged_policy=g_panel_state.staged_policy;
+   EEA_SymbolPanelPolicySnapshot old_policy;
+       EEA_SymbolPanelCapturePolicySnapshot(old_policy);
    bool old_committed_daily=g_panel_state.committed_daily_continuation;
    bool old_staged_daily=g_panel_state.staged_daily_continuation;
    bool old_committed_overall=g_panel_state.committed_overall_continuation;
@@ -526,13 +563,13 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       g_panel_state.apply_reason="FRESH_RECONCILIATION_COMPLETE";
       if(!EEA_SymbolPanelPersistPolicy(ctx,audit,true))
         {
-         bool restored=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,
+         bool rollback_persisted=EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,
             old_broker_symbols,old_symbol_specs,old_symbol_count,old_account,old_reconciliation,old_status,
             old_stale,old_stale_reason,old_last_refresh_utc,old_previous_deal_watermark,
             old_previous_deal_watermark_time);
-         EEA_SymbolPanelRestorePolicyFile(ctx.root+"/current/policy_settings.json",old_policy_file_contents,old_policy_file_exists);
+         bool policy_file_restored=EEA_SymbolPanelRestorePolicyFile(ctx.root+"/current/policy_settings.json",old_policy_file_contents,old_policy_file_exists);
          g_panel_state.committed_policy=old_committed_policy;
-         g_panel_state.staged_policy=old_staged_policy;
+         g_panel_state.staged_policy=old_policy.staged_policy;
          g_panel_state.committed_daily_continuation=old_committed_daily;
          g_panel_state.staged_daily_continuation=old_staged_daily;
          g_panel_state.committed_overall_continuation=old_committed_overall;
@@ -564,9 +601,9 @@ void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
          EEA_ObserverRuntimeRestoreSelectionSnapshot(ctx,audit,old_canonical_symbols,old_broker_symbols,
              old_symbol_specs,old_symbol_count,old_account,old_reconciliation,old_status,old_stale,
              old_stale_reason,old_last_refresh_utc,old_previous_deal_watermark,old_previous_deal_watermark_time);
-          EEA_SymbolPanelRestorePolicyFile(ctx.root+"/current/policy_settings.json",old_policy_file_contents,old_policy_file_exists);
+          bool policy_file_restored=EEA_SymbolPanelRestorePolicyFile(ctx.root+"/current/policy_settings.json",old_policy_file_contents,old_policy_file_exists);
           g_panel_state.committed_policy=old_committed_policy;
-         g_panel_state.staged_policy=old_staged_policy;
+         g_panel_state.staged_policy=old_policy.staged_policy;
          g_panel_state.committed_daily_continuation=old_committed_daily;
          g_panel_state.committed_overall_continuation=old_committed_overall;
          g_panel_state.status_message="FAILED; policy persistence rolled back";
@@ -629,7 +666,8 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
      { EEA_SymbolPanelApplyStaged(ctx,audit); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP")
      {
-      string old_staged_policy=g_panel_state.staged_policy;
+      EEA_SymbolPanelPolicySnapshot old_policy;
+       EEA_SymbolPanelCapturePolicySnapshot(old_policy);
        bool old_policy_confirmed=g_panel_state.policy_confirmed;
        bool old_staged_daily=g_panel_state.staged_daily_continuation;
        bool old_staged_overall=g_panel_state.staged_overall_continuation;
@@ -637,21 +675,43 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
        string old_apply_reason=g_panel_state.apply_reason;
       g_panel_state.staged_policy="FTMO_1_STEP"; g_panel_state.policy_confirmed=false;
        bool policy_persisted=EEA_SymbolPanelPersistPolicy(ctx,audit,false);
-       if(!policy_persisted) // if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) { g_panel_state.staged_policy=old_staged_policy; g_panel_state.policy_confirmed=old_policy_confirmed; g_panel_state.staged_daily_continuation=old_staged_daily; g_panel_state.staged_overall_continuation=old_staged_overall; g_panel_state.status_message=old_status_message; g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED"; }
+       if(!policy_persisted)
+          {
+           EEA_SymbolPanelRestorePolicySnapshot(old_policy);
+           g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
+           if(rollback_persisted && policy_file_restored) EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                                      old_policy.staged_policy,old_policy.authorization_utc);
+          }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP")
      {
-      string old_staged_policy=g_panel_state.staged_policy;
+      EEA_SymbolPanelPolicySnapshot old_policy;
+       EEA_SymbolPanelCapturePolicySnapshot(old_policy);
       g_panel_state.staged_policy="FTMO_2_STEP"; g_panel_state.policy_confirmed=false;
-      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) g_panel_state.staged_policy=old_staged_policy;
+      bool policy_persisted=EEA_SymbolPanelPersistPolicy(ctx,audit,false);
+       if(!policy_persisted)
+         {
+          EEA_SymbolPanelRestorePolicySnapshot(old_policy);
+          g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
+          EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                                     old_policy.staged_policy,old_policy.authorization_utc);
+         }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1")
      {
-      string old_staged_policy=g_panel_state.staged_policy;
+      EEA_SymbolPanelPolicySnapshot old_policy;
+       EEA_SymbolPanelCapturePolicySnapshot(old_policy);
       g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false;
-      if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) g_panel_state.staged_policy=old_staged_policy;
+      bool policy_persisted=EEA_SymbolPanelPersistPolicy(ctx,audit,false);
+       if(!policy_persisted)
+         {
+          EEA_SymbolPanelRestorePolicySnapshot(old_policy);
+          g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
+          EEA_SymbolPanelAuditPolicy(audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                                     old_policy.staged_policy,old_policy.authorization_utc);
+         }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation")

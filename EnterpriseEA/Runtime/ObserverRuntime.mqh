@@ -77,7 +77,11 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    for(int i = 0; i < count; i++)
      {
       if(!results[i].resolved)
-        { out_reason = "SYMBOL_RESOLUTION_FAILED"; return false; }
+        {
+         if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],""))
+           { brokers[i]=""; continue; }
+         out_reason = "SYMBOL_RESOLUTION_FAILED"; return false;
+        }
       brokers[i] = results[i].broker_symbol;
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
@@ -101,8 +105,13 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
        ctx.status.refresh_in_progress=false;
        ctx.status.refresh_failure_count++;
        ctx.status.consecutive_refresh_failures++;
+       ctx.status.runtime_state="DEGRADED";
        ctx.status.reason_code=account_refresh_reason;
-       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
+       ctx.status.pending_refresh=true;
+       ctx.status.new_entries_blocked=true;
+       ctx.stale=true;
+       ctx.stale_reason=account_refresh_reason;
+       EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_ACCOUNT_REFRESH_FAILED",ctx.status);
        return false;
       }
    string reason="";
@@ -119,15 +128,6 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
          for(int i=0;i<ctx.symbol_count;i++) ctx.broker_symbols[i]=rediscovered[i];
       else { ctx.stale=true; ctx.stale_reason="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.pending_refresh=true; ctx.status.refresh_in_progress=false; ctx.status.refresh_failure_count++; ctx.status.consecutive_refresh_failures++; ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.new_entries_blocked=true; EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_DEGRADED",ctx.status); return false; }
-     }
-   if(false /* account refresh already performed before discovery */)
-     {
-      ctx.status.refresh_in_progress = false;
-      ctx.status.refresh_failure_count++;
-      ctx.status.consecutive_refresh_failures++;
-      ctx.status.reason_code=reason;
-      EEA_ObserverRuntimeAudit(audit,ctx.config_version,"RUNTIME_REFRESH_FAILED",ctx.status);
-      return false;
      }
    for(int i=0;i<ctx.symbol_count;i++)
      if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) &&

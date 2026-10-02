@@ -522,13 +522,30 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_SymbolPanelLoadPolicy(ctx)", refresh)
         self.assertLess(refresh.index("EEA_SymbolPanelLoadPolicy(ctx)"), refresh.index("g_panel_state.staged_initialized=true;"))
 
+    def test_non_apply_policy_rollback_is_shared_and_complete(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("struct EEA_SymbolPanelPolicySnapshot", panel)
+        self.assertIn("EEA_SymbolPanelCapturePolicySnapshot", panel)
+        self.assertIn("EEA_SymbolPanelRestorePolicySnapshot", panel)
+        handler = panel.split("void EEA_SymbolPanelHandleChartEvent", 1)[1]
+        for button in ("Btn_Policy_FTMO_1_STEP", "Btn_Policy_FTMO_2_STEP", "Btn_Policy_BALANCE_BASED_FTMO_V1"):
+            branch = handler.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"' + button + '"', 1)[1].split("return;", 1)[0]
+            self.assertIn("EEA_SymbolPanelCapturePolicySnapshot", branch)
+            self.assertIn("bool policy_persisted", branch)
+            self.assertIn("EEA_SymbolPanelRestorePolicySnapshot", branch)
+        for token in ("staged_policy", "staged_daily_continuation", "staged_overall_continuation",
+                      "policy_confirmed", "authorization_input_gmt7", "authorization_utc",
+                      "status_message", "apply_reason"):
+            self.assertIn(token, panel)
+        self.assertNotIn("if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false)) //", panel)
+
     def test_policy_persist_failure_restores_policy_state_and_audits_rejection(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         self.assertIn("bool EEA_SymbolPanelPersistPolicy", panel)
         persist = panel.split("bool EEA_SymbolPanelPersistPolicy", 1)[1].split("void EEA_SymbolPanelRenderSettings", 1)[0]
         self.assertIn("POLICY_APPLY_REJECTED", persist)
         apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
-        for token in ("old_committed_policy", "old_staged_policy", "POLICY_SETTINGS_PERSISTENCE_FAILED",
+        for token in ("old_committed_policy", "old_policy", "POLICY_SETTINGS_PERSISTENCE_FAILED",
                       "g_panel_state.committed_policy=old_committed_policy"):
             self.assertIn(token, apply)
 
@@ -545,8 +562,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("bool EEA_SymbolPanelPersistPolicy", panel)
         for button in ("Btn_Policy_FTMO_1_STEP", "Btn_Policy_FTMO_2_STEP", "Btn_Policy_BALANCE_BASED_FTMO_V1"):
             branch = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"' + button + '"', 1)[1].split("return;", 1)[0]
-            self.assertIn("if(!EEA_SymbolPanelPersistPolicy", branch)
-            self.assertIn("g_panel_state.staged_policy=old_staged_policy", branch)
+            self.assertTrue("EEA_SymbolPanelPersistPolicy(ctx,audit,false)" in branch)
+            self.assertTrue("EEA_SymbolPanelRestorePolicySnapshot(old_policy)" in branch)
         apply = panel.split("void EEA_SymbolPanelApplyStaged", 1)[1].split("void EEA_SymbolPanelHandleChartEvent", 1)[0]
         self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,true)", apply)
         self.assertIn("POLICY_SETTINGS_PERSISTENCE_FAILED", apply)
@@ -652,6 +669,15 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "old_status_message", "old_apply_reason", "POLICY_SETTINGS_PERSISTENCE_FAILED"):
             self.assertIn(token, handler)
         self.assertIn("bool policy_persisted", handler)
+
+    def test_account_read_failure_marks_degraded_stale_pending_and_blocked(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        refresh = runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
+        account_failure = refresh.split("if(!EEA_ReadRuntimeAccount", 1)[1].split("string reason", 1)[0]
+        for token in ("ctx.status.runtime_state=\"DEGRADED\"", "ctx.stale=true",
+                      "ctx.stale_reason=account_refresh_reason", "ctx.status.pending_refresh=true",
+                      "ctx.status.new_entries_blocked=true", "RUNTIME_ACCOUNT_REFRESH_FAILED"):
+            self.assertIn(token, account_failure)
 
     def test_degraded_refresh_retries_after_account_refresh_and_fails_closed(self):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
