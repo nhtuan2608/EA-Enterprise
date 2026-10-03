@@ -21,7 +21,7 @@
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
-// S02 v1 building blocks; compiled here, wired into the strategy runtime in a later step.
+// S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
 #include "Market/ConfluenceLevels.mqh"
 #include "Risk/RiskLimitsProfile.mqh"
 
@@ -36,6 +36,7 @@ input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD,BTCUSD,USDJPY";
 input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
 input bool   InpStrategyRuntimeEnabled=false;
+input bool   InpS02UsePrototype        = false; // false: S02 v1 confluence zones (SCALP M5 + SWING H1)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;
@@ -135,13 +136,31 @@ void EEA_PublishPanelEngineView()
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
    if(g_strategy_runtime.enabled)
-      for(int i=0;i<g_strategy_runtime.symbol_count && view.setup_count<EEA_PANEL_MAX_ROWS;i++)
+      for(int i=0;i<g_strategy_runtime.symbol_count;i++)
         {
-         view.setup_symbol[view.setup_count]=g_strategy_runtime.engines[i].canonical_symbol;
-         view.setup_state[view.setup_count]=g_strategy_runtime.has_candidate[i] ?
+         // One panel row per symbol; v1 shows both profiles, e.g. "SC:ARMED SW:IDLE".
+         string symbol=g_strategy_runtime.engines[i].canonical_symbol;
+         int row=-1;
+         for(int k=0;k<view.setup_count;k++) if(view.setup_symbol[k]==symbol) { row=k; break; }
+         if(row<0)
+           {
+            if(view.setup_count>=EEA_PANEL_MAX_ROWS) continue;
+            row=view.setup_count; view.setup_count++;
+            view.setup_symbol[row]=symbol; view.setup_state[row]=""; view.setup_detail[row]="";
+           }
+         string state=g_strategy_runtime.has_candidate[i] ?
             g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction :
             EEA_S02StateName(g_strategy_runtime.engines[i].state);
-         view.setup_count++;
+         if(g_strategy_runtime.zone_mode)
+           {
+            string tag=(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
+            view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+EEA_S02StateName(g_strategy_runtime.engines[i].state);
+            view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+g_strategy_runtime.profile[i]+" "+state+
+               " zone "+g_strategy_runtime.zone_text[i]+" HTF "+g_strategy_runtime.htf_structure[i]+
+               (g_strategy_runtime.htf_risk_modifier[i]<1.0 ? " risk x"+DoubleToString(g_strategy_runtime.htf_risk_modifier[i],2) : "");
+           }
+         else
+            view.setup_state[row]=state;
         }
    string universe[];
    int count=EEA_NormalizeCanonicalCsv(InpCanonicalSymbols,universe);
@@ -260,9 +279,11 @@ int OnInit()
       strategy_config.max_bars_to_retest=InpS02MaxBarsToRetest;
       strategy_config.max_bars_for_reaction=InpS02MaxBarsForReaction;
       strategy_config.candidate_ttl_bars=InpS02CandidateTtlBars;
-      if(!EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
-                                           strategy_config,InpStrategyRuntimeEnabled) &&
-         InpStrategyRuntimeEnabled)
+      bool strategy_ready=InpS02UsePrototype ?
+         EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
+                                          strategy_config,InpStrategyRuntimeEnabled) :
+         EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled);
+      if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",
                g_strategy_runtime.reason_code);

@@ -158,9 +158,11 @@ Mỗi chuyển trạng thái ghi: candidate_id, symbol canonical và broker, pro
 | TC-S02-12 | Restart giữa chừng → engine khôi phục đúng trạng thái, không tạo candidate trùng |
 | TC-S02-13 | SCALP và SWING trên cùng symbol chạy độc lập, không dùng chung trạng thái |
 
-Kiểm chứng trên MT5 Strategy Tester với 5 symbol mặc định, mỗi profile, ít nhất 12 tháng lịch sử: tần suất tín hiệu, tỷ lệ thắng, expectancy theo R sau chi phí, MFE/MAE, thời gian tới 1R, kết quả theo phiên và theo trạng thái HTF. Ngưỡng nghiệm thu được người dùng chốt sau khi có số liệu đầu tiên; chỉ khi đó tham số mục 10 mới chuyển từ PROPOSED sang CONFIRMED.
+Kiểm chứng trên MT5 Strategy Tester với 5 symbol mặc định, mỗi profile, **tối đa 1 tuần lịch sử** (yêu cầu người dùng ngày 03/10/2026): xác nhận logic chạy đúng thứ tự trạng thái, vùng hợp lưu được dựng đúng, không tạo candidate trùng, và đo sơ bộ tần suất tín hiệu, MFE/MAE, thời gian tới 1R. Một tuần cho rất ít mẫu nên không đủ để khóa tham số theo thống kê; tham số mục 10 giữ PROPOSED và chỉ chuyển CONFIRMED khi có thêm bằng chứng forward trên demo/retained runtime theo phụ lục D.
 
 ## 14. Kế hoạch triển khai
+
+Trạng thái ngày 03/10/2026: bước 1, 2, 3 đã xong (commit 71817d0 và bước nối runtime); controlled-live chặn candidate v1 với reason LIVE_S02_V1_RISK_PATH_PENDING cho tới khi xong bước 5.
 
 1. Module Location: tính level theo từng nguồn, gom vùng, kiểm tra độc lập; fixture và oracle Python (TC-S02-01 đến 03).
 2. Module HTF structure (TC-S02-06).

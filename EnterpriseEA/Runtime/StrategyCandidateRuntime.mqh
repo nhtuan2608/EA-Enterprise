@@ -3,8 +3,18 @@
 
 #include "../Setups/BreakRetest.mqh"
 #include "../Storage/StrategyCandidateStore.mqh"
+#include "../Market/ConfluenceLevels.mqh"
 
 #define EEA_STRATEGY_RUNTIME_MAX_SYMBOLS 32
+// S02 v1 runs a SCALP and a SWING engine per symbol.
+#define EEA_STRATEGY_RUNTIME_MAX_ENGINES 64
+#define EEA_S02_SCALP_LEVEL_BARS 200        // H1: previous day, sessions, 5 days of swings
+#define EEA_S02_SWING_LEVEL_BARS 320        // H4: previous week and about 8 weeks of swings
+#define EEA_S02_MIN_LEVEL_BARS 48
+#define EEA_S02_SWING_WING 3
+#define EEA_S02_SCALP_SWING_LOOKBACK 120     // H1 bars
+#define EEA_S02_SWING_SWING_LOOKBACK 240     // H4 bars
+#define EEA_S02_HTF_COUNTER_TREND_MODIFIER 0.5
 #define EEA_STRATEGY_RUNTIME_ATR_PERIOD 14
 #define EEA_STRATEGY_RUNTIME_LOOKBACK_BARS 20
 
@@ -15,10 +25,17 @@ struct EEA_StrategyCandidateRuntime
    string config_version;
    string timeframe;
    EEA_S02Config config;
-   EEA_S02Engine engines[EEA_STRATEGY_RUNTIME_MAX_SYMBOLS];
-   EEA_S02Candidate candidates[EEA_STRATEGY_RUNTIME_MAX_SYMBOLS];
-   bool has_candidate[EEA_STRATEGY_RUNTIME_MAX_SYMBOLS];
-   int symbol_count;
+   EEA_S02Engine engines[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   EEA_S02Candidate candidates[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   bool has_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   int symbol_count;   // number of engines (prototype: one per symbol; v1: two per symbol)
+   bool zone_mode;     // S02 v1 confluence-zone engines
+   EEA_S02Config profile_config[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string profile[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string zone_text[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string htf_structure[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   double htf_risk_modifier[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string scan_reason[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -38,10 +55,17 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.persistence_root="";
    runtime.account_fingerprint="";
    runtime.broker_server="";
+   runtime.zone_mode=false;
    EEA_S02ResearchSeedConfig(runtime.config);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_SYMBOLS;i++)
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
      {
       EEA_S02Init(runtime.engines[i],"","M5","");
+      EEA_S02ResearchSeedConfig(runtime.profile_config[i]);
+      runtime.profile[i]="PROTOTYPE";
+      runtime.zone_text[i]="";
+      runtime.htf_structure[i]="NEUTRAL";
+      runtime.htf_risk_modifier[i]=1.0;
+      runtime.scan_reason[i]="";
       EEA_S02ClearCandidate(runtime.candidates[i]);
       runtime.has_candidate[i]=false;
      }
@@ -68,10 +92,56 @@ bool EEA_StrategyCandidateRuntimeInit(EEA_StrategyCandidateRuntime &runtime,
       EEA_S02Init(runtime.engines[i],canonical[i],runtime.timeframe,config.config_version);
       EEA_S02ClearCandidate(runtime.candidates[i]);
       runtime.has_candidate[i]=false;
+      runtime.profile_config[i]=config;
      }
    runtime.initialized=true;
    runtime.reason_code="EEA_STRATEGY_RUNTIME_READY";
    return true;
+  }
+
+// S02 v1: a SCALP (M5) and a SWING (H1) engine per symbol with the v1 seed configs.
+bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
+                                        const string &canonical[],const int count,const bool enabled)
+  {
+   EEA_StrategyCandidateRuntimeDefaults(runtime);
+   runtime.enabled=enabled;
+   runtime.zone_mode=true;
+   EEA_S02V1Config(runtime.config,"SCALP");
+   runtime.config_version="s02-v1";
+   if(!enabled)
+     { runtime.initialized=true; runtime.reason_code="EEA_STRATEGY_RUNTIME_DISABLED"; return true; }
+   if(count<1 || count*2>EEA_STRATEGY_RUNTIME_MAX_ENGINES)
+     { runtime.reason_code="EEA_STRATEGY_RUNTIME_CONFIG_INVALID"; return false; }
+   int engine_count=0;
+   for(int i=0;i<count;i++)
+     {
+      if(canonical[i]=="") { runtime.reason_code="EEA_STRATEGY_RUNTIME_SYMBOL_INVALID"; return false; }
+      for(int p=0;p<2;p++)
+        {
+         string profile=(p==0 ? "SCALP" : "SWING");
+         EEA_S02V1Config(runtime.profile_config[engine_count],profile);
+         if(!EEA_S02ConfigValid(runtime.profile_config[engine_count]))
+           { runtime.reason_code="EEA_STRATEGY_RUNTIME_CONFIG_INVALID"; return false; }
+         runtime.profile[engine_count]=profile;
+         EEA_S02Init(runtime.engines[engine_count],canonical[i],p==0 ? "M5" : "H1",
+                     runtime.profile_config[engine_count].config_version);
+         EEA_S02ClearCandidate(runtime.candidates[engine_count]);
+         runtime.has_candidate[engine_count]=false;
+         engine_count++;
+        }
+     }
+   runtime.symbol_count=engine_count;
+   runtime.initialized=true;
+   runtime.reason_code="EEA_STRATEGY_RUNTIME_READY";
+   return true;
+  }
+
+string EEA_StrategyRuntimeCheckpointPath(const EEA_StrategyCandidateRuntime &runtime,const int index)
+  {
+   if(!runtime.zone_mode)
+      return EEA_StrategyCandidateStorePath(runtime.persistence_root,runtime.engines[index].canonical_symbol);
+   return runtime.persistence_root+"/current/strategy_"+runtime.engines[index].canonical_symbol+"_"+
+          runtime.engines[index].timeframe+".json";
   }
 
 void EEA_StrategyRuntimeConfigurePersistence(EEA_StrategyCandidateRuntime &runtime,
@@ -92,10 +162,14 @@ bool EEA_StrategyRuntimeLoadCheckpoints(EEA_StrategyCandidateRuntime &runtime,
    for(int i=0;i<runtime.symbol_count;i++)
      {
       bool has=false;
+      // Each engine checkpoints under its own identity (symbol, timeframe, config version).
+      string path=EEA_StrategyRuntimeCheckpointPath(runtime,i);
+      string canonical=runtime.engines[i].canonical_symbol;
+      string timeframe=runtime.engines[i].timeframe;
+      string version=runtime.engines[i].config_version;
       EEA_StrategyCandidateLoadStatus status=EEA_StrategyCandidateStoreLoad(
-         EEA_StrategyCandidateStorePath(runtime.persistence_root,runtime.engines[i].canonical_symbol),
-         runtime.config_version,runtime.account_fingerprint,runtime.broker_server,
-         runtime.engines[i].canonical_symbol,runtime.timeframe,now_utc,max_age_seconds,
+         path,version,runtime.account_fingerprint,runtime.broker_server,
+         canonical,timeframe,now_utc,max_age_seconds,
          runtime.engines[i],has);
       if(status==EEA_CANDIDATE_CHECKPOINT_LOADED)
         {
@@ -106,7 +180,7 @@ bool EEA_StrategyRuntimeLoadCheckpoints(EEA_StrategyCandidateRuntime &runtime,
               status==EEA_CANDIDATE_CHECKPOINT_IDENTITY_MISMATCH)
         {
          runtime.has_candidate[i]=false;
-         EEA_S02Init(runtime.engines[i],runtime.engines[i].canonical_symbol,runtime.timeframe,runtime.config_version);
+         EEA_S02Init(runtime.engines[i],canonical,timeframe,version);
         }
       else
         { runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT"; return false; }
@@ -122,8 +196,8 @@ bool EEA_StrategyRuntimeWriteCheckpoints(const EEA_StrategyCandidateRuntime &run
    if(runtime.persistence_root=="" || runtime.account_fingerprint=="" || runtime.broker_server=="") return false;
    for(int i=0;i<runtime.symbol_count;i++)
       if(!EEA_StrategyCandidateStoreWrite(
-            EEA_StrategyCandidateStorePath(runtime.persistence_root,runtime.engines[i].canonical_symbol),
-            runtime.config_version,runtime.account_fingerprint,runtime.broker_server,
+            EEA_StrategyRuntimeCheckpointPath(runtime,i),
+            runtime.engines[i].config_version,runtime.account_fingerprint,runtime.broker_server,
             runtime.engines[i],runtime.has_candidate[i],observed_at_utc)) return false;
    return true;
   }
@@ -214,6 +288,146 @@ bool EEA_StrategyRuntimeScanSymbol(EEA_StrategyCandidateRuntime &runtime,
    return true;
   }
 
+// Simple-average true range over `period` bars ending at `last` (oldest-first rates),
+// matching MT5 iATR without depending on an indicator handle being ready.
+double EEA_StrategyRuntimeAtrFromRates(const MqlRates &rates[],const int last,const int period)
+  {
+   if(period<1 || last<period) return 0.0;
+   double sum=0.0;
+   for(int i=last-period+1;i<=last;i++)
+     {
+      double prev_close=rates[i-1].close;
+      double tr=MathMax(rates[i].high,prev_close)-MathMin(rates[i].low,prev_close);
+      sum+=tr;
+     }
+   double atr=sum/period;
+   return MathIsValidNumber(atr) && atr>0.0 ? atr : 0.0;
+  }
+
+// S02 v1: one engine per (symbol, profile). Levels, context ATR and HTF structure come
+// from the profile's level timeframe (H1 for SCALP, H4 for SWING); the engine itself
+// runs on closed entry bars (M5 for SCALP, H1 for SWING).
+bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
+                                       const int index,const string broker_symbol)
+  {
+   if(!runtime.enabled || !runtime.initialized || index<0 || index>=runtime.symbol_count ||
+      broker_symbol=="") return false;
+   bool swing=(runtime.profile[index]=="SWING");
+   ENUM_TIMEFRAMES entry_tf=swing ? PERIOD_H1 : PERIOD_M5;
+   ENUM_TIMEFRAMES level_tf=swing ? PERIOD_H4 : PERIOD_H1;
+   int level_wanted=swing ? EEA_S02_SWING_LEVEL_BARS : EEA_S02_SCALP_LEVEL_BARS;
+
+   MqlRates entry_rates[];
+   ArraySetAsSeries(entry_rates,false);
+   int entry_copied=CopyRates(broker_symbol,entry_tf,1,EEA_STRATEGY_RUNTIME_ATR_PERIOD+1,entry_rates);
+   if(entry_copied<EEA_STRATEGY_RUNTIME_ATR_PERIOD+1)
+     { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_BARS_UNAVAILABLE"; return false; }
+   int last=entry_copied-1;
+   EEA_S02Engine engine=runtime.engines[index];
+   // Nothing new to evaluate until the next entry bar closes.
+   if((datetime)entry_rates[last].time<=engine.last_processed_bar_utc) return true;
+   double entry_atr=EEA_StrategyRuntimeAtrFromRates(entry_rates,last,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
+   if(entry_atr<=0.0) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_ATR_INVALID"; return false; }
+
+   MqlRates level_rates[];
+   ArraySetAsSeries(level_rates,false);
+   int level_count=CopyRates(broker_symbol,level_tf,1,level_wanted,level_rates);
+   if(level_count<EEA_S02_MIN_LEVEL_BARS)
+     { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_LEVEL_BARS_UNAVAILABLE"; return false; }
+   double context_atr=EEA_StrategyRuntimeAtrFromRates(level_rates,level_count-1,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
+   if(context_atr<=0.0) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_CONTEXT_ATR_INVALID"; return false; }
+   EEA_LevelBar bars[];
+   ArrayResize(bars,level_count);
+   for(int i=0;i<level_count;i++)
+     {
+      bars[i].time=(long)level_rates[i].time; bars[i].open=level_rates[i].open;
+      bars[i].high=level_rates[i].high; bars[i].low=level_rates[i].low; bars[i].close=level_rates[i].close;
+     }
+   long now_server=(long)TimeTradeServer();
+   long offset=(long)MathRound(((double)now_server-(double)TimeGMT())/900.0)*900;
+   EEA_LevelPoint points[];
+   int point_count=0;
+   EEA_LevelsPreviousDay(bars,level_count,now_server,points,point_count);
+   if(swing)
+     {
+      EEA_LevelsPreviousWeek(bars,level_count,now_server,points,point_count);
+      EEA_LevelsSwings(bars,level_count,EEA_S02_SWING_WING,EEA_S02_SWING_SWING_LOOKBACK,points,point_count);
+     }
+   else
+     {
+      EEA_LevelsSession(bars,level_count,now_server,offset,0,7,points,point_count);   // Asia
+      EEA_LevelsSession(bars,level_count,now_server,offset,7,12,points,point_count);  // London
+      EEA_LevelsSession(bars,level_count,now_server,offset,12,21,points,point_count); // New York
+      EEA_LevelsSwings(bars,level_count,EEA_S02_SWING_WING,EEA_S02_SCALP_SWING_LOOKBACK,points,point_count);
+     }
+   EEA_ConfluenceZone zones[];
+   int zone_count=EEA_BuildConfluenceZones(points,point_count,0.25*context_atr,0.5*context_atr,2,zones);
+   string structure=EEA_HtfStructure(bars,level_count,EEA_S02_SWING_WING);
+   runtime.htf_structure[index]=structure;
+
+   EEA_S02Bar bar;
+   bar.closed_at_utc=entry_rates[last].time;
+   bar.open=entry_rates[last].open; bar.high=entry_rates[last].high;
+   bar.low=entry_rates[last].low; bar.close=entry_rates[last].close;
+   bar.atr=entry_atr;
+   EEA_S02Event event;
+   EEA_S02Config config=runtime.profile_config[index];
+   int digits=(int)SymbolInfoInteger(broker_symbol,SYMBOL_DIGITS);
+   if(engine.state==EEA_S02_IDLE || EEA_S02IsTerminal(engine.state))
+     {
+      // Only a qualified confluence zone crossed by this closed bar can start a setup.
+      int pick=-1;
+      for(int z=0;z<zone_count && pick<0;z++)
+        {
+         if(!zones[z].qualified) continue;
+         if(bar.open<=zones[z].high && bar.close>zones[z].high) pick=z;
+         else if(bar.open>=zones[z].low && bar.close<zones[z].low) pick=z;
+        }
+      int qualified=0, nearest=-1; double nearest_distance=0.0;
+      for(int z=0;z<zone_count;z++)
+        {
+         if(!zones[z].qualified) continue;
+         qualified++;
+         double distance=MathMin(MathAbs(bar.close-zones[z].low),MathAbs(bar.close-zones[z].high));
+         if(nearest<0 || distance<nearest_distance) { nearest=z; nearest_distance=distance; }
+        }
+      runtime.zone_text[index]=nearest<0 ? "no qualified zone" :
+         DoubleToString(zones[nearest].low,digits)+"-"+
+         DoubleToString(zones[nearest].high,digits)+" "+zones[nearest].sources+
+         " ("+IntegerToString(qualified)+" zones)";
+      if(pick<0)
+        {
+         bool advanced=EEA_StrategyRuntimeNoTransition(engine,event,bar,"WAITING_FOR_CONFLUENCE_BREAK");
+         runtime.engines[index]=engine;
+         runtime.scan_reason[index]="WAITING_FOR_CONFLUENCE_BREAK";
+         return advanced;
+        }
+      if(!EEA_S02ProcessClosedBarZone(engine,bar,zones[pick].low,zones[pick].high,config,event))
+        { runtime.engines[index]=engine; runtime.scan_reason[index]=event.reason_code; return false; }
+      if(engine.state!=EEA_S02_IDLE)
+         runtime.zone_text[index]=DoubleToString(engine.zone_low,digits)+"-"+
+            DoubleToString(engine.zone_high,digits)+" "+zones[pick].sources;
+     }
+   else
+     {
+      if(!EEA_S02ProcessClosedBarZone(engine,bar,engine.zone_low,engine.zone_high,config,event))
+        { runtime.engines[index]=engine; runtime.scan_reason[index]=event.reason_code; return false; }
+     }
+   runtime.engines[index]=engine;
+   runtime.htf_risk_modifier[index]=engine.direction!=0 ?
+      EEA_HtfRiskModifier(structure,engine.direction,EEA_S02_HTF_COUNTER_TREND_MODIFIER) : 1.0;
+   runtime.scan_reason[index]=event.reason_code;
+   if(engine.state==EEA_S02_TRIGGERED)
+     {
+      runtime.candidates[index]=engine.candidate;
+      runtime.has_candidate[index]=true;
+     }
+   else if(EEA_S02IsTerminal(engine.state))
+      runtime.has_candidate[index]=false;
+   runtime.reason_code="EEA_STRATEGY_RUNTIME_SCANNED";
+   return true;
+  }
+
 bool EEA_StrategyRuntimeOnTimer(EEA_StrategyCandidateRuntime &runtime,
                                 const string &canonical[],const string &broker[],const int count)
   {
@@ -229,7 +443,9 @@ bool EEA_StrategyRuntimeOnTimer(EEA_StrategyCandidateRuntime &runtime,
       for(int k=0;k<count;k++)
          if(canonical[k]==runtime.engines[e].canonical_symbol) { row=k; break; }
       if(row<0 || broker[row]=="") continue;
-      if(!EEA_StrategyRuntimeScanSymbol(runtime,e,broker[row])) all_scanned=false;
+      bool scanned=runtime.zone_mode ? EEA_StrategyRuntimeScanZoneEngine(runtime,e,broker[row]) :
+                                      EEA_StrategyRuntimeScanSymbol(runtime,e,broker[row]);
+      if(!scanned) all_scanned=false;
      }
    runtime.last_scan_utc=(long)TimeGMT();
    return all_scanned;

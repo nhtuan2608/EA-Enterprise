@@ -156,6 +156,7 @@ struct EEA_SymbolPanelEngineView
    int setup_count;
    string setup_symbol[EEA_PANEL_MAX_ROWS];
    string setup_state[EEA_PANEL_MAX_ROWS];
+   string setup_detail[EEA_PANEL_MAX_ROWS];
    int universe_count;
    string universe[EEA_PANEL_MAX_ROWS];
   };
@@ -191,7 +192,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.setup_count=0;
    view.universe_count=0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
-     { view.setup_symbol[i]=""; view.setup_state[i]=""; view.universe[i]=""; }
+     { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
   }
 
 void EEA_SymbolPanelSetEngineView(const EEA_SymbolPanelEngineView &view)
@@ -749,6 +750,13 @@ string EEA_SymbolPanelSetupState(const string canonical)
    for(int i=0;i<g_panel_engine.setup_count && i<EEA_PANEL_MAX_ROWS;i++)
       if(g_panel_engine.setup_symbol[i]==canonical) return g_panel_engine.setup_state[i];
    return g_panel_engine.strategy_enabled ? "IDLE" : "OFF";
+  }
+
+string EEA_SymbolPanelSetupDetail(const string canonical)
+  {
+   for(int i=0;i<g_panel_engine.setup_count && i<EEA_PANEL_MAX_ROWS;i++)
+      if(g_panel_engine.setup_symbol[i]==canonical) return g_panel_engine.setup_detail[i];
+   return "";
   }
 
 void EEA_SymbolPanelCreateControls(const long chart_id,const int sub_window)
@@ -1541,9 +1549,13 @@ void EEA_SymbolPanelDashMarket(const long chart_id,EEA_ObserverRuntimeContext &c
       EEA_SymbolPanelSetText(chart_id,n+"_m",352,ry+6,row.trade_mode,EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
                              EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,16);
       string setup=row.context_only ? "--" : EEA_SymbolPanelSetupState(row.canonical);
-      EEA_SymbolPanelSetText(chart_id,n+"_u",452,ry+6,setup,
-                             setup=="OFF" || setup=="--" || setup=="IDLE" ? EEA_PANEL_FAINT_COLOR : EEA_PANEL_ACCENT_COLOR,
-                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,16);
+      bool setup_idle=(setup=="OFF" || setup=="--" || setup=="IDLE" || setup=="SC:IDLE SW:IDLE");
+      EEA_SymbolPanelSetText(chart_id,n+"_u",452,ry+7,setup,
+                             setup_idle ? EEA_PANEL_FAINT_COLOR : EEA_PANEL_ACCENT_COLOR,
+                             7,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,22);
+      // Hover shows the confluence zone, sources and HTF structure behind the state.
+      string detail=row.context_only ? "" : EEA_SymbolPanelSetupDetail(row.canonical);
+      ObjectSetString(chart_id,n+"_u",OBJPROP_TOOLTIP,detail=="" ? "\n" : detail);
       line++;
      }
    string dxy_broker="";

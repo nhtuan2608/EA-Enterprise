@@ -46,7 +46,7 @@ struct EEA_ControlledLiveConfig
 struct EEA_ControlledLiveRuntimeState
   {
    long last_attempt_utc;
-   string last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_SYMBOLS];
+   string last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string last_reason;
    bool recovery_blocked;
    EEA_ExecutionResult recovery_result;
@@ -68,7 +68,7 @@ void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
    s.recovery_blocked=false;
    EEA_ExecutionResultDefaults(s.recovery_result);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_SYMBOLS;i++) s.last_candidate_id[i]="";
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) s.last_candidate_id[i]="";
   }
 
 bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
@@ -426,6 +426,10 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
       if(!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
+      // S02 v1 candidates need the structural SL/TP and O-04 risk path (plan step 5);
+      // until then they are observed only and never reach the execution path.
+      if(strategy.zone_mode)
+        { state.last_reason="LIVE_S02_V1_RISK_PATH_PENDING"; continue; }
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id==state.last_candidate_id[i]) continue;
       EEA_PolicySettings policy; string reason;

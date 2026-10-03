@@ -203,5 +203,58 @@ class ZoneEngineTests(unittest.TestCase):
             self.assertIn(token, store)
 
 
+class RuntimeWiringTests(unittest.TestCase):
+    def setUp(self):
+        self.runtime = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
+        self.scan = self.runtime.split("bool EEA_StrategyRuntimeScanZoneEngine", 1)[1].split("bool EEA_StrategyRuntimeOnTimer", 1)[0]
+
+    def test_two_profile_engines_per_symbol(self):
+        init = self.runtime.split("bool EEA_StrategyCandidateRuntimeInitV1", 1)[1].split("string EEA_StrategyRuntimeCheckpointPath", 1)[0]
+        for token in ('p==0 ? "SCALP" : "SWING"', 'p==0 ? "M5" : "H1"', "EEA_S02V1Config(runtime.profile_config[engine_count],profile)",
+                      "runtime.zone_mode=true", "count*2>EEA_STRATEGY_RUNTIME_MAX_ENGINES", "runtime.symbol_count=engine_count"):
+            self.assertIn(token, init)
+
+    def test_zone_scan_uses_profile_timeframes_closed_bars_and_qualified_zones_only(self):
+        for token in ("swing ? PERIOD_H1 : PERIOD_M5", "swing ? PERIOD_H4 : PERIOD_H1",
+                      "CopyRates(broker_symbol,entry_tf,1,", "CopyRates(broker_symbol,level_tf,1,",
+                      "ArraySetAsSeries(level_rates,false)", "0.25*context_atr,0.5*context_atr,2",
+                      "if(!zones[z].qualified) continue;", "EEA_S02ProcessClosedBarZone(engine,bar,zones[pick].low,zones[pick].high,config,event)",
+                      "EEA_S02ProcessClosedBarZone(engine,bar,engine.zone_low,engine.zone_high,config,event)",
+                      "engine.state==EEA_S02_IDLE || EEA_S02IsTerminal(engine.state)", "EEA_HtfStructure(bars,level_count,EEA_S02_SWING_WING)",
+                      "EEA_LevelsSession(bars,level_count,now_server,offset,7,12,points,point_count)", "EEA_LevelsPreviousWeek"):
+            self.assertIn(token, self.scan)
+        self.assertNotIn("iATR", self.scan)
+        self.assertNotIn("OrderSend", self.runtime)
+
+    def test_atr_from_rates_matches_simple_true_range_average(self):
+        atr = self.runtime.split("double EEA_StrategyRuntimeAtrFromRates", 1)[1].split("bool EEA_StrategyRuntimeScanZoneEngine", 1)[0]
+        self.assertIn("MathMax(rates[i].high,prev_close)-MathMin(rates[i].low,prev_close)", atr)
+        self.assertIn("sum/period", atr)
+        rates = [{"high": 1.0 + i * 0.01, "low": 0.99 + i * 0.01, "close": 0.995 + i * 0.01} for i in range(16)]
+        trs = [max(r["high"], p["close"]) - min(r["low"], p["close"]) for p, r in zip(rates[1:], rates[2:])]
+        self.assertGreater(sum(trs[-14:]) / 14, 0)
+
+    def test_checkpoints_are_per_engine_identity(self):
+        self.assertIn('"/current/strategy_"+runtime.engines[index].canonical_symbol+"_"', self.runtime)
+        load = self.runtime.split("bool EEA_StrategyRuntimeLoadCheckpoints", 1)[1].split("bool EEA_StrategyRuntimeWriteCheckpoints", 1)[0]
+        self.assertIn("string version=runtime.engines[i].config_version;", load)
+        self.assertIn("EEA_S02Init(runtime.engines[i],canonical,timeframe,version);", load)
+
+    def test_v1_candidates_never_reach_execution_before_risk_path(self):
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        loop = live.split("bool EEA_ControlledLiveOnTimer", 1)[1]
+        self.assertIn("LIVE_S02_V1_RISK_PATH_PENDING", loop)
+        self.assertLess(loop.index("LIVE_S02_V1_RISK_PATH_PENDING"), loop.index("EEA_ControlledLiveBuildRiskContext"))
+        self.assertIn("last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_ENGINES]", live)
+
+    def test_shell_defaults_to_v1_and_panel_shows_zone_detail(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("input bool   InpS02UsePrototype        = false;", shell)
+        self.assertIn("EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled)", shell)
+        self.assertIn("view.setup_detail[row]", shell)
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn('ObjectSetString(chart_id,n+"_u",OBJPROP_TOOLTIP,detail=="" ? "\\n" : detail);', panel)
+
+
 if __name__ == "__main__":
     unittest.main()
