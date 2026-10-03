@@ -74,6 +74,8 @@ bool EEA_StrategyCandidateStoreWrite(const string path,
       ",\"direction\":"+IntegerToString(engine.direction)+",\"key_level\":"+DoubleToString(engine.key_level,16)+
       ",\"signal_atr\":"+DoubleToString(engine.signal_atr,16)+",\"invalidation_price\":"+
       DoubleToString(engine.invalidation_price,16)+",\"retest_close\":"+DoubleToString(engine.retest_close,16)+
+      ",\"zone_low\":"+DoubleToString(engine.zone_low,16)+",\"zone_high\":"+DoubleToString(engine.zone_high,16)+
+      ",\"retest_extreme\":"+DoubleToString(engine.retest_extreme,16)+
       ",\"bars_since_break\":"+IntegerToString(engine.bars_since_break)+",\"bars_since_acceptance\":"+
       IntegerToString(engine.bars_since_acceptance)+",\"bars_since_retest\":"+IntegerToString(engine.bars_since_retest)+
       ",\"has_candidate\":"+(has_candidate ? "true" : "false")+",\"candidate_id\":\""+
@@ -129,6 +131,13 @@ EEA_StrategyCandidateLoadStatus EEA_StrategyCandidateStoreLoad(const string path
    engine.signal_atr=StringToDouble(EEA_StrategyCandidateStoreField(json,"signal_atr"));
    engine.invalidation_price=StringToDouble(EEA_StrategyCandidateStoreField(json,"invalidation_price"));
    engine.retest_close=StringToDouble(EEA_StrategyCandidateStoreField(json,"retest_close"));
+   // Checkpoints written before S02 v1 have no zone: treat the key level as a zero-width zone.
+   string zone_low_text=EEA_StrategyCandidateStoreField(json,"zone_low");
+   string zone_high_text=EEA_StrategyCandidateStoreField(json,"zone_high");
+   engine.zone_low=zone_low_text=="" ? engine.key_level : StringToDouble(zone_low_text);
+   engine.zone_high=zone_high_text=="" ? engine.key_level : StringToDouble(zone_high_text);
+   engine.retest_extreme=StringToDouble(EEA_StrategyCandidateStoreField(json,"retest_extreme"));
+   if(engine.zone_low>engine.zone_high) return EEA_CANDIDATE_CHECKPOINT_CORRUPT;
    engine.bars_since_break=(int)StringToInteger(EEA_StrategyCandidateStoreField(json,"bars_since_break"));
    engine.bars_since_acceptance=(int)StringToInteger(EEA_StrategyCandidateStoreField(json,"bars_since_acceptance"));
    engine.bars_since_retest=(int)StringToInteger(EEA_StrategyCandidateStoreField(json,"bars_since_retest"));
@@ -146,6 +155,9 @@ EEA_StrategyCandidateLoadStatus EEA_StrategyCandidateStoreLoad(const string path
    engine.candidate.timeframe=timeframe;
    engine.candidate.config_version=config_version;
    engine.candidate.reason_code=EEA_StrategyCandidateStoreField(json,"candidate_reason_code");
+   engine.candidate.zone_low=engine.zone_low;
+   engine.candidate.zone_high=engine.zone_high;
+   engine.candidate.retest_extreme=engine.retest_extreme;
    has_candidate=EEA_StrategyCandidateStoreField(json,"has_candidate")=="true";
    return EEA_CANDIDATE_CHECKPOINT_LOADED;
   }

@@ -23,6 +23,9 @@ def new_engine(identity: dict, config: dict) -> dict:
         "signal_atr": 0.0,
         "invalidation_price": 0.0,
         "retest_close": 0.0,
+        "zone_low": 0.0,
+        "zone_high": 0.0,
+        "retest_extreme": 0.0,
         "bars_since_break": 0,
         "bars_since_acceptance": 0,
         "bars_since_retest": 0,
@@ -45,7 +48,21 @@ def _event(engine: dict, time: int, event_type: str, reason: str, before: str | 
     }
 
 
+def _body_ok(bar: dict, direction: int, ratio: float) -> bool:
+    if ratio <= 0:
+        return True
+    rng = bar["high"] - bar["low"]
+    if rng <= 0:
+        return False
+    aligned = bar["close"] > bar["open"] if direction > 0 else bar["close"] < bar["open"]
+    return aligned and abs(bar["close"] - bar["open"]) >= ratio * rng
+
+
 def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
+    return process_zone(engine, bar, key_level, key_level, config)
+
+
+def process_zone(engine: dict, bar: dict, zone_low: float, zone_high: float, config: dict) -> dict:
     when = bar["time"]
     if when == engine["last_processed_bar"]:
         return _event(engine, when, "BAR_IGNORED", "DUPLICATE_CLOSED_BAR")
@@ -74,18 +91,23 @@ def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
 
     if engine["state"] == IDLE:
         buffer = config["break_buffer_atr"] * atr
-        if bar["close"] > key_level + buffer:
+        body = config.get("break_body_ratio", 0.0)
+        if bar["close"] > zone_high + buffer and _body_ok(bar, 1, body):
             direction = engine["direction"] = 1
             reason = "BREAK_CLOSED_ABOVE_KEY"
-        elif bar["close"] < key_level - buffer:
+        elif bar["close"] < zone_low - buffer and _body_ok(bar, -1, body):
             direction = engine["direction"] = -1
             reason = "BREAK_CLOSED_BELOW_KEY"
         else:
             return _event(engine, when, "NO_TRANSITION", "WAITING_FOR_BREAK", before)
+        key_level = zone_high if direction > 0 else zone_low
         engine["key_level"] = key_level
+        engine["zone_low"] = zone_low
+        engine["zone_high"] = zone_high
         engine["signal_atr"] = atr
         engine["breakout_bar"] = when
-        engine["invalidation_price"] = key_level - direction * config["invalidation_buffer_atr"] * atr
+        edge = zone_low if direction > 0 else zone_high
+        engine["invalidation_price"] = edge - direction * config["invalidation_buffer_atr"] * atr
         symbol, timeframe, version = engine["canonical_symbol"], engine["timeframe"], engine["config_version"]
         engine["candidate"] = {
             "candidate_id": f"S02-{symbol}-{timeframe}-{version}-{when}",
@@ -96,6 +118,8 @@ def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
             "timeframe": timeframe,
             "config_version": version,
             "key_level": key_level,
+            "zone_low": zone_low,
+            "zone_high": zone_high,
             "invalidation_price": engine["invalidation_price"],
             "detected_at": when,
             "triggered_at": None,
@@ -111,10 +135,15 @@ def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
                     if direction > 0 else
                     bar["close"] < engine["key_level"] - config["acceptance_buffer_atr"] * engine["signal_atr"])
         failed = bar["close"] < engine["invalidation_price"] if direction > 0 else bar["close"] > engine["invalidation_price"]
+        back_inside = config.get("fail_on_close_inside_zone", False) and (
+            bar["close"] < engine["zone_high"] if direction > 0 else bar["close"] > engine["zone_low"])
         if failed:
             return transition(INVALIDATED, "BREAK_INVALIDATED", "BREAK_REJECTED_BACK_THROUGH_INVALIDATION")
+        if back_inside:
+            return transition(INVALIDATED, "BREAK_INVALIDATED", "ACCEPTANCE_FAILED")
         if accepted:
             engine["bars_since_acceptance"] = 0
+            engine["retest_extreme"] = bar["low"] if direction > 0 else bar["high"]
             return transition(ARMED, "BREAK_ACCEPTED", "ACCEPTANCE_CLOSED_BEYOND_KEY")
         if engine["bars_since_break"] >= config["max_bars_to_accept"]:
             return transition(EXPIRED, "SETUP_EXPIRED", "ACCEPTANCE_NOT_CONFIRMED")
@@ -122,13 +151,15 @@ def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
 
     if engine["state"] == ARMED:
         engine["bars_since_acceptance"] += 1
+        engine["retest_extreme"] = (min(engine["retest_extreme"], bar["low"]) if direction > 0
+                                    else max(engine["retest_extreme"], bar["high"]))
         failed = bar["close"] < engine["invalidation_price"] if direction > 0 else bar["close"] > engine["invalidation_price"]
         if failed:
             return transition(INVALIDATED, "RETEST_INVALIDATED", "LEVEL_LOST_BEFORE_RETEST")
         tolerance = config["retest_tolerance_atr"] * engine["signal_atr"]
-        touched = (bar["low"] <= engine["key_level"] + tolerance and bar["high"] >= engine["key_level"] - tolerance
+        touched = (bar["low"] <= engine["zone_high"] + tolerance and bar["high"] >= engine["zone_low"] - tolerance
                    if direction > 0 else
-                   bar["high"] >= engine["key_level"] - tolerance and bar["low"] <= engine["key_level"] + tolerance)
+                   bar["high"] >= engine["zone_low"] - tolerance and bar["low"] <= engine["zone_high"] + tolerance)
         if touched:
             engine["retest_close"] = bar["close"]
             engine["bars_since_retest"] = 0
@@ -139,15 +170,20 @@ def process(engine: dict, bar: dict, key_level: float, config: dict) -> dict:
 
     if engine["state"] == RETESTING:
         engine["bars_since_retest"] += 1
+        engine["retest_extreme"] = (min(engine["retest_extreme"], bar["low"]) if direction > 0
+                                    else max(engine["retest_extreme"], bar["high"]))
         failed = bar["close"] < engine["invalidation_price"] if direction > 0 else bar["close"] > engine["invalidation_price"]
+        progress = config.get("trigger_progress_atr", 0.0) * engine["signal_atr"]
         reaction = (bar["close"] > engine["key_level"] + config["hold_buffer_atr"] * engine["signal_atr"] and
-                    bar["close"] > bar["open"] and bar["close"] > engine["retest_close"] if direction > 0 else
+                    bar["close"] > bar["open"] and bar["close"] > engine["retest_close"] + progress if direction > 0 else
                     bar["close"] < engine["key_level"] - config["hold_buffer_atr"] * engine["signal_atr"] and
-                    bar["close"] < bar["open"] and bar["close"] < engine["retest_close"])
+                    bar["close"] < bar["open"] and bar["close"] < engine["retest_close"] - progress)
+        reaction = reaction and _body_ok(bar, direction, config.get("trigger_body_ratio", 0.0))
         if failed:
             return transition(INVALIDATED, "RETEST_INVALIDATED", "RETEST_CLOSED_THROUGH_INVALIDATION")
         if reaction:
             engine["candidate"]["triggered_at"] = when
+            engine["candidate"]["retest_extreme"] = engine["retest_extreme"]
             engine["candidate"]["age_after_trigger_bars"] = 0
             return transition(TRIGGERED, "CANDIDATE_TRIGGERED", "RETEST_HOLD_REACTION_CONFIRMED")
         if engine["bars_since_retest"] >= config["max_bars_for_reaction"]:

@@ -21,6 +21,9 @@
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
+// S02 v1 building blocks; compiled here, wired into the strategy runtime in a later step.
+#include "Market/ConfluenceLevels.mqh"
+#include "Risk/RiskLimitsProfile.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;

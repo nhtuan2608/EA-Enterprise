@@ -134,7 +134,7 @@ Quy tắc:
 
 ## 11. Risk
 
-`FinalRisk = BaseRisk × htf_risk_modifier × các hệ số khác của mục 5.4`, luôn bị chặn bởi giới hạn mỗi lệnh, portfolio, exposure theo đồng tiền và sàn FTMO (phụ lục B). AI và UI không được tăng risk. BaseRisk và các giới hạn vẫn chờ người dùng duyệt (O-04).
+`FinalRisk = BaseRisk × htf_risk_modifier × các hệ số khác của mục 5.4`, luôn bị chặn bởi giới hạn mỗi lệnh, portfolio, exposure theo đồng tiền và sàn FTMO (phụ lục B). AI và UI không được tăng risk. BaseRisk và các giới hạn lấy từ `Risk/RiskLimitsProfile.mqh` (O-04, phụ lục D): FTMO 2-Step 0,50% mỗi lệnh, FTMO 1-Step 0,30% mỗi lệnh; ngược HTF còn một nửa.
 
 ## 12. Audit của candidate
 
@@ -172,6 +172,5 @@ Kiểm chứng trên MT5 Strategy Tester với 5 symbol mặc định, mỗi pro
 
 ## 15. Còn mở
 
-- O-04: BaseRisk, giới hạn mỗi lệnh, tổng open risk, exposure theo đồng tiền.
 - Ngưỡng nghiệm thu của Strategy Tester (sau lần chạy đầu).
 - Cửa sổ phiên có điều chỉnh DST hay giữ UTC cố định.
