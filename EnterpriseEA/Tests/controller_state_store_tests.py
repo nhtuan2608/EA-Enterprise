@@ -9,6 +9,13 @@ CONTRACT = ROOT / "Runtime" / "ExecutionControllerState.mqh"
 
 
 class ControllerStateStoreTests(unittest.TestCase):
+    def test_shell_loads_durable_controller_after_runtime_identity_is_available(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn('#include "Storage/ControllerStateStore.mqh"', shell)
+        self.assertIn("EEA_ControllerStateStoreLoad", shell)
+        self.assertIn('"MARKET_ENTRY"', shell)
+        self.assertIn("EEA_LoadDurableControllerState", shell)
+
     @classmethod
     def setUpClass(cls):
         cls.store = STORE.read_text(encoding="utf-8") if STORE.exists() else ""

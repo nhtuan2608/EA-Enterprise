@@ -9,6 +9,7 @@
 #include "Storage/AuditLog.mqh"
 #include "Storage/SharedStateStore.mqh"
 #include "Storage/PolicySettingsStore.mqh"
+#include "Storage/ControllerStateStore.mqh"
 #include "Runtime/ObserverRuntime.mqh"
 #include "Runtime/ExecutionAdapter.mqh"
 #include "Runtime/ExecutionControllerState.mqh"
@@ -32,12 +33,33 @@ CSharedState g_state;
 CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
+EEA_ExecutionControllerState g_controller;
+EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
+bool g_controller_allows_market=false;
 
 bool EEA_LivePanelAllowed()
   {
    // Tester and optimization are non-live contexts; never expose live
    // controls or observer dashboard surfaces there.
    return MQLInfoInteger(MQL_TESTER)==0 && MQLInfoInteger(MQL_OPTIMIZATION)==0;
+  }
+
+void EEA_LoadDurableControllerState()
+  {
+   EEA_ExecutionControllerStateDefaults(g_controller);
+   g_controller_allows_market=false;
+   if(!g_runtime.initialized || g_runtime.status.runtime_state!="OBSERVING" ||
+      g_runtime.account.account_fingerprint=="" || g_runtime.account.broker_server=="")
+     {
+      g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
+      return;
+     }
+   g_controller_load_status=EEA_ControllerStateStoreLoad(
+      g_config.data_root+"/current/execution_controller_state.json",
+      g_config.config_version,g_runtime.account.account_fingerprint,
+      g_runtime.account.broker_server,"MARKET_ENTRY",1,TimeGMT(),g_controller);
+   g_controller_allows_market=(g_controller_load_status==EEA_CONTROLLER_STATE_LOADED &&
+      EEA_ExecutionControllerAllowsNewRequest(g_controller,"MARKET_ENTRY",TimeGMT()));
   }
 
 int OnInit()
@@ -127,6 +149,7 @@ int OnInit()
          }
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
+   EEA_LoadDurableControllerState();
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, InpPanelSubWindow);
@@ -169,6 +192,7 @@ void OnTimer()
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+       EEA_LoadDurableControllerState();
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
           EEA_SymbolPanelRefresh(0,g_runtime);
