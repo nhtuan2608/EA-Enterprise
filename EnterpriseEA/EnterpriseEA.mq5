@@ -68,7 +68,6 @@ input int    InpLiveReleaseTtlSec       = 20;
 input long   InpLiveMagic               = 888888;
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
-input int    InpS02EntryMode            = 0;  // S02 v1: 0 MARKET, 1 LIMIT at zone, 2 STOP above trigger (REQ-021)
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -258,7 +257,6 @@ int OnInit()
    g_live_config.magic=InpLiveMagic;
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
-   g_live_config.entry_mode=(InpS02EntryMode>=0 && InpS02EntryMode<=2) ? InpS02EntryMode : 0;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {

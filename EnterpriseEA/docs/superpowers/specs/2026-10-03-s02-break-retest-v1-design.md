@@ -86,11 +86,18 @@ Nến trùng thời điểm hoặc lùi thời gian không làm đổi trạng t
 - **SL:** cực trị của nhịp retest (low thấp nhất từ ARMED tới TRIGGERED đối với lệnh mua) trừ buffer = max(0,10×ATR14(entry), 1,5×spread hiện tại); làm tròn theo tick size về phía xa entry; phải thỏa stops level và freeze level.
 - **TP:** level cấu trúc gần nhất theo hướng lệnh trong bộ nguồn của profile (một nguồn đơn lẻ cũng được dùng làm target), cách entry ≥ 1R thô. Không có target cấu trúc thì loại (`NO_STRUCTURAL_TARGET`); không dùng R cố định thay thế.
 - **RR ròng:** (|TP − entry| − chi phí) / (|entry − SL| + chi phí) ≥ 1,5 (SCALP) hoặc 2,0 (SWING); chi phí = spread + commission ước tính + swap dự kiến (SWING).
-- **Loại lệnh theo profile và symbol (S02-D8), mỗi cấu hình chỉ chọn một mode:**
-  - `MARKET_ON_TRIGGER` (mặc định): vào lệnh tại giá thị trường sau nến TRIGGERED.
-  - `LIMIT_AT_ZONE`: đặt LIMIT tại đỉnh vùng ngay khi ARMED; hết hạn khi hết cửa sổ retest; khớp lệnh mà chưa có trigger được ghi là entry mạo hiểm và chỉ dùng khi đã có số liệu chứng minh.
-  - `STOP_ABOVE_TRIGGER`: đặt STOP cách high của nến trigger 1 tick; hết hạn sau TTL candidate.
-  - Lệnh chờ bị chặn tới khi REQ-021 (TC-046 đến TC-051) đạt trên broker.
+- **Loại lệnh tự động (S02-D8, sửa 04/10/2026):** hệ thống tự chọn loại lệnh cho từng candidate theo trạng thái setup, không còn input `InpS02EntryMode`. Hàm `EEA_S02SelectEntryMode`:
+
+  | Trạng thái | Điều kiện | Lệnh |
+  |---|---|---|
+  | ARMED (đã chấp nhận phá vùng, chờ retest) | HTF cùng chiều và giá cách mép vùng ≥ 0,25×ATR | `LIMIT_AT_ZONE` tại mép vùng, SL sau mép đối diện, hết hạn khi hết cửa sổ retest |
+  | ARMED | ngược HTF, hoặc giá đã ở sát vùng | chờ trigger (không đặt lệnh) |
+  | TRIGGERED | giá đã vượt cực trị nến trigger (phá vỡ đã xác nhận) | `MARKET` |
+  | TRIGGERED | SCALP, HTF cùng chiều, giá chưa hồi quá 0,25×ATR so với close nến trigger | `MARKET` (scalp chắc chắn) |
+  | TRIGGERED | SWING, ngược HTF, hoặc giá đã hồi sâu hơn | `STOP_ABOVE_TRIGGER` cách cực trị nến trigger 1 tick, hết hạn sau TTL candidate |
+  | TRIGGERED | giá đã chạy quá cực trị nến trigger > 0,5×ATR | bỏ, không đuổi giá (`ENTRY_AUTO_CHASE_TOO_FAR`) |
+
+  Mỗi engine chỉ có một lệnh (thị trường hoặc chờ) cho mỗi candidate. Lý do chọn được ghi vào sự kiện audit `LIVE_AUTHORIZATION_BOUND` (`entry_selection`). Loại lệnh chọn ra vẫn phải được controller cấp scope (`MARKET_ENTRY`, `PENDING_ENTRY` hoặc `MARKET_AND_PENDING_ENTRY`); scope không được cấp thì candidate bị bỏ qua với lý do `CONTROLLED_LIVE_SCOPE_NOT_GRANTED_*`. Ngưỡng 0,25/0,25/0,5×ATR là seed PROPOSED, khóa sau kiểm chứng mục 13.
 
 ## 9. Tự động thích ứng theo symbol, loại tài khoản và leverage
 

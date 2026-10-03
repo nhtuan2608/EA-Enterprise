@@ -151,5 +151,23 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         self.assertIn("metadata_fingerprint", store)
 
 
+    def test_entry_type_is_selected_automatically(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        self.assertNotIn("InpS02EntryMode", shell)
+        self.assertNotIn("config.entry_mode", live)
+        selector = live.split("int EEA_S02SelectEntryMode", 1)[1].split("\n  }\n", 1)[0]
+        for token in ("EEA_S02_ENTRY_LIMIT_AT_ZONE", "EEA_S02_ENTRY_MARKET",
+                      "EEA_S02_ENTRY_STOP_ABOVE_TRIGGER", "ENTRY_AUTO_CHASE_TOO_FAR",
+                      "ENTRY_AUTO_WAIT_TRIGGER_COUNTER_HTF", "htf_risk_modifier"):
+            self.assertIn(token, selector)
+        on_timer = live.split("bool EEA_ControlledLiveOnTimer", 1)[1]
+        self.assertIn("EEA_S02SelectEntryMode(strategy,i,", on_timer)
+        self.assertIn("CONTROLLED_LIVE_SCOPE_NOT_GRANTED_", on_timer)
+        # The chosen scope still goes through the controller on submit.
+        self.assertIn("EEA_ExecutionSubmit(audit,observer.root,intent,decision,controller,scope,", on_timer)
+        self.assertIn("entry_selection", live)
+
+
 if __name__ == "__main__":
     unittest.main()
