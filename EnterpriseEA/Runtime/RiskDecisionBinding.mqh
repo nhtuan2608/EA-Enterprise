@@ -25,6 +25,8 @@ bool EEA_RiskDecisionBindsExecutionIntent(const EEA_RiskDecision &decision,
       return false;
    if(!MathIsValidNumber(intent.volume) || !MathIsValidNumber(intent.projected_loss) ||
       MathAbs(intent.volume-decision.final_volume)>1.0e-12 ||
+      MathAbs(intent.risk_budget-decision.risk_budget)>1.0e-8 ||
+      MathAbs(intent.net_reward_risk-decision.net_reward_risk)>1.0e-8 ||
       MathAbs(intent.projected_loss-decision.projected_loss)>1.0e-8)
       return false;
    return true;

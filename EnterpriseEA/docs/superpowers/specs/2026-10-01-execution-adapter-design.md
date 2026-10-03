@@ -79,6 +79,10 @@ Before the ordinary execution gate runs, it must validate that the decision is
 `RISK_APPROVED`/`RELEASED`, current, and bound to the intent lineage. A matching
 `risk_decision_status` string alone is not authorization evidence.
 
+`Runtime/ExecutionIntentBuilder.mqh` is the only approved construction path for
+a market intent: it rejects review-only/expired decisions, pending actions,
+identity mismatches, invalid geometry, and incomplete idempotency fields.
+
 ### Result
 
 `EEA_ExecutionResult` contains:

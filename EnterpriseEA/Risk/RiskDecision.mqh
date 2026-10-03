@@ -33,7 +33,9 @@ struct EEA_RiskDecision
    string portfolio_fingerprint;
 
    double final_volume;
+   double risk_budget;
    double projected_loss;
+   double net_reward_risk;
    double available_headroom;
 
    datetime decided_at_utc;
@@ -73,7 +75,9 @@ void EEA_RiskDecisionDefaults(EEA_RiskDecision &decision)
    decision.portfolio_fingerprint="";
 
    decision.final_volume=0.0;
+   decision.risk_budget=0.0;
    decision.projected_loss=0.0;
+   decision.net_reward_risk=0.0;
    decision.available_headroom=0.0;
 
    decision.decided_at_utc=0;
@@ -101,7 +105,10 @@ bool EEA_RiskDecisionValidForRelease(const EEA_RiskDecision &decision,const date
      return false;
 
    if(!MathIsValidNumber(decision.final_volume) || decision.final_volume<=0.0 ||
+      !MathIsValidNumber(decision.risk_budget) || decision.risk_budget<=0.0 ||
       !MathIsValidNumber(decision.projected_loss) || decision.projected_loss<=0.0 ||
+      decision.projected_loss>decision.risk_budget ||
+      !MathIsValidNumber(decision.net_reward_risk) || decision.net_reward_risk<=0.0 ||
       !MathIsValidNumber(decision.available_headroom) || decision.available_headroom<0.0)
      return false;
 

@@ -33,7 +33,7 @@ Implement a versioned, redacted controller-state document with atomic write, str
 
 ### Task 2: Risk decision to execution-intent lineage
 
-Build the pure bridge that accepts only a fresh `RISK_APPROVED` decision and constructs a market-only execution intent carrying candidate, setup, policy, account, reconciliation, symbol, quote, portfolio, sizing, expiry, and idempotency provenance. Reject review-only candidates, stale evidence, mismatched fingerprints, non-finite values, and unsupported pending operations. Add unit/static tests and persist all lineage fields.
+Build the pure bridge that accepts only a fresh `RISK_APPROVED` decision and constructs a market-only execution intent carrying candidate, setup, policy, account, reconciliation, symbol, quote, portfolio, sizing, expiry, and idempotency provenance. Reject review-only candidates, stale evidence, mismatched fingerprints, non-finite values, and unsupported pending operations. `Runtime/ExecutionIntentBuilder.mqh` now provides this strict bridge and binds the intent back to the released decision; lifecycle invocation and persistence-before-dispatch remain in Tasks 3–4. Add unit/static tests and persist all lineage fields.
 
 ### Task 3: Runtime strategy and two-pass risk integration
 

@@ -104,6 +104,13 @@ class RiskDecisionContractTests(unittest.TestCase):
         ):
             self.assertIn(required_check, validation)
 
+    def test_release_carries_budget_and_reward_risk_for_intent_binding(self):
+        self.assertIn("double risk_budget", self.source)
+        self.assertIn("double net_reward_risk", self.source)
+        validation = self._section("bool EEA_RiskDecisionValidForRelease")
+        self.assertIn("decision.risk_budget", validation)
+        self.assertIn("decision.net_reward_risk", validation)
+
     def test_contract_has_no_broker_io_or_shell_dependencies(self):
         forbidden = (
             "#include",

@@ -118,7 +118,9 @@ bool EEA_RiskDecisionReleaseFromReview(const EEA_DryRunContext &current,
    decision.portfolio_snapshot_id=current.portfolio_snapshot_id;
    decision.portfolio_fingerprint=recheck.portfolio_fingerprint;
    decision.final_volume=fresh.final_volume;
+   decision.risk_budget=current.volume_input.risk_budget;
    decision.projected_loss=fresh.projected_loss;
+   decision.net_reward_risk=fresh.net_reward_risk;
    decision.available_headroom=current.headroom.available_headroom;
    decision.decided_at_utc=recheck.checked_at_utc;
    decision.expires_at_utc=recheck.expires_at_utc;
