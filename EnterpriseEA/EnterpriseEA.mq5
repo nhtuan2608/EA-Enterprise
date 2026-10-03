@@ -101,6 +101,52 @@ void EEA_LoadDurableControllerState()
       EEA_ExecutionControllerAllowsNewRequest(g_controller,"MARKET_ENTRY",TimeGMT()));
   }
 
+string EEA_PanelControllerStatusText(const EEA_ControllerStateLoadStatus status)
+  {
+   switch(status)
+     {
+      case EEA_CONTROLLER_STATE_LOADED: return "LOADED";
+      case EEA_CONTROLLER_STATE_CORRUPT: return "CORRUPT";
+      case EEA_CONTROLLER_STATE_IDENTITY_MISMATCH: return "IDENTITY_MISMATCH";
+      case EEA_CONTROLLER_STATE_SCOPE_MISMATCH: return "SCOPE_MISMATCH";
+      case EEA_CONTROLLER_STATE_REVISION_ROLLBACK: return "REVISION_ROLLBACK";
+      case EEA_CONTROLLER_STATE_STALE: return "STALE";
+      default: return "MISSING";
+     }
+  }
+
+// Publishes read-only engine facts for the control center; the panel never
+// derives execution, controller or strategy state on its own.
+void EEA_PublishPanelEngineView()
+  {
+   EEA_SymbolPanelEngineView view;
+   EEA_SymbolPanelEngineViewDefaults(view);
+   view.observer_only=InpObserverOnly;
+   view.execution_enabled=g_live_config.enabled;
+   view.live_armed=g_live_config.armed;
+   view.controller_status=EEA_PanelControllerStatusText(g_controller_load_status);
+   view.controller_kill_active=g_controller.kill_active;
+   view.controller_allows_market=g_controller_allows_market;
+   view.recovery_blocked=g_live_runtime.recovery_blocked;
+   view.live_reason=g_live_runtime.last_reason;
+   view.strategy_enabled=g_strategy_runtime.enabled;
+   view.strategy_reason=g_strategy_runtime.reason_code;
+   if(g_strategy_runtime.enabled)
+      for(int i=0;i<g_strategy_runtime.symbol_count && view.setup_count<EEA_PANEL_MAX_ROWS;i++)
+        {
+         view.setup_symbol[view.setup_count]=g_strategy_runtime.engines[i].canonical_symbol;
+         view.setup_state[view.setup_count]=g_strategy_runtime.has_candidate[i] ?
+            g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction :
+            EEA_S02StateName(g_strategy_runtime.engines[i].state);
+         view.setup_count++;
+        }
+   string universe[];
+   int count=EEA_NormalizeCanonicalCsv(InpCanonicalSymbols,universe);
+   for(int i=0;i<count && i<EEA_PANEL_MAX_ROWS;i++) view.universe[i]=universe[i];
+   view.universe_count=count<EEA_PANEL_MAX_ROWS ? count : EEA_PANEL_MAX_ROWS;
+   EEA_SymbolPanelSetEngineView(view);
+  }
+
 int OnInit()
   {
    if(!EAConfig_LoadDefaults(g_config))
@@ -257,6 +303,7 @@ int OnInit()
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, InpPanelSubWindow);
+      EEA_PublishPanelEngineView();
       if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
      }
    Print("EnterpriseEA observer runtime initialized without execution authority.");
@@ -320,6 +367,7 @@ void OnTimer()
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
+          EEA_PublishPanelEngineView();
           EEA_SymbolPanelRefresh(0,g_runtime);
           EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
          }
