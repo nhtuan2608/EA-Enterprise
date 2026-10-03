@@ -73,7 +73,6 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
    ArrayResize(brokers, count);
-   ArrayResize(brokers,count);
    for(int i = 0; i < count; i++) brokers[i]="";
    for(int i = 0; i < count; i++)
       if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],"")) brokers[i]="";
@@ -86,6 +85,7 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
          out_reason = "SYMBOL_RESOLUTION_FAILED"; return false;
         }
       brokers[i] = results[i].broker_symbol;
+      if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],brokers[i])) continue;
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
       if(!EEA_ReadRuntimeSymbolSpec(canonicals[i], brokers[i], server, spec, spec_reason))
@@ -259,9 +259,16 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
    if(refresh_seconds<1 || history_lookback_days<1 || history_lookback_days>90 || count<1 || count>EEA_RUNTIME_MAX_SYMBOLS)
      { ctx.status.reason_code="RUNTIME_CONFIGURATION_INVALID"; return false; }
    string account_reason="";
-   if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_reason))
-     { ctx.status.reason_code=account_reason; return false; }
-   string brokers[];
+    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_reason))
+      {
+       ctx.status.runtime_state="DEGRADED";
+       ctx.status.reason_code="RUNTIME_ACCOUNT_INIT_DEGRADED";
+       ctx.status.new_entries_blocked=true;
+       ctx.initialized=true;
+       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_ACCOUNT_INIT_DEGRADED",ctx.status);
+       return false;
+      }
+    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
      {
@@ -453,3 +460,4 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
   }
 
 #endif
+

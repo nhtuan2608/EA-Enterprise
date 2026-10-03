@@ -782,7 +782,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         discover = runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("bool EEA_ObserverRuntimeRefresh", 1)[0]
         self.assertIn("ArrayResize(brokers, count)", discover)
-        self.assertIn("ArrayResize(brokers,count)", discover)
+        self.assertIn("ArrayResize(brokers, count)", discover)
         self.assertIn("brokers[i]=\"\"", discover)
         self.assertLess(discover.index("brokers[i]=\"\""), discover.index("if(!results[i].resolved)"))
 
@@ -801,6 +801,26 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         refresh = runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("bool EEA_ObserverRuntimeInit", 1)[0]
         self.assertIn("EEA_ObserverRuntimeIsContextOnly", discover)
         self.assertIn("EEA_ObserverRuntimeIsContextOnly", refresh)
+
+    def test_discovery_skips_runtime_spec_reads_for_context_only_rows(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        discover = runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("bool EEA_ObserverRuntimeRefresh", 1)[0]
+        self.assertIn("EEA_ObserverRuntimeIsContextOnly(canonicals[i],brokers[i])", discover)
+        self.assertLess(discover.index("EEA_ObserverRuntimeIsContextOnly(canonicals[i],brokers[i])"),
+                        discover.index("EEA_ReadRuntimeSymbolSpec"))
+
+    def test_discovery_allocates_broker_rows_once_before_resolution(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        discover = runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("bool EEA_ObserverRuntimeRefresh", 1)[0]
+        self.assertEqual(discover.count("ArrayResize(brokers"), 1)
+
+    def test_account_failure_keeps_degraded_runtime_initialized_for_ui(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        failure = init.split("if(!EEA_ReadRuntimeAccount", 1)[1].split("string brokers", 1)[0]
+        for token in ("ctx.status.runtime_state=\"DEGRADED\"", "ctx.status.new_entries_blocked=true",
+                      "ctx.initialized=true", "RUNTIME_ACCOUNT_INIT_DEGRADED"):
+            self.assertIn(token, failure)
 
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
