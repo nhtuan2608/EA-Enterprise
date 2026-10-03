@@ -18,6 +18,8 @@
 #define EEA_PANEL_MUTED_COLOR C'166,176,188'
 #define EEA_PANEL_ACCENT_COLOR C'145,174,194'
 #define EEA_PANEL_OK_COLOR C'128,170,145'
+#define EEA_PANEL_ON_COLOR C'75,132,101'
+#define EEA_PANEL_OFF_COLOR C'10,14,20'
 #define EEA_PANEL_WARNING_COLOR C'205,165,96'
 #define EEA_PANEL_DANGER_COLOR C'198,122,122'
 #define EEA_PANEL_MARGIN_X 28
@@ -228,6 +230,14 @@ void EEA_SymbolPanelSetButton(const long chart_id,const string name,const int x,
    ObjectSetInteger(chart_id,name,OBJPROP_BORDER_COLOR,EEA_PANEL_BORDER_COLOR);
    ObjectSetInteger(chart_id,name,OBJPROP_BACK,false);
    ObjectSetString(chart_id,name,OBJPROP_TEXT,EEA_SymbolPanelClipText(text,32));
+  }
+
+void EEA_SymbolPanelSetButtonState(const long chart_id,const string name,const int x,const int y,
+                                   const int width,const string text,const bool enabled)
+  {
+   EEA_SymbolPanelSetButton(chart_id,name,x,y,width,text);
+   ObjectSetInteger(chart_id,name,OBJPROP_BGCOLOR,enabled ? EEA_PANEL_ON_COLOR : EEA_PANEL_OFF_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BORDER_COLOR,enabled ? EEA_PANEL_OK_COLOR : EEA_PANEL_BORDER_COLOR);
   }
 
 void EEA_SymbolPanelSetEdit(const long chart_id,const string name,const int x,const int y,
@@ -489,9 +499,10 @@ void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
       int row_index=g_panel_state.row_offset+i;
       if(row_index>=g_panel_state.row_count) continue;
       string prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(row_index)+"_";
-      EEA_SymbolPanelSetButton(chart_id,prefix+"Chk",34,EEA_PANEL_SETTINGS_ROWS_Y+i*EEA_PANEL_ROW_HEIGHT,42,
-                               g_panel_state.rows[row_index].context_only ? "N/A" :
-                               (g_panel_state.rows[row_index].checked ? "[X]" : "[ ]"));
+      EEA_SymbolPanelSetButtonState(chart_id,prefix+"Chk",34,EEA_PANEL_SETTINGS_ROWS_Y+i*EEA_PANEL_ROW_HEIGHT,42,
+                                    g_panel_state.rows[row_index].context_only ? "N/A" :
+                                    (g_panel_state.rows[row_index].checked ? "[X]" : "[ ]"),
+                                    !g_panel_state.rows[row_index].context_only && g_panel_state.rows[row_index].checked);
       ObjectSetInteger(chart_id,prefix+"Chk",OBJPROP_STATE,false);
       color row_color=g_panel_state.rows[row_index].context_only ? EEA_PANEL_MUTED_COLOR :
                        (g_panel_state.rows[row_index].status=="RESOLVED" ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_WARNING_COLOR);
@@ -651,15 +662,21 @@ void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged",358,EEA_PANEL_MAIN_BUTTON_Y,156,"Reset staged");
    EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Policy",EEA_PANEL_CONTENT_X,126,
                                 "RISK POLICY  |  staged: "+g_panel_state.staged_policy,EEA_PANEL_ACCENT_COLOR,8);
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",34,154,148,"FTMO 1-step");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",192,154,148,"FTMO 2-step");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",350,154,156,"Balance based");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation",34,194,150,
-                            g_panel_state.staged_daily_continuation ? "Daily target  ON" : "Daily target  OFF");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation",194,194,160,
-                            g_panel_state.staged_overall_continuation ? "Overall target  ON" : "Overall target  OFF");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy",364,194,142,
-                            g_panel_state.policy_confirmed ? "Confirmed" : "Confirm");
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",34,154,148,"FTMO 1-step",
+                                 g_panel_state.staged_policy=="FTMO_1_STEP");
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",192,154,148,"FTMO 2-step",
+                                 g_panel_state.staged_policy=="FTMO_2_STEP");
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",350,154,156,"Balance based",
+                                 g_panel_state.staged_policy=="BALANCE_BASED_FTMO_V1");
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation",34,194,150,
+                                 g_panel_state.staged_daily_continuation ? "Daily target  ON" : "Daily target  OFF",
+                                 g_panel_state.staged_daily_continuation);
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation",194,194,160,
+                                 g_panel_state.staged_overall_continuation ? "Overall target  ON" : "Overall target  OFF",
+                                 g_panel_state.staged_overall_continuation);
+   EEA_SymbolPanelSetButtonState(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy",364,194,142,
+                                 g_panel_state.policy_confirmed ? "Confirmed" : "Confirm",
+                                 g_panel_state.policy_confirmed);
    EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Time",EEA_PANEL_CONTENT_X,270,
                                 "AUTHORIZATION WINDOW  |  GMT+7 (YYYY-MM-DD HH:MM)",EEA_PANEL_ACCENT_COLOR,8);
    EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7",EEA_PANEL_CONTENT_X,298,220,
@@ -1058,6 +1075,10 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
         if(!g_panel_state.rows[i].context_only)
            g_panel_state.rows[i].checked=!g_panel_state.rows[i].checked;
         ObjectSetString(g_panel_state.chart_id,sparam,OBJPROP_TEXT,g_panel_state.rows[i].checked ? "[X]" : "[ ]");
+        ObjectSetInteger(g_panel_state.chart_id,sparam,OBJPROP_BGCOLOR,
+                         g_panel_state.rows[i].checked ? EEA_PANEL_ON_COLOR : EEA_PANEL_OFF_COLOR);
+        ObjectSetInteger(g_panel_state.chart_id,sparam,OBJPROP_BORDER_COLOR,
+                         g_panel_state.rows[i].checked ? EEA_PANEL_OK_COLOR : EEA_PANEL_BORDER_COLOR);
         ChartRedraw(g_panel_state.chart_id); return;
        }
   }

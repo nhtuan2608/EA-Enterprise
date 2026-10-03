@@ -48,6 +48,7 @@ CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
 EEA_StrategyCandidateRuntime g_strategy_runtime;
+bool g_strategy_checkpoints_loaded=false;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
@@ -182,6 +183,17 @@ int OnInit()
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
    EEA_LoadDurableControllerState();
+   if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING")
+     {
+      EEA_StrategyRuntimeConfigurePersistence(g_strategy_runtime,g_config.data_root,
+         g_runtime.account.account_fingerprint,g_runtime.account.broker_server);
+      g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),3600);
+      if(!g_strategy_checkpoints_loaded)
+        {
+         g_strategy_runtime.enabled=false;
+         g_strategy_runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_LOAD_FAILED";
+        }
+     }
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, InpPanelSubWindow);
@@ -224,10 +236,21 @@ void OnTimer()
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
-       if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING")
-          EEA_StrategyRuntimeOnTimer(g_strategy_runtime,g_runtime.canonical_symbols,
-                                    g_runtime.broker_symbols,g_runtime.symbol_count);
        EEA_LoadDurableControllerState();
+       if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
+          g_strategy_runtime.enabled)
+         {
+          EEA_StrategyRuntimeConfigurePersistence(g_strategy_runtime,g_config.data_root,
+             g_runtime.account.account_fingerprint,g_runtime.account.broker_server);
+          if(!g_strategy_checkpoints_loaded)
+             g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),3600);
+          else
+            {
+             EEA_StrategyRuntimeOnTimer(g_strategy_runtime,g_runtime.canonical_symbols,
+                                        g_runtime.broker_symbols,g_runtime.symbol_count);
+             EEA_StrategyRuntimeWriteCheckpoints(g_strategy_runtime,TimeGMT());
+            }
+         }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
           EEA_SymbolPanelRefresh(0,g_runtime);

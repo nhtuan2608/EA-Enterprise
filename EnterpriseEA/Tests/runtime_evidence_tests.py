@@ -48,6 +48,16 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
             self.assertIn("EEA_SymbolPanelRender", panel[start:end])
             self.assertIn("ChartRedraw", panel[start:end])
 
+    def test_panel_toggle_buttons_use_semantic_on_off_colors(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in ("EEA_PANEL_ON_COLOR", "EEA_PANEL_OFF_COLOR",
+                      "EEA_SymbolPanelSetButtonState", "OBJPROP_BGCOLOR"):
+            self.assertIn(token, panel)
+        self.assertIn("g_panel_state.rows[row_index].checked", panel)
+        self.assertIn('g_panel_state.staged_daily_continuation ? "Daily target  ON"', panel)
+        self.assertIn('g_panel_state.staged_overall_continuation ? "Overall target  ON"', panel)
+        self.assertIn('g_panel_state.policy_confirmed ? "Confirmed"', panel)
+
     def test_complete_empty_account_is_observing(self):
         status = evaluate(FIXTURE["base_snapshot"], now_utc=FIXTURE["base_snapshot"]["observed_at_utc"])
         self.assertEqual(status["runtime_state"], "OBSERVING")

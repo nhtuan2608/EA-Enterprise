@@ -2,6 +2,7 @@
 #define ENTERPRISE_EA_STRATEGY_CANDIDATE_RUNTIME_MQH
 
 #include "../Setups/BreakRetest.mqh"
+#include "../Storage/StrategyCandidateStore.mqh"
 
 #define EEA_STRATEGY_RUNTIME_MAX_SYMBOLS 32
 #define EEA_STRATEGY_RUNTIME_ATR_PERIOD 14
@@ -20,6 +21,9 @@ struct EEA_StrategyCandidateRuntime
    int symbol_count;
    long last_scan_utc;
    string reason_code;
+   string persistence_root;
+   string account_fingerprint;
+   string broker_server;
   };
 
 void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
@@ -31,6 +35,9 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.symbol_count=0;
    runtime.last_scan_utc=0;
    runtime.reason_code="EEA_STRATEGY_RUNTIME_DISABLED";
+   runtime.persistence_root="";
+   runtime.account_fingerprint="";
+   runtime.broker_server="";
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_SYMBOLS;i++)
      {
@@ -64,6 +71,60 @@ bool EEA_StrategyCandidateRuntimeInit(EEA_StrategyCandidateRuntime &runtime,
      }
    runtime.initialized=true;
    runtime.reason_code="EEA_STRATEGY_RUNTIME_READY";
+   return true;
+  }
+
+void EEA_StrategyRuntimeConfigurePersistence(EEA_StrategyCandidateRuntime &runtime,
+                                              const string root,const string account_fingerprint,
+                                              const string broker_server)
+  {
+   runtime.persistence_root=root;
+   runtime.account_fingerprint=account_fingerprint;
+   runtime.broker_server=broker_server;
+  }
+
+bool EEA_StrategyRuntimeLoadCheckpoints(EEA_StrategyCandidateRuntime &runtime,
+                                        const long now_utc,const long max_age_seconds)
+  {
+   if(!runtime.enabled) return true;
+   if(runtime.persistence_root=="" || runtime.account_fingerprint=="" || runtime.broker_server=="")
+     { runtime.reason_code="EEA_STRATEGY_RUNTIME_PERSISTENCE_IDENTITY_MISSING"; return false; }
+   for(int i=0;i<runtime.symbol_count;i++)
+     {
+      bool has=false;
+      EEA_StrategyCandidateLoadStatus status=EEA_StrategyCandidateStoreLoad(
+         EEA_StrategyCandidateStorePath(runtime.persistence_root,runtime.engines[i].canonical_symbol),
+         runtime.config_version,runtime.account_fingerprint,runtime.broker_server,
+         runtime.engines[i].canonical_symbol,runtime.timeframe,now_utc,max_age_seconds,
+         runtime.engines[i],has);
+      if(status==EEA_CANDIDATE_CHECKPOINT_LOADED)
+        {
+         runtime.has_candidate[i]=has;
+         runtime.candidates[i]=runtime.engines[i].candidate;
+        }
+      else if(status==EEA_CANDIDATE_CHECKPOINT_MISSING || status==EEA_CANDIDATE_CHECKPOINT_STALE ||
+              status==EEA_CANDIDATE_CHECKPOINT_IDENTITY_MISMATCH)
+        {
+         runtime.has_candidate[i]=false;
+         EEA_S02Init(runtime.engines[i],runtime.engines[i].canonical_symbol,runtime.timeframe,runtime.config_version);
+        }
+      else
+        { runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT"; return false; }
+     }
+   runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINTS_LOADED";
+   return true;
+  }
+
+bool EEA_StrategyRuntimeWriteCheckpoints(const EEA_StrategyCandidateRuntime &runtime,
+                                         const long observed_at_utc)
+  {
+   if(!runtime.enabled) return true;
+   if(runtime.persistence_root=="" || runtime.account_fingerprint=="" || runtime.broker_server=="") return false;
+   for(int i=0;i<runtime.symbol_count;i++)
+      if(!EEA_StrategyCandidateStoreWrite(
+            EEA_StrategyCandidateStorePath(runtime.persistence_root,runtime.engines[i].canonical_symbol),
+            runtime.config_version,runtime.account_fingerprint,runtime.broker_server,
+            runtime.engines[i],runtime.has_candidate[i],observed_at_utc)) return false;
    return true;
   }
 
