@@ -270,6 +270,20 @@ string EEA_RuntimeSymbolFingerprint(const EEA_RuntimeSymbolSpec &spec)
    return EEA_RuntimeFingerprint(spec.broker_symbol,raw);
   }
 
+string EEA_RuntimeSelectedSymbolsFingerprint(const string &canonical[],
+                                             const string &broker[],
+                                             const int count)
+  {
+   if(count<1 || count>EEA_RUNTIME_MAX_SYMBOLS) return "";
+   string raw="";
+   for(int i=0;i<count;i++)
+     {
+      if(i>0) raw+="|";
+      raw+=canonical[i]+"=>"+broker[i];
+     }
+   return EEA_RuntimeFingerprint("selected-symbols",raw);
+  }
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------

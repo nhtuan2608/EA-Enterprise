@@ -1002,6 +1002,12 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("ctx.status.selection_revision=", runtime)
         self.assertNotIn("ctx.status.selection_revision = 1;", runtime)
 
+    def test_selected_symbol_fingerprint_is_recomputed_on_refresh(self):
+        evidence = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_RuntimeSelectedSymbolsFingerprint", evidence)
+        self.assertIn("ctx.status.selected_symbols_fingerprint=EEA_RuntimeSelectedSymbolsFingerprint", runtime)
+
     def test_audit_failures_are_checked_and_blocked_status_is_persisted(self):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")

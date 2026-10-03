@@ -156,6 +156,8 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
      }
    ctx.reconciliation.symbol_count=ctx.symbol_count;
    for(int i=0;i<ctx.symbol_count;i++) ctx.reconciliation.symbols[i]=ctx.symbol_specs[i];
+   ctx.status.selected_symbols_fingerprint=EEA_RuntimeSelectedSymbolsFingerprint(
+      ctx.canonical_symbols,ctx.broker_symbols,ctx.symbol_count);
    EEA_RuntimeStatus val_status;
    EEA_RuntimeValidate(ctx.reconciliation,(long)TimeGMT(),ctx.previous_deal_watermark,val_status);
    val_status.runtime_instance_id = ctx.status.runtime_instance_id;

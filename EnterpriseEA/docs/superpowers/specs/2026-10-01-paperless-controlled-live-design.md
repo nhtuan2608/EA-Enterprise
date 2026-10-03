@@ -48,6 +48,10 @@ risk-decision ID, intent ID and broker symbol to that concrete intent; a failed
 intent build must not emit a successful authorization-binding event. Any mismatch
 between strategy and observer symbol context is fail-closed.
 
+Every successful observer refresh must also recompute and persist an opaque
+selected-symbols fingerprint from the ordered canonical-to-broker mapping. An
+empty fingerprint is invalid evidence for a live authorization review.
+
 An `EXECUTION_UNKNOWN` result is a restart barrier. The runtime restores the
 durable result checkpoint, attempts reconciliation against the next fresh
 positions/orders/deals snapshot, persists `CONFIRMED` only when broker evidence

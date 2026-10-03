@@ -126,3 +126,10 @@ successful timer refreshes with zero failures while remaining
 `OBSERVING/new_entries_blocked=true`. This is runtime evidence only; it does
 not close authorization, kill-switch, rollback, restart/reconciliation, or
 broker-execution gates.
+
+The observer evidence contract was tightened after finding that the persisted
+selected-symbols fingerprint stayed empty. Refresh now recomputes the fingerprint
+from the ordered canonical-to-broker mapping, with a regression test and exact
+target compile passing. The currently attached terminal has not reloaded this
+new binary yet, so its old empty fingerprint is retained as an open target
+verification item rather than being treated as live evidence.
