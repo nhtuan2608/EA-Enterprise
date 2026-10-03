@@ -19,6 +19,7 @@
 #include "Risk/RiskDecision.mqh"
 #include "Integration/RiskDecisionRelease.mqh"
 #include "Runtime/ExecutionIntentBuilder.mqh"
+#include "Runtime/StrategyCandidateRuntime.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -29,12 +30,24 @@ input int    InpHistoryLookbackDays    = 7;
 input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD";
 input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
+input bool   InpStrategyRuntimeEnabled=false;
+input string InpStrategyConfigVersion  = "";
+input double InpS02BreakBufferAtr      = 0.0;
+input double InpS02AcceptanceBufferAtr = 0.0;
+input double InpS02RetestToleranceAtr  = 0.0;
+input double InpS02InvalidationBufferAtr=0.0;
+input double InpS02HoldBufferAtr        = 0.0;
+input int    InpS02MaxBarsToAccept      = 0;
+input int    InpS02MaxBarsToRetest      = 0;
+input int    InpS02MaxBarsForReaction   = 0;
+input int    InpS02CandidateTtlBars     = 0;
 
 CEAConfig g_config;
 CSharedState g_state;
 CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
+EEA_StrategyCandidateRuntime g_strategy_runtime;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
@@ -132,6 +145,23 @@ int OnInit()
       int count = EEA_NormalizeCanonicalCsv(InpCanonicalSymbols, canonical);
       if(count <= 0) return INIT_PARAMETERS_INCORRECT;
 
+      EEA_S02Config strategy_config;
+      EEA_S02ResearchSeedConfig(strategy_config);
+      strategy_config.config_version=InpStrategyConfigVersion;
+      strategy_config.break_buffer_atr=InpS02BreakBufferAtr;
+      strategy_config.acceptance_buffer_atr=InpS02AcceptanceBufferAtr;
+      strategy_config.retest_tolerance_atr=InpS02RetestToleranceAtr;
+      strategy_config.invalidation_buffer_atr=InpS02InvalidationBufferAtr;
+      strategy_config.hold_buffer_atr=InpS02HoldBufferAtr;
+      strategy_config.max_bars_to_accept=InpS02MaxBarsToAccept;
+      strategy_config.max_bars_to_retest=InpS02MaxBarsToRetest;
+      strategy_config.max_bars_for_reaction=InpS02MaxBarsForReaction;
+      strategy_config.candidate_ttl_bars=InpS02CandidateTtlBars;
+      if(!EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
+                                           strategy_config,InpStrategyRuntimeEnabled) &&
+         InpStrategyRuntimeEnabled)
+         return INIT_PARAMETERS_INCORRECT;
+
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,
                                   canonical,count))
@@ -194,6 +224,9 @@ void OnTimer()
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+       if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING")
+          EEA_StrategyRuntimeOnTimer(g_strategy_runtime,g_runtime.canonical_symbols,
+                                    g_runtime.broker_symbols,g_runtime.symbol_count);
        EEA_LoadDurableControllerState();
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

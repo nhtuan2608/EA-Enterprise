@@ -37,7 +37,7 @@ Build the pure bridge that accepts only a fresh `RISK_APPROVED` decision and con
 
 ### Task 3: Runtime strategy and two-pass risk integration
 
-Integrate closed-bar S02 observation, structural levels, current quote/cost/margin evidence, account-wide reconciliation, preliminary budget/sizing, final loss/margin/economics/FTMO/portfolio recheck, and explicit risk decision output. Keep automatic execution disabled while retaining restart-safe candidate and decision evidence.
+Integrate closed-bar S02 observation, structural levels, current quote/cost/margin evidence, account-wide reconciliation, preliminary budget/sizing, final loss/margin/economics/FTMO/portfolio recheck, and explicit risk decision output. `Runtime/StrategyCandidateRuntime.mqh` now provides a timer-driven, M5 closed-bar/ATR adapter using a bounded lookback break and pinned S02 key level; it is explicitly disabled by default and rejects the offline research config. Candidate persistence, complete risk-input collection, and release lifecycle remain open. Keep automatic execution disabled while retaining restart-safe candidate and decision evidence.
 
 ### Task 4: Controlled dispatch, reconciliation, and recovery
 
@@ -108,4 +108,4 @@ The current documented state is `NOT_AUTHORIZED`. The plan is complete only when
 
 ### UI increment evidence (2026-10-03)
 
-Task 6 source/test changes are isolated to the observer presentation layer and its contract tests. The readability and render-lifecycle follow-up remains presentation-only: it does not change policy persistence, runtime authority, or execution behavior. The current verification records `291` Python tests passing and exact-target MetaEditor output `Result: 0 errors, 0 warnings` (latest compile on 2026-10-03; target runtime evidence is observing with resolved broker mappings). Settings/Dashboard click routing now calls `ChartRedraw` immediately in both one-click branches. This does not close any controlled-live gate or authorize live trading; target-terminal visual/runtime evidence remains pending when the terminal window is targetable.
+Task 6 source/test changes are isolated to the observer presentation layer and its contract tests. The readability and render-lifecycle follow-up remains presentation-only: it does not change policy persistence, runtime authority, or execution behavior. The current verification records `293` Python tests passing and exact-target MetaEditor output `Result: 0 errors, 0 warnings` (latest compile on 2026-10-03; target runtime evidence is observing with resolved broker mappings). Settings/Dashboard click routing now calls `ChartRedraw` immediately in both one-click branches. This does not close any controlled-live gate or authorize live trading; target-terminal visual/runtime evidence remains pending when the terminal window is targetable.
