@@ -22,15 +22,17 @@ if (-not $metaEditor) { throw "MetaEditor64.exe not found" }
 
 $before = Get-FileHash -LiteralPath $binary -Algorithm SHA256
 $beforeWrite = (Get-Item -LiteralPath $binary).LastWriteTimeUtc
-$compileArg = "/compile:$source"
+$compileArg = '/compile:"' + $source + '"'
 $process = Start-Process -FilePath $metaEditor -ArgumentList @($compileArg, "/log") -Wait -PassThru
-if ($process.ExitCode -ne 0) { throw "MetaEditor exited with code $($process.ExitCode)" }
 if (-not (Test-Path -LiteralPath $log)) { throw "Compile log not found: $log" }
 
 $result = Get-Content -LiteralPath $log -Raw
 if ($result -notmatch "Result:\s*0 errors,\s*0 warnings") {
-    throw "Compile result is not clean. Inspect $log"
+    throw "Compile result is not clean (MetaEditor exit code $($process.ExitCode)). Inspect $log"
 }
+
+# MetaEditor may return 1 even when the compile log reports a clean build.
+# Treat the compiler log as authoritative after validating its exact result.
 
 $after = Get-FileHash -LiteralPath $binary -Algorithm SHA256
 $afterWrite = (Get-Item -LiteralPath $binary).LastWriteTimeUtc
