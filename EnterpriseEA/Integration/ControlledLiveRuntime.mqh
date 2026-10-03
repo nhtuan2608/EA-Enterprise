@@ -106,6 +106,7 @@ bool EEA_ControlledLiveReconcileRecovery(EEA_ControlledLiveRuntimeState &state,
 bool EEA_ControlledLiveAuditAuthorization(CAuditLog &audit,
                                           const EEA_LiveAuthorizationDecision &authorization,
                                           const EEA_RiskDecision &decision,
+                                          const EEA_ExecutionIntent &intent,
                                           const string broker_symbol)
   {
    EEAEvent event;
@@ -114,6 +115,7 @@ bool EEA_ControlledLiveAuditAuthorization(CAuditLog &audit,
    event.details_json="{\"authorization_id\":\""+EEA_JsonEscape(authorization.authorization_id)+
       "\",\"intent_id\":\""+EEA_JsonEscape(authorization.intent_id)+
       "\",\"candidate_id\":\""+EEA_JsonEscape(decision.candidate_id)+
+      "\",\"intent_risk_decision_id\":\""+EEA_JsonEscape(intent.risk_decision_id)+
       "\",\"broker_symbol\":\""+EEA_JsonEscape(broker_symbol)+
       "\",\"risk_decision_id\":\""+EEA_JsonEscape(decision.decision_id)+
       "\",\"expires_at_utc\":"+IntegerToString((long)authorization.authorization_valid_until_utc)+"}";
@@ -416,6 +418,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
      { state.last_reason="CONTROLLED_LIVE_CONTROLLER_BLOCKED"; return false; }
    for(int i=0;i<strategy.symbol_count;i++)
      {
+      if(i>=observer.symbol_count || i>=ArraySize(observer.broker_symbols) ||
+         i>=ArraySize(observer.symbol_specs))
+        { state.last_reason="LIVE_SYMBOL_CONTEXT_MISMATCH"; continue; }
       if(!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id==state.last_candidate_id[i]) continue;
@@ -451,8 +456,6 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         { state.last_reason=decision.reason_code; continue; }
       if(!EEA_RiskDecisionStoreWrite(observer.root,decision))
         { state.last_reason="LIVE_RISK_DECISION_PERSISTENCE_FAILED"; continue; }
-      if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,observer.broker_symbols[i]))
-        { state.last_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
       EEA_MarketIntentParameters params; EEA_MarketIntentParametersDefaults(params);
       params.canonical_symbol=current.canonical_symbol; params.setup_version=current.setup_config_version;
       params.risk_policy_snapshot_id="policy-"+IntegerToString(policy.revision);
@@ -466,6 +469,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(!EEA_BuildMarketExecutionIntent(decision,observer.account,observer.reconciliation,
                                          observer.symbol_specs[i],observer.config_version,params,TimeGMT(),intent,intent_reason))
         { state.last_reason=intent_reason; continue; }
+      if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,intent,observer.broker_symbols[i]))
+        { state.last_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
       EEA_ExecutionResult result;
       // Observer evidence remains entry-blocked by design. Only the fully
       // released, identity-bound path receives a local execution status that

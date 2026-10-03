@@ -113,3 +113,8 @@ Task 6 source/test changes are isolated to the observer presentation layer and i
 ### Controlled-live orchestration evidence (2026-10-03)
 
 The live profile is now a separate, opt-in path: `InpObserverOnly=true`, `InpExecutionEnabled=false`, and `InpLiveTradeArmed=false` remain the defaults. A non-observer start requires both execution and arm inputs. `Storage/LiveAuthorizationStore.mqh` requires all authorization gates, exact config/account/server/broker-symbol identity, and the candidate ID; `Storage/RiskDecisionStore.mqh` persists the released decision before the intent is sent. `Storage/ExecutionRecoveryStore.mqh` restores an acknowledged-but-unreconciled result after restart and keeps dispatch blocked until fresh reconciliation confirms it. Observer status remains entry-blocked; only a local execution status is relaxed after release, authorization, controller scope, and fresh evidence have passed. The current verification records `299` Python tests and exact-target MetaEditor output `Result: 0 errors, 0 warnings`. This adds an executable route but does not close the seven controlled-live gates or claim live readiness.
+
+The authorization audit was tightened after review: `LIVE_AUTHORIZATION_BOUND` is
+now emitted only after the concrete market intent builds successfully and includes
+the intent's risk-decision lineage. Strategy/observer symbol-array size mismatches
+are explicitly rejected before authorization or risk evaluation.

@@ -42,6 +42,12 @@ authorization, and release checks have passed. The observer snapshot itself stay
 entry-blocked; a valid runtime snapshot is not authorization. Missing protection
 or unsupported exposure is a hard block.
 
+Authorization lineage is recorded only after the released decision has produced a
+valid execution intent. The audit record must bind the authorization, candidate,
+risk-decision ID, intent ID and broker symbol to that concrete intent; a failed
+intent build must not emit a successful authorization-binding event. Any mismatch
+between strategy and observer symbol context is fail-closed.
+
 An `EXECUTION_UNKNOWN` result is a restart barrier. The runtime restores the
 durable result checkpoint, attempts reconciliation against the next fresh
 positions/orders/deals snapshot, persists `CONFIRMED` only when broker evidence
