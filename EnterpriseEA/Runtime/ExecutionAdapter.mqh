@@ -5,6 +5,7 @@
 #include "ExecutionGate.mqh"
 #include "ExecutionReconciliation.mqh"
 #include "LiveAuthorizationGate.mqh"
+#include "..\Risk\RiskDecision.mqh"
 #include "../Storage/AuditLog.mqh"
 #include "../Storage/RuntimeEvidenceStore.mqh"
 
@@ -173,6 +174,7 @@ bool EEA_ExecutionPreflight(const EEA_ExecutionIntent &intent,
 bool EEA_ExecutionSubmit(CAuditLog &audit,
                          const string data_root,
                          const EEA_ExecutionIntent &intent,
+                         const EEA_RiskDecision &decision,
                          const EEA_RuntimeAccountSnapshot &account,
                          const EEA_RuntimeReconciliationSnapshot &reconciliation,
                          const EEA_RuntimeSymbolSpec &symbol,
@@ -216,7 +218,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       return false;
      }
 
-   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
+   if(!EEA_ExecutionGateCheckReleased(intent, decision, account, reconciliation, symbol, status, execution_enabled, result))
      {
       result.request_sent = false;
       EEA_ExecutionStoreWriteIntent(root, intent);

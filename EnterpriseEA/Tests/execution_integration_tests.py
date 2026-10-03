@@ -102,6 +102,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
     def test_execution_intent_requires_risk_and_strategy_lineage(self):
         contracts = (ROOT / "Runtime/ExecutionContracts.mqh").read_text(encoding="utf-8")
         gate = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
+        binding = (ROOT / "Runtime/RiskDecisionBinding.mqh").read_text(encoding="utf-8")
         store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
         for field in (
             "candidate_id", "setup_id", "setup_version", "risk_decision_id",
@@ -113,6 +114,12 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
             self.assertIn("intent." + field, store)
         self.assertIn('intent.risk_decision_status!="RISK_APPROVED"', gate)
         self.assertIn('"RISK_DECISION_LINEAGE_MISSING"', gate)
+        self.assertIn("EEA_RiskDecisionBindsExecutionIntent", binding)
+        self.assertIn("EEA_RiskDecisionValidForRelease", binding)
+        self.assertIn("EEA_ExecutionGateCheckReleased", gate)
+        adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        self.assertIn("const EEA_RiskDecision &decision", adapter)
+        self.assertIn("EEA_ExecutionGateCheckReleased", adapter)
 
     def test_symbol_metadata_fingerprint_is_derived_and_persisted(self):
         symbol_adapter = (ROOT / "Runtime/SymbolSpecAdapter.mqh").read_text(encoding="utf-8")

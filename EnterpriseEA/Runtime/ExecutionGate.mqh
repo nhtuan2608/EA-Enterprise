@@ -3,6 +3,7 @@
 
 #include "ExecutionContracts.mqh"
 #include "RuntimeEvidence.mqh"
+#include "RiskDecisionBinding.mqh"
 #include "..\Market\SymbolRegistry.mqh"
 
 bool EEA_ExecutionAligned(const double value,const double origin,const double step)
@@ -270,6 +271,27 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
 
    EEA_ExecutionResultAccept(result);
    return true;
+  }
+
+bool EEA_ExecutionGateCheckReleased(const EEA_ExecutionIntent &intent,
+                                    const EEA_RiskDecision &decision,
+                                    const EEA_RuntimeAccountSnapshot &account,
+                                    const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                    const EEA_RuntimeSymbolSpec &symbol,
+                                    const EEA_RuntimeStatus &status,
+                                    const bool execution_enabled,
+                                    EEA_ExecutionResult &result)
+  {
+   if(!EEA_RiskDecisionBindsExecutionIntent(decision,intent,TimeGMT()))
+     {
+      EEA_ExecutionResultDefaults(result);
+      result.intent_id=intent.intent_id;
+      result.correlation_id=intent.correlation_id;
+      result.idempotency_key=intent.idempotency_key;
+      EEA_ExecutionResultReject(result,"RISK_RELEASE_BINDING_INVALID");
+      return false;
+     }
+   return EEA_ExecutionGateCheck(intent,account,reconciliation,symbol,status,execution_enabled,result);
   }
 
 #endif

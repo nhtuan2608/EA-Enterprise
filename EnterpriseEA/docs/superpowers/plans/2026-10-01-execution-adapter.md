@@ -161,9 +161,14 @@ git commit -m "feat: reconcile execution outcomes authoritatively"
 
 **Files:**
 - Create: `EnterpriseEA/Runtime/ExecutionAdapter.mqh`
+- Create: `EnterpriseEA/Runtime/RiskDecisionBinding.mqh`
 - Modify: `EnterpriseEA/EnterpriseEA.mq5`
 - Modify: `EnterpriseEA/Tests/execution_adapter_tests.py`
 - Modify: `EnterpriseEA/Runtime/ExecutionGate.mqh`
+
+The market-submit boundary must receive and validate the immutable released
+risk decision before the ordinary execution gate. Intent lineage strings cannot
+self-authorize a request.
 
 **Interfaces:**
 

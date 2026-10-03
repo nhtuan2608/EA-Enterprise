@@ -1,0 +1,33 @@
+#ifndef ENTERPRISE_EA_RISK_DECISION_BINDING_MQH
+#define ENTERPRISE_EA_RISK_DECISION_BINDING_MQH
+
+#include "ExecutionContracts.mqh"
+#include "..\Risk\RiskDecision.mqh"
+
+// Binds an executable intent to the immutable risk release that produced it.
+// The intent's status string is not evidence of a release by itself.
+bool EEA_RiskDecisionBindsExecutionIntent(const EEA_RiskDecision &decision,
+                                          const EEA_ExecutionIntent &intent,
+                                          const datetime now_utc)
+  {
+   if(!EEA_RiskDecisionValidForRelease(decision,now_utc)) return false;
+   if(intent.risk_decision_status!="RISK_APPROVED" ||
+      intent.risk_decision_id!=decision.decision_id ||
+      intent.candidate_id!=decision.candidate_id ||
+      intent.setup_id!=decision.setup_id ||
+      intent.risk_policy_id!=decision.policy_id ||
+      intent.account_fingerprint!=decision.account_fingerprint ||
+      intent.canonical_symbol!=decision.symbol ||
+      intent.symbol_fingerprint!=decision.symbol_spec_fingerprint ||
+      intent.quote_snapshot_id!=decision.quote_snapshot_id ||
+      intent.portfolio_snapshot_id!=decision.portfolio_snapshot_id ||
+      intent.reconciliation_snapshot_id!=decision.reconciliation_id)
+      return false;
+   if(!MathIsValidNumber(intent.volume) || !MathIsValidNumber(intent.projected_loss) ||
+      MathAbs(intent.volume-decision.final_volume)>1.0e-12 ||
+      MathAbs(intent.projected_loss-decision.projected_loss)>1.0e-8)
+      return false;
+   return true;
+  }
+
+#endif
