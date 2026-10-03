@@ -49,6 +49,15 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         self.assertIn("intent.action!=EEA_EXEC_ACTION_MODIFY_PROTECTIVE", adapter)
         self.assertIn("intent.action!=EEA_EXEC_ACTION_CANCEL_PENDING", adapter)
 
+    def test_market_submit_requires_durable_controller_scope(self):
+        adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        self.assertIn('#include "ExecutionControllerState.mqh"', adapter)
+        submit = adapter.split("bool EEA_ExecutionSubmit", 1)[1].split("\nbool ", 1)[0]
+        self.assertIn("const EEA_ExecutionControllerState &controller", submit)
+        self.assertIn("requested_scope", submit)
+        self.assertIn("EEA_ExecutionControllerAllowsNewRequest", submit)
+        self.assertIn("CONTROLLER_SCOPE_REJECTED", submit)
+
     def test_pending_protective_modify_uses_modify_action(self):
         adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
         self.assertIn("request.action = TRADE_ACTION_MODIFY;", adapter)

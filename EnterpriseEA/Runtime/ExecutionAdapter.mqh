@@ -4,6 +4,7 @@
 #include "ExecutionContracts.mqh"
 #include "ExecutionGate.mqh"
 #include "ExecutionReconciliation.mqh"
+#include "ExecutionControllerState.mqh"
 #include "LiveAuthorizationGate.mqh"
 #include "..\Risk\RiskDecision.mqh"
 #include "../Storage/AuditLog.mqh"
@@ -175,6 +176,8 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
                          const string data_root,
                          const EEA_ExecutionIntent &intent,
                          const EEA_RiskDecision &decision,
+                         const EEA_ExecutionControllerState &controller,
+                         const string requested_scope,
                          const EEA_RuntimeAccountSnapshot &account,
                          const EEA_RuntimeReconciliationSnapshot &reconciliation,
                          const EEA_RuntimeSymbolSpec &symbol,
@@ -204,6 +207,13 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET)
      {
       EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
+   if(!EEA_ExecutionControllerIdentityMatches(controller,intent.config_version,
+                                              account.account_fingerprint,account.broker_server) ||
+      !EEA_ExecutionControllerAllowsNewRequest(controller,requested_scope,TimeGMT()))
+     {
+      EEA_ExecutionResultReject(result,"CONTROLLER_SCOPE_REJECTED");
       return false;
      }
 
