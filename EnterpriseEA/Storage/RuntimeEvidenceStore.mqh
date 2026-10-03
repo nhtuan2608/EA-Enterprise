@@ -291,6 +291,42 @@ bool EEA_RuntimeStoreLoadSymbolSelectionRevision(const string path,const string 
    return revision>0;
   }
 
+// Restores the applied canonical selection so a re-attached EA resumes the symbols
+// chosen in Settings instead of falling back to InpCanonicalSymbols. The file must
+// belong to the same config version, account fingerprint and broker server.
+bool EEA_RuntimeStoreLoadSymbolSelectionList(const string path,const string config_version,
+                                             const string account_fingerprint,const string broker_server,
+                                             string &canonical[],int &count)
+  {
+   count=0;
+   ArrayResize(canonical,0);
+   string json;
+   if(!EEA_RuntimeStoreReadSymbolSelectionJson(path,config_version,account_fingerprint,json)) return false;
+   if(StringFind(json,"\"broker_server\":\""+EEA_JsonEscape(broker_server)+"\"")<0) return false;
+   string key="\"canonical_symbols\":[";
+   int start=StringFind(json,key);
+   if(start<0) return false;
+   start+=StringLen(key);
+   int end=StringFind(json,"]",start);
+   if(end<=start) return false;
+   string body=StringSubstr(json,start,end-start);
+   string parts[];
+   int n=StringSplit(body,',',parts);
+   for(int i=0;i<n;i++)
+     {
+      string item=parts[i];
+      StringTrimLeft(item); StringTrimRight(item);
+      if(StringLen(item)<3 || StringGetCharacter(item,0)!=34 || StringGetCharacter(item,StringLen(item)-1)!=34) return false;
+      item=StringSubstr(item,1,StringLen(item)-2);
+      if(item=="" || count>=EEA_RUNTIME_MAX_SYMBOLS) return false;
+      for(int k=0;k<count;k++) if(canonical[k]==item) return false;
+      ArrayResize(canonical,count+1);
+      canonical[count]=item;
+      count++;
+     }
+   return count>0;
+  }
+
 EEAStateLoadResult EEA_RuntimeStoreCheckSymbolSelection(const string path, const string config_version, const string account_fingerprint)
   {
    if(!FileIsExist(path,0)) return EEA_STATE_MISSING;

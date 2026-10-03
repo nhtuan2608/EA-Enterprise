@@ -206,7 +206,7 @@ class ZoneEngineTests(unittest.TestCase):
 class RuntimeWiringTests(unittest.TestCase):
     def setUp(self):
         self.runtime = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
-        self.scan = self.runtime.split("bool EEA_StrategyRuntimeScanZoneEngine", 1)[1].split("bool EEA_StrategyRuntimeOnTimer", 1)[0]
+        self.scan = self.runtime.split("bool EEA_StrategyRuntimeBuildZones", 1)[1].split("bool EEA_StrategyRuntimeLoadEngine", 1)[0]
 
     def test_two_profile_engines_per_symbol(self):
         init = self.runtime.split("bool EEA_StrategyCandidateRuntimeInitV1", 1)[1].split("string EEA_StrategyRuntimeCheckpointPath", 1)[0]
@@ -227,7 +227,7 @@ class RuntimeWiringTests(unittest.TestCase):
         self.assertNotIn("OrderSend", self.runtime)
 
     def test_atr_from_rates_matches_simple_true_range_average(self):
-        atr = self.runtime.split("double EEA_StrategyRuntimeAtrFromRates", 1)[1].split("bool EEA_StrategyRuntimeScanZoneEngine", 1)[0]
+        atr = self.runtime.split("double EEA_StrategyRuntimeAtrFromRates", 1)[1].split("bool EEA_StrategyRuntimeBuildZones", 1)[0]
         self.assertIn("MathMax(rates[i].high,prev_close)-MathMin(rates[i].low,prev_close)", atr)
         self.assertIn("sum/period", atr)
         rates = [{"high": 1.0 + i * 0.01, "low": 0.99 + i * 0.01, "close": 0.995 + i * 0.01} for i in range(16)]
@@ -236,9 +236,41 @@ class RuntimeWiringTests(unittest.TestCase):
 
     def test_checkpoints_are_per_engine_identity(self):
         self.assertIn('"/current/strategy_"+runtime.engines[index].canonical_symbol+"_"', self.runtime)
-        load = self.runtime.split("bool EEA_StrategyRuntimeLoadCheckpoints", 1)[1].split("bool EEA_StrategyRuntimeWriteCheckpoints", 1)[0]
+        load = self.runtime.split("bool EEA_StrategyRuntimeLoadEngine", 1)[1].split("bool EEA_StrategyRuntimeSyncSymbols", 1)[0]
         self.assertIn("string version=runtime.engines[i].config_version;", load)
         self.assertIn("EEA_S02Init(runtime.engines[i],canonical,timeframe,version);", load)
+        loader = self.runtime.split("bool EEA_StrategyRuntimeLoadCheckpoints", 1)[1].split("bool EEA_StrategyRuntimeWriteCheckpoints", 1)[0]
+        self.assertIn("EEA_StrategyRuntimeLoadEngine(runtime,i,now_utc,max_age_seconds)", loader)
+
+    def test_restart_replays_missed_bars_and_resets_after_long_gap(self):
+        scan = self.runtime.split("bool EEA_StrategyRuntimeScanZoneEngine", 1)[1].split("bool EEA_StrategyRuntimeLoadEngine", 1)[0]
+        for token in ("swing ? EEA_S02_SWING_CATCHUP_BARS : EEA_S02_SCALP_CATCHUP_BARS",
+                      "while(first<last && (datetime)entry_rates[first].time<=engine.last_processed_bar_utc) first++;",
+                      "gap_too_large", '"CHECKPOINT_GAP_RESET"', "for(int b=first;b<=last;b++)"):
+            self.assertIn(token, scan)
+        self.assertIn("#define EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS 604800", self.runtime)
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertNotIn("EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),3600)", shell)
+        self.assertEqual(shell.count("EEA_StrategyRuntimeSyncSymbols(g_strategy_runtime,g_runtime.canonical_symbols"), 2)
+
+    def test_sync_keeps_running_engines_by_identity(self):
+        sync = self.runtime.split("bool EEA_StrategyRuntimeSyncSymbols", 1)[1].split("bool EEA_StrategyRuntimeOnTimer", 1)[0]
+        for token in ("runtime.engines[j].canonical_symbol==canonical[i] && runtime.engines[j].timeframe==timeframe",
+                      "next.engines[e]=runtime.engines[old]", "EEA_StrategyRuntimeLoadEngine(next,k,now_utc,max_age_seconds)",
+                      "if(!runtime.enabled || !runtime.zone_mode) return true;"):
+            self.assertIn(token, sync)
+
+    def test_applied_selection_is_restored_for_the_same_account(self):
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        loader = store.split("bool EEA_RuntimeStoreLoadSymbolSelectionList", 1)[1].split("EEAStateLoadResult EEA_RuntimeStoreCheckSymbolSelection", 1)[0]
+        for token in ("EEA_RuntimeStoreReadSymbolSelectionJson(path,config_version,account_fingerprint,json)",
+                      '"\\"broker_server\\":\\""+EEA_JsonEscape(broker_server)', "if(canonical[k]==item) return false;"):
+            self.assertIn(token, loader)
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1]
+        self.assertLess(init.index("EEA_ReadRuntimeAccount"), init.index("EEA_RuntimeStoreLoadSymbolSelectionList"))
+        self.assertLess(init.index("EEA_RuntimeStoreLoadSymbolSelectionList"), init.index("EEA_ObserverRuntimeAutoDiscover"))
+        self.assertIn("EEA_ObserverRuntimeAutoDiscover(selection, brokers, discover_reasons, selection_count", init)
 
     def test_v1_candidates_never_reach_execution_before_risk_path(self):
         live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")

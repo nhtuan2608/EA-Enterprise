@@ -24,6 +24,8 @@
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
 #include "Market/ConfluenceLevels.mqh"
 #include "Risk/RiskLimitsProfile.mqh"
+#include "Runtime/AccountAutoProfile.mqh"
+#include "Storage/RiskLedgerStore.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -103,6 +105,58 @@ void EEA_LoadDurableControllerState()
       g_runtime.account.broker_server,"MARKET_ENTRY",1,TimeGMT(),g_controller);
    g_controller_allows_market=(g_controller_load_status==EEA_CONTROLLER_STATE_LOADED &&
       EEA_ExecutionControllerAllowsNewRequest(g_controller,"MARKET_ENTRY",TimeGMT()));
+  }
+
+EEA_RiskLedger g_risk_ledger;
+bool g_risk_ledger_loaded=false;
+bool g_daily_stats_loaded=false;
+
+// Restores and maintains data that must survive EA removal: per-day realized stats
+// for the calendar and the FTMO risk ledger (initial capital, Prague reset balance,
+// high-water mark). Broker positions, orders and deals are re-read on every refresh.
+void EEA_MaintainDurableState()
+  {
+   if(!g_runtime.initialized || g_runtime.status.runtime_state!="OBSERVING" ||
+      g_runtime.account.account_fingerprint=="" || g_runtime.account.broker_server=="") return;
+   string root=g_config.data_root;
+   long offset=EEA_SymbolPanelLocalOffsetSeconds();
+   if(!g_daily_stats_loaded)
+     {
+      EEA_DailyStatsLoad(root,g_daily_stats,g_config.config_version,g_runtime.account.account_fingerprint,offset);
+      g_daily_stats_loaded=true;
+     }
+   if(EEA_DailyStatsMerge(g_daily_stats,g_runtime.reconciliation,offset,(long)TimeGMT()) && g_daily_stats.dirty &&
+      EEA_DailyStatsWrite(root,g_daily_stats,g_config.config_version,g_runtime.account.account_fingerprint))
+      g_daily_stats.dirty=false;
+   if(!g_risk_ledger_loaded)
+     {
+      if(!EEA_RiskLedgerLoad(root,g_config.config_version,g_runtime.account.account_fingerprint,
+                             g_runtime.account.broker_server,g_risk_ledger))
+        {
+         EEA_RiskLedgerDefaults(g_risk_ledger);
+         g_risk_ledger.config_version=g_config.config_version;
+         g_risk_ledger.account_fingerprint=g_runtime.account.account_fingerprint;
+         g_risk_ledger.broker_server=g_runtime.account.broker_server;
+        }
+      g_risk_ledger_loaded=true;
+     }
+   // An explicit input always wins; otherwise the first deposit of the account history.
+   if(InpLiveInitialCapital>0.0 && g_risk_ledger.initial_capital!=InpLiveInitialCapital)
+     {
+      g_risk_ledger.initial_capital=InpLiveInitialCapital; g_risk_ledger.initial_capital_source="INPUT";
+      g_risk_ledger.high_water_balance=MathMax(g_risk_ledger.high_water_balance,InpLiveInitialCapital);
+      g_risk_ledger.last_reset_utc=0;
+     }
+   if(g_risk_ledger.initial_capital<=0.0)
+     {
+      double first_deposit=EEA_InitialCapitalFromHistory();
+      if(first_deposit<=0.0) return;
+      g_risk_ledger.initial_capital=first_deposit; g_risk_ledger.initial_capital_source="HISTORY_FIRST_DEPOSIT";
+      g_risk_ledger.high_water_balance=first_deposit;
+     }
+   string reason;
+   if(EEA_RiskLedgerAdvance(g_risk_ledger,g_runtime.reconciliation,g_runtime.account.balance,(long)TimeGMT(),reason))
+      EEA_RiskLedgerWrite(root,g_risk_ledger);
   }
 
 string EEA_PanelControllerStatusText(const EEA_ControllerStateLoadStatus status)
@@ -310,6 +364,7 @@ int OnInit()
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
    EEA_LoadDurableControllerState();
+   EEA_MaintainDurableState();
    string recovery_reason="";
    if(!EEA_ControlledLiveLoadRecovery(g_live_runtime,g_config.data_root,recovery_reason))
       Print("Execution recovery is fail-closed: ",recovery_reason);
@@ -317,7 +372,11 @@ int OnInit()
      {
       EEA_StrategyRuntimeConfigurePersistence(g_strategy_runtime,g_config.data_root,
          g_runtime.account.account_fingerprint,g_runtime.account.broker_server);
-      g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),3600);
+      // Engines follow the restored selection, then resume from their checkpoints.
+      EEA_StrategyRuntimeSyncSymbols(g_strategy_runtime,g_runtime.canonical_symbols,g_runtime.symbol_count,
+                                     TimeGMT(),EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS);
+      g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),
+                                                                       EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS);
       if(!g_strategy_checkpoints_loaded)
         {
          g_strategy_runtime.enabled=false;
@@ -369,6 +428,7 @@ void OnTimer()
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
        EEA_LoadDurableControllerState();
+       EEA_MaintainDurableState();
        if(g_runtime.initialized)
           EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
                                               g_runtime.reconciliation,g_audit);
@@ -378,9 +438,16 @@ void OnTimer()
           EEA_StrategyRuntimeConfigurePersistence(g_strategy_runtime,g_config.data_root,
              g_runtime.account.account_fingerprint,g_runtime.account.broker_server);
           if(!g_strategy_checkpoints_loaded)
-             g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),3600);
+             g_strategy_checkpoints_loaded=EEA_StrategyRuntimeLoadCheckpoints(g_strategy_runtime,TimeGMT(),
+                                                                              EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS);
           else
             {
+             if(!EEA_StrategyRuntimeSyncSymbols(g_strategy_runtime,g_runtime.canonical_symbols,g_runtime.symbol_count,
+                                                TimeGMT(),EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS))
+               {
+                g_strategy_runtime.enabled=false;
+                g_strategy_runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_LOAD_FAILED";
+               }
              EEA_StrategyRuntimeOnTimer(g_strategy_runtime,g_runtime.canonical_symbols,
                                         g_runtime.broker_symbols,g_runtime.symbol_count);
              EEA_StrategyRuntimeWriteCheckpoints(g_strategy_runtime,TimeGMT());

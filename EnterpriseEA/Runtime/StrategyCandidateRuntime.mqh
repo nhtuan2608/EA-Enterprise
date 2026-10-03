@@ -15,6 +15,9 @@
 #define EEA_S02_SCALP_SWING_LOOKBACK 120     // H1 bars
 #define EEA_S02_SWING_SWING_LOOKBACK 240     // H4 bars
 #define EEA_S02_HTF_COUNTER_TREND_MODIFIER 0.5
+#define EEA_S02_SCALP_CATCHUP_BARS 288      // M5 bars replayed after a restart (24 h)
+#define EEA_S02_SWING_CATCHUP_BARS 120      // H1 bars replayed after a restart (5 days)
+#define EEA_STRATEGY_CHECKPOINT_MAX_AGE_SECONDS 604800 // 7 days; older checkpoints restart IDLE
 #define EEA_STRATEGY_RUNTIME_ATR_PERIOD 14
 #define EEA_STRATEGY_RUNTIME_LOOKBACK_BARS 20
 
@@ -160,31 +163,8 @@ bool EEA_StrategyRuntimeLoadCheckpoints(EEA_StrategyCandidateRuntime &runtime,
    if(runtime.persistence_root=="" || runtime.account_fingerprint=="" || runtime.broker_server=="")
      { runtime.reason_code="EEA_STRATEGY_RUNTIME_PERSISTENCE_IDENTITY_MISSING"; return false; }
    for(int i=0;i<runtime.symbol_count;i++)
-     {
-      bool has=false;
-      // Each engine checkpoints under its own identity (symbol, timeframe, config version).
-      string path=EEA_StrategyRuntimeCheckpointPath(runtime,i);
-      string canonical=runtime.engines[i].canonical_symbol;
-      string timeframe=runtime.engines[i].timeframe;
-      string version=runtime.engines[i].config_version;
-      EEA_StrategyCandidateLoadStatus status=EEA_StrategyCandidateStoreLoad(
-         path,version,runtime.account_fingerprint,runtime.broker_server,
-         canonical,timeframe,now_utc,max_age_seconds,
-         runtime.engines[i],has);
-      if(status==EEA_CANDIDATE_CHECKPOINT_LOADED)
-        {
-         runtime.has_candidate[i]=has;
-         runtime.candidates[i]=runtime.engines[i].candidate;
-        }
-      else if(status==EEA_CANDIDATE_CHECKPOINT_MISSING || status==EEA_CANDIDATE_CHECKPOINT_STALE ||
-              status==EEA_CANDIDATE_CHECKPOINT_IDENTITY_MISMATCH)
-        {
-         runtime.has_candidate[i]=false;
-         EEA_S02Init(runtime.engines[i],canonical,timeframe,version);
-        }
-      else
+      if(!EEA_StrategyRuntimeLoadEngine(runtime,i,now_utc,max_age_seconds))
         { runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT"; return false; }
-     }
    runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINTS_LOADED";
    return true;
   }
@@ -304,31 +284,14 @@ double EEA_StrategyRuntimeAtrFromRates(const MqlRates &rates[],const int last,co
    return MathIsValidNumber(atr) && atr>0.0 ? atr : 0.0;
   }
 
-// S02 v1: one engine per (symbol, profile). Levels, context ATR and HTF structure come
-// from the profile's level timeframe (H1 for SCALP, H4 for SWING); the engine itself
-// runs on closed entry bars (M5 for SCALP, H1 for SWING).
-bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
-                                       const int index,const string broker_symbol)
+// Levels, zones, context ATR and HTF structure for one engine, rebuilt from the
+// profile's level timeframe (H1 for SCALP, H4 for SWING).
+bool EEA_StrategyRuntimeBuildZones(EEA_StrategyCandidateRuntime &runtime,const int index,
+                                   const string broker_symbol,const bool swing,
+                                   EEA_ConfluenceZone &zones[],int &zone_count,string &structure)
   {
-   if(!runtime.enabled || !runtime.initialized || index<0 || index>=runtime.symbol_count ||
-      broker_symbol=="") return false;
-   bool swing=(runtime.profile[index]=="SWING");
-   ENUM_TIMEFRAMES entry_tf=swing ? PERIOD_H1 : PERIOD_M5;
    ENUM_TIMEFRAMES level_tf=swing ? PERIOD_H4 : PERIOD_H1;
    int level_wanted=swing ? EEA_S02_SWING_LEVEL_BARS : EEA_S02_SCALP_LEVEL_BARS;
-
-   MqlRates entry_rates[];
-   ArraySetAsSeries(entry_rates,false);
-   int entry_copied=CopyRates(broker_symbol,entry_tf,1,EEA_STRATEGY_RUNTIME_ATR_PERIOD+1,entry_rates);
-   if(entry_copied<EEA_STRATEGY_RUNTIME_ATR_PERIOD+1)
-     { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_BARS_UNAVAILABLE"; return false; }
-   int last=entry_copied-1;
-   EEA_S02Engine engine=runtime.engines[index];
-   // Nothing new to evaluate until the next entry bar closes.
-   if((datetime)entry_rates[last].time<=engine.last_processed_bar_utc) return true;
-   double entry_atr=EEA_StrategyRuntimeAtrFromRates(entry_rates,last,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
-   if(entry_atr<=0.0) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_ATR_INVALID"; return false; }
-
    MqlRates level_rates[];
    ArraySetAsSeries(level_rates,false);
    int level_count=CopyRates(broker_symbol,level_tf,1,level_wanted,level_rates);
@@ -360,19 +323,19 @@ bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
       EEA_LevelsSession(bars,level_count,now_server,offset,12,21,points,point_count); // New York
       EEA_LevelsSwings(bars,level_count,EEA_S02_SWING_WING,EEA_S02_SCALP_SWING_LOOKBACK,points,point_count);
      }
-   EEA_ConfluenceZone zones[];
-   int zone_count=EEA_BuildConfluenceZones(points,point_count,0.25*context_atr,0.5*context_atr,2,zones);
-   string structure=EEA_HtfStructure(bars,level_count,EEA_S02_SWING_WING);
+   zone_count=EEA_BuildConfluenceZones(points,point_count,0.25*context_atr,0.5*context_atr,2,zones);
+   structure=EEA_HtfStructure(bars,level_count,EEA_S02_SWING_WING);
    runtime.htf_structure[index]=structure;
+   return true;
+  }
 
-   EEA_S02Bar bar;
-   bar.closed_at_utc=entry_rates[last].time;
-   bar.open=entry_rates[last].open; bar.high=entry_rates[last].high;
-   bar.low=entry_rates[last].low; bar.close=entry_rates[last].close;
-   bar.atr=entry_atr;
-   EEA_S02Event event;
+// One closed entry bar through the zone engine.
+bool EEA_StrategyRuntimeZoneStep(EEA_StrategyCandidateRuntime &runtime,const int index,
+                                 EEA_S02Engine &engine,const EEA_S02Bar &bar,
+                                 const EEA_ConfluenceZone &zones[],const int zone_count,
+                                 const int digits,EEA_S02Event &event)
+  {
    EEA_S02Config config=runtime.profile_config[index];
-   int digits=(int)SymbolInfoInteger(broker_symbol,SYMBOL_DIGITS);
    if(engine.state==EEA_S02_IDLE || EEA_S02IsTerminal(engine.state))
      {
       // Only a qualified confluence zone crossed by this closed bar can start a setup.
@@ -392,30 +355,22 @@ bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
          if(nearest<0 || distance<nearest_distance) { nearest=z; nearest_distance=distance; }
         }
       runtime.zone_text[index]=nearest<0 ? "no qualified zone" :
-         DoubleToString(zones[nearest].low,digits)+"-"+
-         DoubleToString(zones[nearest].high,digits)+" "+zones[nearest].sources+
-         " ("+IntegerToString(qualified)+" zones)";
+         DoubleToString(zones[nearest].low,digits)+"-"+DoubleToString(zones[nearest].high,digits)+" "+
+         zones[nearest].sources+" ("+IntegerToString(qualified)+" zones)";
       if(pick<0)
         {
-         bool advanced=EEA_StrategyRuntimeNoTransition(engine,event,bar,"WAITING_FOR_CONFLUENCE_BREAK");
-         runtime.engines[index]=engine;
+         if(!EEA_StrategyRuntimeNoTransition(engine,event,bar,"WAITING_FOR_CONFLUENCE_BREAK")) return false;
          runtime.scan_reason[index]="WAITING_FOR_CONFLUENCE_BREAK";
-         return advanced;
+         return true;
         }
       if(!EEA_S02ProcessClosedBarZone(engine,bar,zones[pick].low,zones[pick].high,config,event))
-        { runtime.engines[index]=engine; runtime.scan_reason[index]=event.reason_code; return false; }
+        { runtime.scan_reason[index]=event.reason_code; return false; }
       if(engine.state!=EEA_S02_IDLE)
          runtime.zone_text[index]=DoubleToString(engine.zone_low,digits)+"-"+
             DoubleToString(engine.zone_high,digits)+" "+zones[pick].sources;
      }
-   else
-     {
-      if(!EEA_S02ProcessClosedBarZone(engine,bar,engine.zone_low,engine.zone_high,config,event))
-        { runtime.engines[index]=engine; runtime.scan_reason[index]=event.reason_code; return false; }
-     }
-   runtime.engines[index]=engine;
-   runtime.htf_risk_modifier[index]=engine.direction!=0 ?
-      EEA_HtfRiskModifier(structure,engine.direction,EEA_S02_HTF_COUNTER_TREND_MODIFIER) : 1.0;
+   else if(!EEA_S02ProcessClosedBarZone(engine,bar,engine.zone_low,engine.zone_high,config,event))
+     { runtime.scan_reason[index]=event.reason_code; return false; }
    runtime.scan_reason[index]=event.reason_code;
    if(engine.state==EEA_S02_TRIGGERED)
      {
@@ -424,8 +379,161 @@ bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
      }
    else if(EEA_S02IsTerminal(engine.state))
       runtime.has_candidate[index]=false;
-   runtime.reason_code="EEA_STRATEGY_RUNTIME_SCANNED";
    return true;
+  }
+
+// S02 v1: one engine per (symbol, profile) on closed entry bars (M5 for SCALP, H1 for
+// SWING). After a restart the engine replays the entry bars it missed, up to a cap per
+// profile; a longer gap resets it to IDLE because its windows have long expired.
+// Replayed bars are evaluated against the current zone set (documented approximation).
+bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
+                                       const int index,const string broker_symbol)
+  {
+   if(!runtime.enabled || !runtime.initialized || index<0 || index>=runtime.symbol_count ||
+      broker_symbol=="") return false;
+   bool swing=(runtime.profile[index]=="SWING");
+   ENUM_TIMEFRAMES entry_tf=swing ? PERIOD_H1 : PERIOD_M5;
+   int catch_up=swing ? EEA_S02_SWING_CATCHUP_BARS : EEA_S02_SCALP_CATCHUP_BARS;
+
+   MqlRates entry_rates[];
+   ArraySetAsSeries(entry_rates,false);
+   int entry_copied=CopyRates(broker_symbol,entry_tf,1,catch_up+EEA_STRATEGY_RUNTIME_ATR_PERIOD+1,entry_rates);
+   if(entry_copied<EEA_STRATEGY_RUNTIME_ATR_PERIOD+1)
+     { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_BARS_UNAVAILABLE"; return false; }
+   int last=entry_copied-1;
+   EEA_S02Engine engine=runtime.engines[index];
+   // Nothing new to evaluate until the next entry bar closes.
+   if((datetime)entry_rates[last].time<=engine.last_processed_bar_utc) return true;
+
+   int first=last;
+   if(engine.last_processed_bar_utc>0)
+     {
+      first=EEA_STRATEGY_RUNTIME_ATR_PERIOD;
+      while(first<last && (datetime)entry_rates[first].time<=engine.last_processed_bar_utc) first++;
+      bool gap_too_large=((datetime)entry_rates[EEA_STRATEGY_RUNTIME_ATR_PERIOD].time>engine.last_processed_bar_utc &&
+                          (datetime)entry_rates[EEA_STRATEGY_RUNTIME_ATR_PERIOD-1].time>engine.last_processed_bar_utc);
+      if(gap_too_large)
+        {
+         string canonical=engine.canonical_symbol, timeframe=engine.timeframe, version=engine.config_version;
+         EEA_S02Init(engine,canonical,timeframe,version);
+         runtime.has_candidate[index]=false;
+         runtime.scan_reason[index]="CHECKPOINT_GAP_RESET";
+         first=last;
+        }
+     }
+
+   EEA_ConfluenceZone zones[];
+   int zone_count=0;
+   string structure="NEUTRAL";
+   if(!EEA_StrategyRuntimeBuildZones(runtime,index,broker_symbol,swing,zones,zone_count,structure))
+     { runtime.engines[index]=engine; return false; }
+   int digits=(int)SymbolInfoInteger(broker_symbol,SYMBOL_DIGITS);
+   bool ok=true;
+   for(int b=first;b<=last;b++)
+     {
+      double atr=EEA_StrategyRuntimeAtrFromRates(entry_rates,b,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
+      if(atr<=0.0) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_ATR_INVALID"; ok=false; break; }
+      EEA_S02Bar bar;
+      bar.closed_at_utc=entry_rates[b].time;
+      bar.open=entry_rates[b].open; bar.high=entry_rates[b].high;
+      bar.low=entry_rates[b].low; bar.close=entry_rates[b].close;
+      bar.atr=atr;
+      EEA_S02Event event;
+      if(!EEA_StrategyRuntimeZoneStep(runtime,index,engine,bar,zones,zone_count,digits,event)) { ok=false; break; }
+     }
+   runtime.engines[index]=engine;
+   runtime.htf_risk_modifier[index]=engine.direction!=0 ?
+      EEA_HtfRiskModifier(structure,engine.direction,EEA_S02_HTF_COUNTER_TREND_MODIFIER) : 1.0;
+   if(ok) runtime.reason_code="EEA_STRATEGY_RUNTIME_SCANNED";
+   return ok;
+  }
+
+// Loads one engine's checkpoint. Missing, stale or foreign checkpoints start the
+// engine fresh; a corrupt checkpoint is reported so the caller fails closed.
+bool EEA_StrategyRuntimeLoadEngine(EEA_StrategyCandidateRuntime &runtime,const int i,
+                                   const long now_utc,const long max_age_seconds)
+  {
+   bool has=false;
+   string path=EEA_StrategyRuntimeCheckpointPath(runtime,i);
+   string canonical=runtime.engines[i].canonical_symbol;
+   string timeframe=runtime.engines[i].timeframe;
+   string version=runtime.engines[i].config_version;
+   EEA_StrategyCandidateLoadStatus status=EEA_StrategyCandidateStoreLoad(
+      path,version,runtime.account_fingerprint,runtime.broker_server,
+      canonical,timeframe,now_utc,max_age_seconds,runtime.engines[i],has);
+   if(status==EEA_CANDIDATE_CHECKPOINT_LOADED)
+     {
+      runtime.has_candidate[i]=has;
+      runtime.candidates[i]=runtime.engines[i].candidate;
+      if(runtime.zone_mode && runtime.engines[i].state!=EEA_S02_IDLE)
+         runtime.zone_text[i]="restored "+DoubleToString(runtime.engines[i].zone_low,8)+"-"+
+                              DoubleToString(runtime.engines[i].zone_high,8);
+      return true;
+     }
+   runtime.has_candidate[i]=false;
+   EEA_S02Init(runtime.engines[i],canonical,timeframe,version);
+   return status==EEA_CANDIDATE_CHECKPOINT_MISSING || status==EEA_CANDIDATE_CHECKPOINT_STALE ||
+          status==EEA_CANDIDATE_CHECKPOINT_IDENTITY_MISMATCH;
+  }
+
+// Keeps the v1 engine list aligned with the live symbol selection (restored at
+// start-up or changed in Settings). Running engines are kept by identity; engines
+// for new symbols load their own checkpoint when persistence is configured.
+bool EEA_StrategyRuntimeSyncSymbols(EEA_StrategyCandidateRuntime &runtime,const string &canonical[],
+                                    const int count,const long now_utc,const long max_age_seconds)
+  {
+   if(!runtime.enabled || !runtime.zone_mode) return true;
+   if(count<1 || count*2>EEA_STRATEGY_RUNTIME_MAX_ENGINES) return false;
+   bool same=(runtime.symbol_count==count*2);
+   for(int i=0;i<count && same;i++)
+      if(runtime.engines[2*i].canonical_symbol!=canonical[i]) same=false;
+   if(same) return true;
+   EEA_StrategyCandidateRuntime next=runtime;
+   bool persistence=(runtime.persistence_root!="" && runtime.account_fingerprint!="" && runtime.broker_server!="");
+   bool ok=true;
+   int e=0;
+   for(int i=0;i<count;i++)
+     {
+      if(canonical[i]=="") return false;
+      for(int p=0;p<2;p++)
+        {
+         string profile=(p==0 ? "SCALP" : "SWING");
+         string timeframe=(p==0 ? "M5" : "H1");
+         int old=-1;
+         for(int j=0;j<runtime.symbol_count;j++)
+            if(runtime.engines[j].canonical_symbol==canonical[i] && runtime.engines[j].timeframe==timeframe) { old=j; break; }
+         if(old>=0)
+           {
+            next.engines[e]=runtime.engines[old]; next.candidates[e]=runtime.candidates[old];
+            next.has_candidate[e]=runtime.has_candidate[old]; next.profile_config[e]=runtime.profile_config[old];
+            next.profile[e]=runtime.profile[old]; next.zone_text[e]=runtime.zone_text[old];
+            next.htf_structure[e]=runtime.htf_structure[old]; next.htf_risk_modifier[e]=runtime.htf_risk_modifier[old];
+            next.scan_reason[e]=runtime.scan_reason[old];
+           }
+         else
+           {
+            EEA_S02V1Config(next.profile_config[e],profile);
+            next.profile[e]=profile;
+            EEA_S02Init(next.engines[e],canonical[i],timeframe,next.profile_config[e].config_version);
+            EEA_S02ClearCandidate(next.candidates[e]);
+            next.has_candidate[e]=false; next.zone_text[e]=""; next.htf_structure[e]="NEUTRAL";
+            next.htf_risk_modifier[e]=1.0; next.scan_reason[e]="";
+           }
+         e++;
+        }
+     }
+   next.symbol_count=e;
+   for(int k=0;k<e && persistence;k++)
+     {
+      bool fresh=true;
+      for(int j=0;j<runtime.symbol_count;j++)
+         if(runtime.engines[j].canonical_symbol==next.engines[k].canonical_symbol &&
+            runtime.engines[j].timeframe==next.engines[k].timeframe) { fresh=false; break; }
+      if(fresh && !EEA_StrategyRuntimeLoadEngine(next,k,now_utc,max_age_seconds)) ok=false;
+     }
+   runtime=next;
+   if(!ok) runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT";
+   return ok;
   }
 
 bool EEA_StrategyRuntimeOnTimer(EEA_StrategyCandidateRuntime &runtime,

@@ -5,6 +5,7 @@
 #include "ObserverPanelModel.mqh"
 #include "..\Market\SymbolRegistry.mqh"
 #include "..\Storage\PolicySettingsStore.mqh"
+#include "..\Storage\DailyStatsStore.mqh"
 
 // Control center layout (spec 9.1): a persistent shell (header, view tabs, status
 // bar) plus exactly one active view (Dashboard or Settings). Views never stack, so
@@ -910,6 +911,54 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
    return true;
   }
 
+// Panel view preferences survive EA removal and re-attachment.
+string EEA_SymbolPanelUiStatePath(const string data_root) { return data_root+"/current/ui_state.json"; }
+
+void EEA_SymbolPanelSaveUiState(const string data_root)
+  {
+   if(data_root=="") return;
+   string json="{\"document_version\":\"ui-state-v1.0.0\",\"active_view\":\""+g_panel_state.active_view+
+      "\",\"dashboard_tab\":\""+g_panel_state.dashboard_tab+"\",\"settings_tab\":\""+g_panel_state.settings_tab+
+      "\",\"collapsed\":"+(g_panel_state.collapsed ? "true" : "false")+"}";
+   EEA_WriteAtomicText(EEA_SymbolPanelUiStatePath(data_root),json);
+  }
+
+string EEA_SymbolPanelUiField(const string json,const string name)
+  {
+   string key="\""+name+"\":\"";
+   int at=StringFind(json,key);
+   if(at<0) return "";
+   int start=at+StringLen(key);
+   int end=StringFind(json,"\"",start);
+   return end<0 ? "" : StringSubstr(json,start,end-start);
+  }
+
+void EEA_SymbolPanelLoadUiState(const string data_root)
+  {
+   string path=EEA_SymbolPanelUiStatePath(data_root);
+   if(data_root=="" || !FileIsExist(path,0)) return;
+   int handle=FileOpen(path,FILE_READ|FILE_BIN);
+   if(handle==INVALID_HANDLE) return;
+   ulong size=FileSize(handle);
+   if(size==0 || size>4096) { FileClose(handle); return; }
+   uchar bytes[];
+   ArrayResize(bytes,(int)size);
+   uint read=FileReadArray(handle,bytes,0,(int)size);
+   FileClose(handle);
+   if(read!=(uint)size) return;
+   string json=CharArrayToString(bytes,0,(int)read,CP_UTF8);
+   if(StringFind(json,"\"document_version\":\"ui-state-v1.0.0\"")<0) return;
+   string view=EEA_SymbolPanelUiField(json,"active_view");
+   string dash=EEA_SymbolPanelUiField(json,"dashboard_tab");
+   string settings=EEA_SymbolPanelUiField(json,"settings_tab");
+   if(view=="DASHBOARD" || view=="SETTINGS") g_panel_state.active_view=view;
+   if(dash=="OVERVIEW" || dash=="MARKET" || dash=="TRADES" || dash=="RISK" || dash=="NEWS" || dash=="AI" || dash=="CALENDAR")
+      g_panel_state.dashboard_tab=dash;
+   if(settings=="RISK" || settings=="SYMBOLS" || settings=="AUTHORIZATION" || settings=="SYSTEM")
+      g_panel_state.settings_tab=settings;
+   g_panel_state.collapsed=StringFind(json,"\"collapsed\":true")>=0;
+  }
+
 void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
   {
    if(g_panel_state.overlay_name!="SETTINGS") return;
@@ -1008,6 +1057,12 @@ void EEA_SymbolPanelRefresh(const long chart_id,EEA_ObserverRuntimeContext &ctx)
       g_panel_state.row_offset=((g_panel_state.row_count-1)/EEA_PANEL_VISIBLE_ROWS)*EEA_PANEL_VISIBLE_ROWS;
    if(!g_panel_state.staged_initialized)
       EEA_SymbolPanelLoadPolicy(ctx);
+   if(!g_panel_state.staged_initialized)
+     {
+      bool was_collapsed=g_panel_state.collapsed;
+      EEA_SymbolPanelLoadUiState(ctx.root);
+      if(g_panel_state.collapsed!=was_collapsed) EEA_SymbolPanelCreateControls(chart_id,g_panel_state.sub_window);
+     }
    g_panel_state.staged_initialized=true;
    EEA_SymbolPanelRenderMainView(chart_id,ctx);
    // The first refresh opens the active view; later timer ticks re-render it in
@@ -1772,6 +1827,18 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
         }
      }
 
+   // Days before the loaded broker history come from the persisted daily stats.
+   bool stored[32];
+   for(int d=0;d<32;d++) stored[d]=false;
+   for(int d=1;d<=days_in_month;d++)
+     {
+      long day_index=first_day+d-1;
+      if(day_index>=loaded_from) continue;
+      EEA_DailyStatRow row;
+      if(!EEA_DailyStatsLookup(day_index,row)) continue;
+      net[d]=row.net; trades[d]=row.trades; wins[d]=row.wins; losses[d]=row.losses;
+      gross_profit[d]=row.gross_profit; gross_loss[d]=row.gross_loss; active[d]=true; stored[d]=true;
+     }
    int y=EEA_PANEL_CONTENT_Y;
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_CalPrev",EEA_PANEL_INNER_X,y,32,24,
                               EEA_SymbolPanelGlyph(0x2039),EEA_PANEL_BUTTON_SECONDARY,11);
@@ -1797,7 +1864,7 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
          continue;
         }
       long day_index=first_day+day-1;
-      bool loaded=(day_index>=loaded_from && day_index<=today);
+      bool loaded=(day_index>=loaded_from && day_index<=today) || stored[day];
       bool selected=(day==g_panel_state.calendar_selected_day);
       color fill=EEA_PANEL_SURFACE_COLOR;
       if(!loaded) fill=EEA_PANEL_STRIPE_COLOR;
@@ -2162,14 +2229,15 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       if(EEA_SymbolPanelIsRepeatClick(sparam)) { ChartRedraw(g_panel_state.chart_id); return; }
      }
    if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Collapse")
-     { EEA_SymbolPanelSetCollapsed(!g_panel_state.collapsed,ctx); return; }
-   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings") { g_panel_state.active_view="SETTINGS"; EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
-   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard") { g_panel_state.active_view="DASHBOARD"; EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
+     { EEA_SymbolPanelSetCollapsed(!g_panel_state.collapsed,ctx); EEA_SymbolPanelSaveUiState(ctx.root); return; }
+   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings") { g_panel_state.active_view="SETTINGS"; EEA_SymbolPanelSaveUiState(ctx.root); EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
+   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard") { g_panel_state.active_view="DASHBOARD"; EEA_SymbolPanelSaveUiState(ctx.root); EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
    if(StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Tab_")==0)
      {
       string tab=StringSubstr(sparam,StringLen(EEA_PANEL_OVERLAY_PREFIX+"Tab_"));
       if(g_panel_state.overlay_name=="SETTINGS") g_panel_state.settings_tab=tab;
       if(g_panel_state.overlay_name=="DASHBOARD") g_panel_state.dashboard_tab=tab;
+      EEA_SymbolPanelSaveUiState(ctx.root);
       // A different sub-view has different controls: rebuild it from scratch.
       EEA_SymbolPanelClearOverlay(g_panel_state.chart_id);
       EEA_SymbolPanelRenderActiveView(g_panel_state.chart_id,ctx);

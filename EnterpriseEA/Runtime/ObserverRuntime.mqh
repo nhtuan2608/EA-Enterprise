@@ -27,6 +27,7 @@ struct EEA_ObserverRuntimeContext
    EEA_RuntimeAccountSnapshot account;
    EEA_RuntimeReconciliationSnapshot reconciliation;
    EEA_RuntimeStatus status;
+   bool selection_restored;
    string symbol_block_reason[EEA_RUNTIME_MAX_SYMBOLS];
    string unresolved_fingerprint;
   };
@@ -340,6 +341,7 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
       ctx.symbol_block_reason[i]="";
      }
    ctx.unresolved_fingerprint="";
+   ctx.selection_restored=false;
    ctx.enabled=true; ctx.initialized=false; ctx.stale=true; ctx.stale_reason="STARTUP";
    ctx.root=root; ctx.config_version=config_version; ctx.refresh_seconds=refresh_seconds;
    ctx.history_lookback_days=history_lookback_days; ctx.last_refresh_utc=0;
@@ -359,10 +361,27 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
        EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_ACCOUNT_INIT_DEGRADED",ctx.status);
        return false;
       }
+   // Resume the selection last applied for this account; inputs are only the default.
+   string selection[];
+   int selection_count=count;
+   ArrayResize(selection,count);
+   for(int i=0;i<count;i++) selection[i]=canonical[i];
+   string restored[];
+   int restored_count=0;
+   ctx.selection_restored=false;
+   if(EEA_RuntimeStoreLoadSymbolSelectionList(ctx.root+"/current/symbol_selection.json",ctx.config_version,
+         ctx.account.account_fingerprint,ctx.account.broker_server,restored,restored_count))
+     {
+      ArrayResize(selection,restored_count);
+      for(int i=0;i<restored_count;i++) { selection[i]=restored[i]; ctx.canonical_symbols[i]=restored[i]; ctx.broker_symbols[i]=""; ctx.symbol_block_reason[i]=""; }
+      selection_count=restored_count;
+      ctx.symbol_count=restored_count;
+      ctx.selection_restored=true;
+     }
     string brokers[];
    string discover_reasons[];
    string discover_reason;
-   if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, discover_reasons, count, ctx.account.broker_server, discover_reason))
+   if(!EEA_ObserverRuntimeAutoDiscover(selection, brokers, discover_reasons, selection_count, ctx.account.broker_server, discover_reason))
      {
       ctx.status.runtime_state="DEGRADED";
       ctx.status.reason_code=discover_reason;
@@ -374,9 +393,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_INIT_DEGRADED",ctx.status);
       return false;
      }
-   for(int i=0;i<count;i++)
+   for(int i=0;i<selection_count;i++)
      {
-      ctx.canonical_symbols[i]=canonical[i];
+      ctx.canonical_symbols[i]=selection[i];
       ctx.broker_symbols[i]=brokers[i];
       ctx.symbol_block_reason[i]=discover_reasons[i];
      }
