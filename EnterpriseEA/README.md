@@ -8,6 +8,10 @@ The [Phase 4 traceability table](PHASE4_TRACEABILITY.md) records the first close
 
 The [paperless controlled-live design](docs/superpowers/specs/2026-10-01-paperless-controlled-live-design.md) and [plan](docs/superpowers/plans/2026-10-01-paperless-controlled-live.md) define the only future controlled-live route. Runtime compile, applicable demo/retained evidence, approved risk policy, manual authorization, kill switch, rollback, and audit are mandatory gates. Until each gate has retained evidence, paperless controlled-live and live trading remain `NOT_AUTHORIZED`.
 
+Master specification v1.4 (`Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_4.docx` at the repository root) removes the Paper route from every phase and checklist and adds the normative [appendix D](docs/spec-v1.4/APPENDIX_D_PAPERLESS.md): `PAPER_EXCLUDED_PERMANENTLY`, the seven controlled-live gates, the phase order without Paper, open decisions O-16 to O-18 and the 03/10/2026 progress snapshot. Rebuild it from v1.3 with `EnterpriseEA/Tests/update_spec_v1_4_docx.ps1` and the files in `docs/spec-v1.4/`.
+
+The [control center UI design](docs/superpowers/specs/2026-10-03-control-center-ui-design.md) describes the separate Dashboard and Settings views, their spec 9.1 tabs, and the one-click interaction rules.
+
 The [controlled-live activation runbook](artifacts/controlled-live-activation-runbook.md) describes the evidence sequence and the intentionally blocked authorization template.
 
 The [setup-bound pending-order specification](PENDING_ORDER_LIFECYCLE_SPEC.md) and [implementation plan](PENDING_ORDER_LIFECYCLE_PLAN.md) add expiry, early cancellation, partial-fill remainder and broker reconciliation requirements for LIMIT/STOP orders. An isolated offline lifecycle prototype exists; no pending-order execution is connected to the EA shell.

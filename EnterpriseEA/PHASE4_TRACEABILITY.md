@@ -1,6 +1,6 @@
 # Phase 4 trade lifecycle evidence boundary
 
-Source: master specification v1.2, section 6, plus pending-order addendum v1.3 [spec](PENDING_ORDER_LIFECYCLE_SPEC.md) and [plan](PENDING_ORDER_LIFECYCLE_PLAN.md). `TradeManager/ExpectedPath.mqh` observes an attested trade after fill. `TradeManager/PendingOrderLifecycle.mqh` proposes the earlier pending-order state machine. Both are isolated from the EA shell. The corresponding Python fixture/oracle checks are synthetic.
+Source: master specification v1.4 (Paper removed; see appendix D), section 6, plus pending-order addendum v1.3 [spec](PENDING_ORDER_LIFECYCLE_SPEC.md) and [plan](PENDING_ORDER_LIFECYCLE_PLAN.md). `TradeManager/ExpectedPath.mqh` observes an attested trade after fill. `TradeManager/PendingOrderLifecycle.mqh` proposes the earlier pending-order state machine. Both are isolated from the EA shell. The corresponding Python fixture/oracle checks are synthetic.
 
 | Requirement | Offline evidence now | Still needed before Phase 4 gate |
 | --- | --- | --- |
