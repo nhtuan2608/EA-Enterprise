@@ -13,3 +13,15 @@ This runbook is for the paperless market-only route. It does not create a virtua
 8. After the bounded market-only operation, retain pre/post snapshots, execution intent, risk decision, result, reconciliation, audit, and operator disposition. Revoke the controller and disarm the EA after the test window.
 
 The current repository state remains `NOT_AUTHORIZED`; this document is procedural evidence guidance, not approval.
+
+## Attach error 32767
+
+`INIT_PARAMETERS_INCORRECT (32767)` is emitted by the EA's `OnInit` validation.
+For observer validation, reset the inputs and keep
+`InpObserverOnly=true`, `InpExecutionEnabled=false`,
+`InpLiveTradeArmed=false`, and `InpStrategyRuntimeEnabled=false`. If a live
+profile is intentionally selected, all three live-mode conditions must be
+explicitly valid; otherwise initialization is rejected fail-closed. The latest
+source logs a reason beginning with `INIT_PARAMETERS_INCORRECT:` for each
+validation branch. Compile/deploy the latest EX5 before relying on that
+diagnostic.
