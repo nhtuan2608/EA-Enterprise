@@ -140,3 +140,8 @@ Deployment verification is now fail-closed as well:
 change. The current attached terminal fails this second check, so the latest
 source compile is not treated as a deployed runtime binary until the EA is
 detached/reloaded and the check passes.
+
+The current readiness snapshot is retained in
+`artifacts/live-readiness-current-2026-10-03.md`. It records the exact open
+runtime, selection, policy, controller and authorization checks; it does not
+grant permission to trade.
