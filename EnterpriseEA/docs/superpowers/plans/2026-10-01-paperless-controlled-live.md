@@ -47,6 +47,10 @@ Add one explicit operator/controller dispatch path for the market-only scope. Re
 
 Compile the exact target build, run the controlled target-runtime verification, test kill-switch and rollback, collect retained pre/post/restart evidence, bind the approved live account/symbol policy and manual authorization window, and execute only the exact bounded market-only scope. Mark `AUTHORIZED_CONTROLLED_LIVE` only after every gate passes; otherwise remain `NOT_AUTHORIZED`.
 
+### Task 6: Neutral observer UI presentation
+
+Refine the chart presentation without changing runtime authority or execution behavior. Add a shared low-saturation palette, opaque bounded surfaces, explicit font/spacing/z-order/corner styling, clipped/split evidence rows, semantic status colors, and deterministic cleanup for main/settings/dashboard objects. Keep `EXECUTION_DISABLED`, `NOT_AUTHORIZED`, blocked-entry, proposal-only, audit, GMT+7/UTC, and context-only copy visible. Limit rendered rows to the bounded card capacity; Settings provides Prev/Next paging plus a visible/total summary without changing stored row indices or selection state. Add static regression tests for the presentation contract and retain exact-target MetaEditor compile evidence. A terminal screenshot/runtime check remains a separate verification item when the target window is available.
+
 ## Gate work
 
 ### 1. Runtime compile gate
@@ -101,3 +105,7 @@ The final reviewer records one of:
 - `REVOKED`: authorization was withdrawn or a fail-closed condition occurred.
 
 The current documented state is `NOT_AUTHORIZED`. The plan is complete only when the evidence package is reviewable and all seven gates are explicitly marked pass; even then, authorization is limited to the exact manually approved scope and window. No document update may describe live trading as ready before that review.
+
+### UI increment evidence (2026-10-03)
+
+Task 6 source/test changes are isolated to the observer presentation layer and its contract tests. The current worktree verification records `276` Python tests passing and MetaEditor build output `Result: 0 errors, 0 warnings` in `EnterpriseEA/artifacts/ui-metaeditor-build.log`. This does not close any controlled-live gate or authorize live trading; target-terminal visual/runtime evidence remains pending when the terminal window is targetable.

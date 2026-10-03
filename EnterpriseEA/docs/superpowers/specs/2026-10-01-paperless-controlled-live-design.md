@@ -32,6 +32,18 @@ Each selected profile may define both a daily and overall profit target. The ope
 
 The override only prevents a profit-target stop. It never overrides daily/overall loss floors, FTMO headroom, maximum risk, margin, exposure, stale reconciliation, symbol mismatch, kill switch, authorization expiry, or `EXECUTION_UNKNOWN`. A target override applies only to new intents after its revision is committed; it never mutates an existing intent or pending order.
 
+## Observer panel presentation contract
+
+The terminal chart panel is a read-only presentation layer for runtime evidence and staged policy proposals. Presentation changes must not change authorization, risk, audit, persistence, selection, or execution behavior.
+
+- Main, Settings, and Dashboard views use bounded opaque surfaces with explicit pixel geometry, shared spacing, font, z-order, cleanup prefix, and chart corner. Text is clipped to a bounded label length and long status/account/telemetry strings are split into labeled rows.
+- The palette is neutral and low-saturation: dark blue-gray background/surfaces, off-white primary text, cool-gray secondary text, muted blue accent, muted green for healthy/reconciled state, amber for degraded/pending state, and muted red only for blocked/error state. Color never represents authorization by itself.
+- The main view keeps `EXECUTION_DISABLED`, `NOT_AUTHORIZED`, and blocked-entry state visible. Settings keeps proposal-only, confirmation, GMT+7-to-UTC, durable persistence, and audit copy visible. Dashboard remains read-only and displays financial, reconciliation, watermark, freshness, symbol, and live-blocking evidence.
+- At most `EEA_PANEL_VISIBLE_ROWS` symbol rows are rendered per bounded card. Settings provides Prev/Next viewport controls and a visible/total summary so every stored symbol row remains operator-addressable; paging is presentation-only and does not change stored selection or runtime symbol indices.
+- UI lifecycle must remove stale objects on initialization, overlay transitions, and destruction. The panel must not use `Comment()` or introduce broker mutation APIs, Paper behavior, or any path that could imply live authorization.
+
+The visual contract is accepted only after static tests and exact-target MetaEditor compilation pass. A compile result does not substitute for a target-terminal screenshot/runtime check.
+
 ## Full operation scope and staged authorization
 
 The execution contract represents the full operation vocabulary:

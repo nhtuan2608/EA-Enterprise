@@ -10,6 +10,27 @@
 #define EEA_PANEL_PREFIX "EEA_Panel_"
 #define EEA_PANEL_MAIN_PREFIX "EEA_Panel_Main_"
 #define EEA_PANEL_OVERLAY_PREFIX "EEA_Panel_Overlay_"
+#define EEA_PANEL_BG_COLOR C'14,20,30'
+#define EEA_PANEL_SURFACE_COLOR C'25,33,46'
+#define EEA_PANEL_SURFACE_ALT_COLOR C'31,41,55'
+#define EEA_PANEL_BORDER_COLOR C'76,86,102'
+#define EEA_PANEL_TEXT_COLOR C'239,242,245'
+#define EEA_PANEL_MUTED_COLOR C'166,176,188'
+#define EEA_PANEL_ACCENT_COLOR C'145,174,194'
+#define EEA_PANEL_OK_COLOR C'128,170,145'
+#define EEA_PANEL_WARNING_COLOR C'205,165,96'
+#define EEA_PANEL_DANGER_COLOR C'198,122,122'
+#define EEA_PANEL_MARGIN_X 22
+#define EEA_PANEL_MAIN_WIDTH 468
+#define EEA_PANEL_MAIN_HEIGHT 574
+#define EEA_PANEL_SETTINGS_HEIGHT 632
+#define EEA_PANEL_DASHBOARD_HEIGHT 620
+#define EEA_PANEL_HEADER_HEIGHT 48
+#define EEA_PANEL_SECTION_GAP 10
+#define EEA_PANEL_ROW_HEIGHT 25
+#define EEA_PANEL_CONTROL_HEIGHT 26
+#define EEA_PANEL_VISIBLE_ROWS 8
+#define EEA_PANEL_MAX_LABEL_CHARS 64
 // EnterpriseEA — OBSERVER ONLY; explicit confirmation is required for proposals.
 #define EEA_PANEL_POLICY_PROPOSAL_ONLY "POLICY_PROPOSAL_ONLY"
 
@@ -29,6 +50,7 @@ struct EEA_SymbolPanelState
    long chart_id;
    int sub_window;
    int row_count;
+   int row_offset;
    EEA_SymbolPanelRow rows[EEA_PANEL_MAX_ROWS];
    string status_message;
    string apply_reason;
@@ -114,35 +136,98 @@ string EEA_SymbolPanelReadableUtc(const long value)
    return text=="UNAVAILABLE" ? text : text+" UTC";
   }
 
+string EEA_SymbolPanelClipText(const string text,const int max_chars=EEA_PANEL_MAX_LABEL_CHARS)
+  {
+   if(max_chars<4 || StringLen(text)<=max_chars) return text;
+   return StringSubstr(text,0,max_chars-3)+"...";
+  }
+
+color EEA_SymbolPanelStatusColor(const string runtime_state)
+  {
+   if(runtime_state=="READY" || runtime_state=="OBSERVING" || runtime_state=="RECONCILED")
+      return EEA_PANEL_OK_COLOR;
+   if(runtime_state=="DEGRADED" || runtime_state=="STALE" || runtime_state=="PENDING")
+      return EEA_PANEL_WARNING_COLOR;
+   return EEA_PANEL_DANGER_COLOR;
+  }
+
+void EEA_SymbolPanelStyleObject(const long chart_id,const string name,const color text_color,
+                                const int font_size,const bool selectable,const int zorder)
+  {
+   ObjectSetInteger(chart_id,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(chart_id,name,OBJPROP_COLOR,text_color);
+   ObjectSetString(chart_id,name,OBJPROP_FONT,"Arial");
+   ObjectSetInteger(chart_id,name,OBJPROP_FONTSIZE,font_size);
+   ObjectSetInteger(chart_id,name,OBJPROP_SELECTABLE,selectable);
+   ObjectSetInteger(chart_id,name,OBJPROP_SELECTED,false);
+   ObjectSetInteger(chart_id,name,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(chart_id,name,OBJPROP_ZORDER,zorder);
+  }
+
+void EEA_SymbolPanelSetSurface(const long chart_id,const string name,const int x,const int y,
+                               const int width,const int height,const color background)
+  {
+   if(ObjectFind(chart_id,name)<0)
+      ObjectCreate(chart_id,name,OBJ_RECTANGLE_LABEL,g_panel_state.sub_window,0,0);
+   ObjectSetInteger(chart_id,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(chart_id,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(chart_id,name,OBJPROP_YDISTANCE,y);
+   ObjectSetInteger(chart_id,name,OBJPROP_XSIZE,width);
+   ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,height);
+   ObjectSetInteger(chart_id,name,OBJPROP_BGCOLOR,background);
+   ObjectSetInteger(chart_id,name,OBJPROP_BORDER_COLOR,EEA_PANEL_BORDER_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BACK,false);
+   ObjectSetInteger(chart_id,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(chart_id,name,OBJPROP_SELECTED,false);
+   ObjectSetInteger(chart_id,name,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(chart_id,name,OBJPROP_ZORDER,0);
+  }
+
 void EEA_SymbolPanelSetLabel(const long chart_id,const string name,const int x,const int y,
                              const string text)
   {
    if(ObjectFind(chart_id,name)<0) ObjectCreate(chart_id,name,OBJ_LABEL,g_panel_state.sub_window,0,0);
+   EEA_SymbolPanelStyleObject(chart_id,name,EEA_PANEL_TEXT_COLOR,9,false,10);
    ObjectSetInteger(chart_id,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(chart_id,name,OBJPROP_YDISTANCE,y);
-   ObjectSetString(chart_id,name,OBJPROP_TEXT,text);
+   ObjectSetString(chart_id,name,OBJPROP_TEXT,EEA_SymbolPanelClipText(text));
+  }
+
+void EEA_SymbolPanelSetLabelColor(const long chart_id,const string name,const int x,const int y,
+                                  const string text,const color text_color,const int font_size=9)
+  {
+   EEA_SymbolPanelSetLabel(chart_id,name,x,y,text);
+   EEA_SymbolPanelStyleObject(chart_id,name,text_color,font_size,false,10);
   }
 
 void EEA_SymbolPanelSetButton(const long chart_id,const string name,const int x,const int y,
                               const int width,const string text)
   {
    if(ObjectFind(chart_id,name)<0) ObjectCreate(chart_id,name,OBJ_BUTTON,g_panel_state.sub_window,0,0);
+   EEA_SymbolPanelStyleObject(chart_id,name,EEA_PANEL_TEXT_COLOR,9,true,20);
    ObjectSetInteger(chart_id,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(chart_id,name,OBJPROP_YDISTANCE,y);
    ObjectSetInteger(chart_id,name,OBJPROP_XSIZE,width);
-   ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,22);
-   ObjectSetString(chart_id,name,OBJPROP_TEXT,text);
+   ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,EEA_PANEL_CONTROL_HEIGHT);
+   ObjectSetInteger(chart_id,name,OBJPROP_BGCOLOR,EEA_PANEL_SURFACE_ALT_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BORDER_COLOR,EEA_PANEL_BORDER_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BACK,false);
+   ObjectSetString(chart_id,name,OBJPROP_TEXT,EEA_SymbolPanelClipText(text,32));
   }
 
 void EEA_SymbolPanelSetEdit(const long chart_id,const string name,const int x,const int y,
                             const int width,const string text)
   {
    if(ObjectFind(chart_id,name)<0) ObjectCreate(chart_id,name,OBJ_EDIT,g_panel_state.sub_window,0,0);
+   EEA_SymbolPanelStyleObject(chart_id,name,EEA_PANEL_TEXT_COLOR,9,true,20);
    ObjectSetInteger(chart_id,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(chart_id,name,OBJPROP_YDISTANCE,y);
    ObjectSetInteger(chart_id,name,OBJPROP_XSIZE,width);
-   ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,22);
-   ObjectSetString(chart_id,name,OBJPROP_TEXT,text);
+   ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,EEA_PANEL_CONTROL_HEIGHT);
+   ObjectSetInteger(chart_id,name,OBJPROP_BGCOLOR,EEA_PANEL_SURFACE_ALT_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BORDER_COLOR,EEA_PANEL_BORDER_COLOR);
+   ObjectSetInteger(chart_id,name,OBJPROP_BACK,false);
+   ObjectSetString(chart_id,name,OBJPROP_TEXT,EEA_SymbolPanelClipText(text,32));
   }
 
 long EEA_SymbolPanelDaysFromCivil(int y,int m,int d)
@@ -215,17 +300,46 @@ void EEA_SymbolPanelCreateControls(const long chart_id,const int sub_window)
   {
    g_panel_state.chart_id=chart_id;
    g_panel_state.sub_window=sub_window;
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Header",10,8,
-                           "EnterpriseEA - OBSERVER ONLY");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Settings",10,34,82,"Settings");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard",98,34,88,"Dashboard");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Refresh",192,34,78,"Refresh");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Status",10,63,"Status: BLOCKED");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Account",10,83,"Account: unavailable");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Telemetry",10,103,"Refresh: not available");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Counts",10,123,
-                           "POSITIONS: 0 | ORDERS: 0 | DEALS: 0 | Selected symbols: 0");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Market",10,145,"Market:");
+   ObjectsDeleteAll(chart_id,EEA_PANEL_PREFIX,g_panel_state.sub_window);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"Surface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_MAIN_HEIGHT,EEA_PANEL_BG_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"HeaderSurface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_HEADER_HEIGHT,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"StatusSurface",16,94,452,62,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"AccountSurface",16,166,452,48,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"TelemetrySurface",16,224,452,48,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"CountsSurface",16,282,452,46,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"MarketSurface",16,338,452,218,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Header",EEA_PANEL_MARGIN_X,18,
+                                "EnterpriseEA  |  OBSERVER CONSOLE",EEA_PANEL_TEXT_COLOR,11);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Subheader",EEA_PANEL_MARGIN_X,36,
+                                "Controlled-live evidence  |  read-only",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Settings",22,62,126,"Settings");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard",156,62,126,"Dashboard");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Refresh",290,62,126,"Refresh");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Status",30,106,
+                                "Runtime  BLOCKED",EEA_PANEL_DANGER_COLOR,10);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Reason",30,130,
+                                "Reason   RUNTIME_RECONCILIATION_REQUIRED",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Account",30,178,
+                                "Server   unavailable",EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Execution",30,198,
+                                "Execution  DISABLED   |   Live  NOT_AUTHORIZED",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Telemetry",30,236,
+                                "Refresh   unavailable",EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_RefreshMeta",30,256,
+                                "Next       unavailable",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Counts",30,296,
+                                "Positions  0   |   Orders  0   |   Deals  0",EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_SelectionCount",30,314,
+                                "Selected symbols  0",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Market",30,350,
+                                "MARKET SYMBOLS  |  DXY/USDX = context only",EEA_PANEL_ACCENT_COLOR,8);
    ChartRedraw(chart_id);
   }
 
@@ -246,36 +360,45 @@ EEA_ObserverPanelMarketRow EEA_ObserverPanelMarketRowFromRuntime(const EEA_Obser
 
 void EEA_SymbolPanelRenderMainView(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
-   string formatted_status;
-   EEA_ObserverPanelFormatStatus(ctx.status,formatted_status);
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Status",10,63,
-                           "Status: "+formatted_status);
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Account",10,83,
-                           "Server: "+ctx.account.broker_server+" | Currency: "+ctx.account.account_currency+
-                           " | Margin: "+ctx.account.account_margin_mode+
-                           " | Execution: EXECUTION_DISABLED | Live: NOT_AUTHORIZED");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Telemetry",10,103,
-                           "Last refresh: "+EEA_SymbolPanelReadableUtc(ctx.last_refresh_utc)+
-                           " | Next refresh: "+EEA_SymbolPanelReadableUtc(ctx.last_refresh_utc+ctx.refresh_seconds)+
-                           " | sequence="+IntegerToString(ctx.status.refresh_sequence)+
-                           " | generation="+IntegerToString(ctx.status.refresh_generation)+
-                           " | new_entries_blocked="+(ctx.status.new_entries_blocked ? "true" : "false"));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Counts",10,123,
-                           "POSITIONS: "+IntegerToString(ctx.reconciliation.position_count)+
-                           " | ORDERS: "+IntegerToString(ctx.reconciliation.order_count)+
-                           " | DEALS: "+IntegerToString(ctx.reconciliation.deal_count)+
-                           " | Selected symbols: "+IntegerToString(ctx.symbol_count));
+   color status_color=EEA_SymbolPanelStatusColor(ctx.status.runtime_state);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Status",30,106,
+                                "Runtime  "+ctx.status.runtime_state,status_color,10);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Reason",30,130,
+                                "Reason   "+ctx.status.reason_code,EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Account",30,178,
+                                "Server   "+EEA_SymbolPanelClipText(ctx.account.broker_server,34)+
+                                "  |  "+ctx.account.account_currency+
+                                "  |  "+ctx.account.account_margin_mode,EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Execution",30,198,
+                                "Execution  EXECUTION_DISABLED   |   Live  NOT_AUTHORIZED",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Telemetry",30,236,
+                                "Refresh   "+EEA_SymbolPanelReadableUtc(ctx.last_refresh_utc),EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_RefreshMeta",30,256,
+                                "Next       "+EEA_SymbolPanelReadableUtc(ctx.last_refresh_utc+ctx.refresh_seconds)+
+                                "  |  seq "+IntegerToString(ctx.status.refresh_sequence)+
+                                "  |  gen "+IntegerToString(ctx.status.refresh_generation),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Counts",30,296,
+                                "POSITIONS  "+IntegerToString(ctx.reconciliation.position_count)+
+                                "   |   ORDERS  "+IntegerToString(ctx.reconciliation.order_count)+
+                                "   |   DEALS  "+IntegerToString(ctx.reconciliation.deal_count),EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_SelectionCount",30,314,
+                                "Selected symbols  "+IntegerToString(ctx.symbol_count)+
+                                "   |   New entries  "+(ctx.status.new_entries_blocked ? "BLOCKED" : "REVIEW"),
+                                ctx.status.new_entries_blocked ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR,8);
 
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++) ObjectDelete(chart_id,EEA_PANEL_MAIN_PREFIX+"Market_"+IntegerToString(i));
    int line=0;
-   for(int i=0;i<ctx.symbol_count && i<EEA_PANEL_MAX_ROWS;i++)
+   for(int i=0;i<ctx.symbol_count && i<EEA_PANEL_VISIBLE_ROWS;i++)
      {
       EEA_ObserverPanelMarketRow row=EEA_ObserverPanelMarketRowFromRuntime(ctx,i);
-      EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Market_"+IntegerToString(line),10,
-                              165+line*20,row.canonical+" -> "+
-                              (row.broker=="" ? "[UNRESOLVED]" : row.broker)+
-                              " ("+row.status+", digits="+IntegerToString(row.digits)+
-                              ", trade_mode="+row.trade_mode+")");
+      color row_color=row.context_only ? EEA_PANEL_MUTED_COLOR :
+                       (row.status=="RESOLVED" ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_WARNING_COLOR);
+      EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Market_"+IntegerToString(line),30,
+                                   374+line*EEA_PANEL_ROW_HEIGHT,
+                                   row.canonical+"  ->  "+
+                                   (row.broker=="" ? "[UNRESOLVED]" : row.broker)+
+                                   "  |  "+row.status+"  |  d"+IntegerToString(row.digits)+
+                                   "  |  "+row.trade_mode,row_color,8);
       line++;
      }
    string dxy_broker="";
@@ -286,17 +409,17 @@ void EEA_SymbolPanelRenderMainView(const long chart_id,EEA_ObserverRuntimeContex
       if(EEA_TrimUpper(candidate)=="USDX." || EEA_TrimUpper(candidate)=="USDX")
         { dxy_broker=candidate; break; }
      }
-   if(dxy_broker!="" && line<EEA_PANEL_MAX_ROWS)
-      EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Market_"+IntegerToString(line),10,
-                              165+line*20,"DXY -> "+dxy_broker+" (CONTEXT ONLY)");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Market",10,145,
-                           "Market rows (DXY/USDX: CONTEXT ONLY)");
+   if(dxy_broker!="" && line<EEA_PANEL_VISIBLE_ROWS)
+      EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Market_"+IntegerToString(line),30,
+                                   374+line*EEA_PANEL_ROW_HEIGHT,
+                                   "DXY  ->  "+dxy_broker+"  |  CONTEXT ONLY",EEA_PANEL_MUTED_COLOR,8);
    ChartRedraw(chart_id);
   }
 
 bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
   {
    g_panel_state.row_count=0;
+   g_panel_state.row_offset=0;
    g_panel_state.status_message="Ready";
    g_panel_state.apply_reason="";
    g_panel_state.committed_policy="UNSELECTED";
@@ -319,24 +442,45 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
 void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
   {
    if(g_panel_state.overlay_name!="SETTINGS") return;
-   for(int i=0;i<g_panel_state.row_count && i<EEA_PANEL_MAX_ROWS;i++)
+   for(int i=0;i<EEA_PANEL_VISIBLE_ROWS;i++)
      {
-      string prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_";
-      EEA_SymbolPanelSetButton(chart_id,prefix+"Chk",10,426+i*24,25,
-                               g_panel_state.rows[i].context_only ? "N/A" :
-                               (g_panel_state.rows[i].checked ? "[X]" : "[ ]"));
-      ObjectSetInteger(chart_id,prefix+"Chk",OBJPROP_STATE,false);
-      EEA_SymbolPanelSetLabel(chart_id,prefix+"Lbl",42,429+i*24,
-                              g_panel_state.rows[i].canonical_symbol+" -> "+
-                              (g_panel_state.rows[i].broker_symbol=="" ? "[UNRESOLVED]" : g_panel_state.rows[i].broker_symbol)+
-                              " ("+g_panel_state.rows[i].status+")");
+      int old_index=g_panel_state.row_offset+i;
+      string old_prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(old_index)+"_";
+      ObjectDelete(chart_id,old_prefix+"Chk");
+      ObjectDelete(chart_id,old_prefix+"Lbl");
      }
+   for(int i=0;i<EEA_PANEL_VISIBLE_ROWS;i++)
+     {
+      int row_index=g_panel_state.row_offset+i;
+      if(row_index>=g_panel_state.row_count) continue;
+      string prefix=EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(row_index)+"_";
+      EEA_SymbolPanelSetButton(chart_id,prefix+"Chk",30,404+i*EEA_PANEL_ROW_HEIGHT,34,
+                               g_panel_state.rows[row_index].context_only ? "N/A" :
+                               (g_panel_state.rows[row_index].checked ? "[X]" : "[ ]"));
+      ObjectSetInteger(chart_id,prefix+"Chk",OBJPROP_STATE,false);
+      color row_color=g_panel_state.rows[row_index].context_only ? EEA_PANEL_MUTED_COLOR :
+                       (g_panel_state.rows[row_index].status=="RESOLVED" ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_WARNING_COLOR);
+      EEA_SymbolPanelSetLabelColor(chart_id,prefix+"Lbl",76,408+i*EEA_PANEL_ROW_HEIGHT,
+                                   g_panel_state.rows[row_index].canonical_symbol+"  ->  "+
+                                   (g_panel_state.rows[row_index].broker_symbol=="" ? "[UNRESOLVED]" : g_panel_state.rows[row_index].broker_symbol)+
+                                   "  |  "+g_panel_state.rows[row_index].status,row_color,8);
+     }
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_RowSummary",30,
+                                404+EEA_PANEL_VISIBLE_ROWS*EEA_PANEL_ROW_HEIGHT+6,
+                                "Showing "+IntegerToString(g_panel_state.row_count==0 ? 0 : g_panel_state.row_offset+1)+"-"+
+                                IntegerToString(g_panel_state.row_offset+EEA_PANEL_VISIBLE_ROWS<g_panel_state.row_count ?
+                                g_panel_state.row_offset+EEA_PANEL_VISIBLE_ROWS : g_panel_state.row_count)+" of "+
+                                IntegerToString(g_panel_state.row_count)+" symbols",
+                                EEA_PANEL_MUTED_COLOR,8);
   }
 
 void EEA_SymbolPanelRefresh(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    g_panel_state.chart_id=chart_id;
    g_panel_state.row_count=ctx.symbol_count;
+   if(g_panel_state.row_count<=0) g_panel_state.row_offset=0;
+   else if(g_panel_state.row_offset>=g_panel_state.row_count)
+      g_panel_state.row_offset=((g_panel_state.row_count-1)/EEA_PANEL_VISIBLE_ROWS)*EEA_PANEL_VISIBLE_ROWS;
    for(int i=0;i<ctx.symbol_count && i<EEA_PANEL_MAX_ROWS;i++)
      {
       g_panel_state.rows[i].canonical_symbol=ctx.canonical_symbols[i];
@@ -455,35 +599,53 @@ void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelClearOverlay(chart_id);
    g_panel_state.overlay_open=true;
    g_panel_state.overlay_name="SETTINGS";
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Title",10,165,
-                           "Settings - observer-only staged controls");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Close",10,188,64,"Close");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply",80,188,64,"Apply");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged",150,188,70,"Reset");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Policy",10,216,
-                           "Risk Policy (staged): "+g_panel_state.staged_policy);
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",10,240,120,"FTMO_1_STEP");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",135,240,120,"FTMO_2_STEP");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",260,240,180,"BALANCE_BASED_FTMO_V1");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation",10,266,150,
-                            g_panel_state.staged_daily_continuation ? "Daily target: ON" : "Daily target: OFF");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation",165,266,170,
-                            g_panel_state.staged_overall_continuation ? "Overall target: ON" : "Overall target: OFF");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy",340,266,100,
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Surface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_SETTINGS_HEIGHT,EEA_PANEL_BG_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"HeaderSurface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_HEADER_HEIGHT,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"PolicySurface",16,108,452,124,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"AuthorizationSurface",16,242,452,108,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"SelectionSurface",16,362,452,250,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Title",EEA_PANEL_MARGIN_X,18,
+                                "Settings  |  STAGED CONTROLS",EEA_PANEL_TEXT_COLOR,11);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Subtitle",EEA_PANEL_MARGIN_X,36,
+                                "Observer-only proposal workflow  |  no execution",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Close",22,62,126,"Close");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply",156,62,126,"Apply");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged",290,62,126,"Reset staged");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Policy",30,120,
+                                "RISK POLICY  |  staged: "+g_panel_state.staged_policy,EEA_PANEL_ACCENT_COLOR,8);
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",30,142,126,"FTMO 1-step");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",164,142,126,"FTMO 2-step");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",298,142,142,"Balance based");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_DailyContinuation",30,176,132,
+                            g_panel_state.staged_daily_continuation ? "Daily target  ON" : "Daily target  OFF");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_OverallContinuation",172,176,146,
+                            g_panel_state.staged_overall_continuation ? "Overall target  ON" : "Overall target  OFF");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy",328,176,112,
                             g_panel_state.policy_confirmed ? "Confirmed" : "Confirm");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Time",10,292,
-                           "Authorization input: GMT+7 (YYYY-MM-DD HH:MM)");
-   EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7",10,316,170,
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Time",30,254,
+                                "AUTHORIZATION WINDOW  |  GMT+7 (YYYY-MM-DD HH:MM)",EEA_PANEL_ACCENT_COLOR,8);
+   EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7",30,274,180,
                           g_panel_state.authorization_input_gmt7);
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Utc",190,319,
-                           "UTC display: "+EEA_SymbolPanelReadableUtc(g_panel_state.authorization_utc));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus",10,350,
-                           "Apply status: "+(g_panel_state.status_message=="" ? "READY" : g_panel_state.status_message)+
-                           " | reason: "+(g_panel_state.apply_reason=="" ? "NONE" : g_panel_state.apply_reason));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_PersistenceStatus",10,374,
-                           "Persistence: durable proposal/apply audit; observer-only");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Safety",10,398,
-                           "Safety: EXECUTION_DISABLED | NOT_AUTHORIZED | "+EEA_PANEL_POLICY_PROPOSAL_ONLY+"; proposal only; no execution");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Utc",224,278,
+                                "UTC  "+EEA_SymbolPanelReadableUtc(g_panel_state.authorization_utc),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus",30,314,
+                                "Apply status  "+(g_panel_state.status_message=="" ? "READY" : g_panel_state.status_message),
+                                g_panel_state.status_message=="FAILED" ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_TEXT_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyReason",30,332,
+                                "Reason  "+(g_panel_state.apply_reason=="" ? "NONE" : g_panel_state.apply_reason),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_PersistenceStatus",30,378,
+                                "SYMBOL SELECTION  |  staged and durable",EEA_PANEL_ACCENT_COLOR,8);
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_PreviousRows",300,372,66,"Prev");
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_NextRows",374,372,66,"Next");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Safety",30,620,
+                                "Safety  EXECUTION_DISABLED  |  NOT_AUTHORIZED  |  "+EEA_PANEL_POLICY_PROPOSAL_ONLY+
+                                "  |  proposal only; no execution",
+                                EEA_PANEL_WARNING_COLOR,8);
    EEA_SymbolPanelRenderSettingsRows(chart_id);
   }
 
@@ -492,41 +654,62 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
    EEA_SymbolPanelClearOverlay(chart_id);
    g_panel_state.overlay_open=true;
    g_panel_state.overlay_name="DASHBOARD";
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Title",10,165,
-                           "Dashboard - read-only observer snapshot");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Close",10,188,64,"Close");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Financial",10,220,
-                           "Balance: "+DoubleToString(ctx.account.balance,2)+
-                           " | Equity: "+DoubleToString(ctx.account.equity,2)+
-                           " | Margin: "+DoubleToString(ctx.account.margin,2)+
-                           " | Free margin: "+DoubleToString(ctx.account.margin_free,2));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Counts",10,242,
-                           "Positions: "+IntegerToString(ctx.reconciliation.position_count)+
-                           " | Orders: "+IntegerToString(ctx.reconciliation.order_count)+
-                           " | History orders: "+IntegerToString(ctx.reconciliation.history_order_count)+
-                           " | Deals: "+IntegerToString(ctx.reconciliation.deal_count));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Watermark",10,264,
-                           "Deal watermark: "+IntegerToString(ctx.reconciliation.deal_watermark)+
-                           " | Watermark time: "+IntegerToString(ctx.reconciliation.deal_watermark_time_msc));
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Risk",10,286,
-                           "Risk policy: "+g_panel_state.committed_policy+
-                           " | Headroom: unavailable (policy evidence required)");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Freshness",10,308,
-                           "Evidence freshness: observed="+EEA_SymbolPanelReadableUtc(ctx.reconciliation.observed_at_utc)+
-                           " | valid_until_utc="+EEA_SymbolPanelReadableUtc(ctx.reconciliation.valid_until_utc));
-   for(int i=0;i<ctx.symbol_count && i<EEA_PANEL_MAX_ROWS;i++)
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Surface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_DASHBOARD_HEIGHT,EEA_PANEL_BG_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"HeaderSurface",8,8,
+                             EEA_PANEL_MAIN_WIDTH,EEA_PANEL_HEADER_HEIGHT,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"FinancialSurface",16,108,452,106,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"EvidenceSurface",16,224,452,120,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"SymbolSurface",16,354,452,218,
+                             EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Title",EEA_PANEL_MARGIN_X,18,
+                                "Dashboard  |  OBSERVER SNAPSHOT",EEA_PANEL_TEXT_COLOR,11);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Subtitle",EEA_PANEL_MARGIN_X,36,
+                                "Read-only account, reconciliation and evidence view",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Close",22,62,126,"Close dashboard");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_FinancialTitle",30,120,
+                                "ACCOUNT FINANCIALS",EEA_PANEL_ACCENT_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Financial",30,142,
+                                "Balance  "+DoubleToString(ctx.account.balance,2)+
+                                "   |   Equity  "+DoubleToString(ctx.account.equity,2),EEA_PANEL_TEXT_COLOR,9);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_FinancialMargin",30,164,
+                                "Margin   "+DoubleToString(ctx.account.margin,2)+
+                                "   |   Free  "+DoubleToString(ctx.account.margin_free,2),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Counts",30,186,
+                                "Positions  "+IntegerToString(ctx.reconciliation.position_count)+
+                                "   |   Orders  "+IntegerToString(ctx.reconciliation.order_count)+
+                                "   |   Deals  "+IntegerToString(ctx.reconciliation.deal_count),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_EvidenceTitle",30,236,
+                                "EVIDENCE HEALTH  |  Evidence freshness:",EEA_PANEL_ACCENT_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Watermark",30,258,
+                                "Deal watermark:  "+IntegerToString(ctx.reconciliation.deal_watermark)+
+                                "   |   Watermark time:  "+IntegerToString(ctx.reconciliation.deal_watermark_time_msc),EEA_PANEL_TEXT_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Risk",30,280,
+                                "Risk policy:  "+g_panel_state.committed_policy+
+                                "   |   Headroom:  unavailable",EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Freshness",30,302,
+                                "Observed  "+EEA_SymbolPanelReadableUtc(ctx.reconciliation.observed_at_utc),EEA_PANEL_TEXT_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Validity",30,320,
+                                "valid_until_utc  "+EEA_SymbolPanelReadableUtc(ctx.reconciliation.valid_until_utc),EEA_PANEL_MUTED_COLOR,8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SymbolTitle",30,366,
+                                "SYMBOL EVIDENCE  |  Digits: precision  |  Trade mode: capability",EEA_PANEL_ACCENT_COLOR,8);
+   for(int i=0;i<ctx.symbol_count && i<EEA_PANEL_VISIBLE_ROWS;i++)
      {
       EEA_ObserverPanelMarketRow row=EEA_ObserverPanelMarketRowFromRuntime(ctx,i);
-      EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(i),10,
-                              332+i*20,row.canonical+" / "+row.broker+
-                              " | Digits: "+IntegerToString(row.digits)+" | Trade mode: "+row.trade_mode+
-                              " | Freshness: "+row.freshness_text);
+      EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(i),30,
+                                   390+i*EEA_PANEL_ROW_HEIGHT,
+                                   row.canonical+"  /  "+row.broker+
+                                   "  |  d"+IntegerToString(row.digits)+"  |  "+row.trade_mode,
+                                   row.context_only ? EEA_PANEL_MUTED_COLOR : EEA_PANEL_TEXT_COLOR,8);
      }
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Health",10,350+ctx.symbol_count*20,
-                           "Runtime: "+ctx.status.runtime_state+" / "+ctx.status.reason_code+
-                           " | Audit health: observer evidence");
-   EEA_SymbolPanelSetLabel(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Live",10,372+ctx.symbol_count*20,
-                           "Live status: NOT_AUTHORIZED | Blocking reason: "+ctx.status.reason_code);
+   int health_y=390+(ctx.symbol_count<EEA_PANEL_VISIBLE_ROWS ? ctx.symbol_count : EEA_PANEL_VISIBLE_ROWS)*EEA_PANEL_ROW_HEIGHT+8;
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Health",30,health_y,
+                                "Runtime  "+ctx.status.runtime_state+"  |  Audit  observer evidence",
+                                EEA_SymbolPanelStatusColor(ctx.status.runtime_state),8);
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Live",30,health_y+20,
+                                "Live  NOT_AUTHORIZED  |  new entries  BLOCKED",EEA_PANEL_DANGER_COLOR,8);
    ChartRedraw(chart_id);
   }
 
@@ -751,6 +934,18 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
      { EEA_SymbolPanelCloseOverlay(g_panel_state.chart_id); EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged")
      { EEA_SymbolPanelResetStaged(ctx); EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_PreviousRows")
+     {
+      g_panel_state.row_offset-=EEA_PANEL_VISIBLE_ROWS;
+      if(g_panel_state.row_offset<0) g_panel_state.row_offset=0;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_NextRows")
+     {
+      if(g_panel_state.row_offset+EEA_PANEL_VISIBLE_ROWS<g_panel_state.row_count)
+         g_panel_state.row_offset+=EEA_PANEL_VISIBLE_ROWS;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
    if(id==CHARTEVENT_OBJECT_ENDEDIT && sparam==EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7")
      {
       string entered_value=ObjectGetString(g_panel_state.chart_id,sparam,OBJPROP_TEXT);

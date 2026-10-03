@@ -610,14 +610,14 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
-        self.assertIn("SetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",10,316", settings)
-        self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,22)", panel)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,350", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",10,374", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,398", settings)
+        self.assertIn("EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",30,274,180", settings)
+        self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,EEA_PANEL_CONTROL_HEIGHT)", panel)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",30,314", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",30,378", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",30,620", settings)
         self.assertNotEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 2)
         rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
-        self.assertIn("426+i*24", rows)
+        self.assertIn("404+i*EEA_PANEL_ROW_HEIGHT", rows)
 
     def test_policy_verification_failure_checks_runtime_and_policy_rollback_results(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -848,6 +848,48 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh", init)
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("if(InpRuntimeEvidenceEnabled)", timer)
+
+    def test_panel_presentation_uses_neutral_palette_and_explicit_object_style(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_PANEL_BG_COLOR", "EEA_PANEL_SURFACE_COLOR", "EEA_PANEL_TEXT_COLOR",
+            "EEA_PANEL_MUTED_COLOR", "EEA_PANEL_OK_COLOR", "EEA_PANEL_WARNING_COLOR",
+            "EEA_PANEL_DANGER_COLOR", "EEA_SymbolPanelSetSurface",
+            "OBJPROP_BGCOLOR", "OBJPROP_BORDER_COLOR", "OBJPROP_FONTSIZE",
+            "OBJPROP_ZORDER", "OBJPROP_HIDDEN", "OBJPROP_SELECTABLE",
+        ):
+            self.assertIn(token, panel)
+        self.assertNotIn("ObjectSetInteger(chart_id,name,OBJPROP_COLOR,clrRed)", panel)
+
+    def test_panel_presentation_has_bounded_cards_and_cleans_old_objects(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_PANEL_MAIN_WIDTH", "EEA_PANEL_MAIN_HEIGHT", "EEA_PANEL_SETTINGS_HEIGHT",
+            "EEA_PANEL_DASHBOARD_HEIGHT", "EEA_PANEL_VISIBLE_ROWS",
+            "EEA_PANEL_MAIN_PREFIX+\"Surface\"",
+            "EEA_PANEL_OVERLAY_PREFIX+\"Surface\"",
+            "ObjectsDeleteAll(chart_id,EEA_PANEL_PREFIX,g_panel_state.sub_window)",
+            "ObjectsDeleteAll(chart_id,EEA_PANEL_OVERLAY_PREFIX,g_panel_state.sub_window)",
+        ):
+            self.assertIn(token, panel)
+
+    def test_panel_status_uses_semantic_color_without_changing_fail_closed_copy(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_SymbolPanelStatusColor", "ctx.status.runtime_state",
+            "ctx.status.reason_code", "EXECUTION_DISABLED", "NOT_AUTHORIZED",
+            "new_entries_blocked",
+        ):
+            self.assertIn(token, panel)
+        self.assertIn("EEA_PANEL_DANGER_COLOR", panel)
+
+    def test_settings_symbol_rows_are_paged_without_changing_stored_row_indices(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "row_offset", "Btn_PreviousRows", "Btn_NextRows",
+            "EEA_PANEL_VISIBLE_ROWS", "row_index", "g_panel_state.row_offset",
+        ):
+            self.assertIn(token, panel)
 
     def test_selection_rollback_repersists_previous_committed_evidence(self):
         obs = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
