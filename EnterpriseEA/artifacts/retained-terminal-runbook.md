@@ -33,7 +33,7 @@ This runbook defines the operational protocol for compiling, deploying, and runn
 2. Drag `EnterpriseEA` onto the chart.
 3. Configure Inputs:
    - `InpObserverOnly = true`
-   - `InpCanonicalSymbols = "EURUSD,GBPUSD,XAUUSD"`
+   - `InpCanonicalSymbols = "EURUSD,GBPUSD,XAUUSD,BTCUSD,USDJPY"`
    - `InpShowSymbolPanel = true`
    - `InpRefreshIntervalSeconds = 30`
    - `InpHistoryLookbackDays = 7`
