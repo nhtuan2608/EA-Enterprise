@@ -366,7 +366,7 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
   }
 
 bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
-                                                 const string &old_canonical_symbols[],
+                                                 const string &old_canons[],
                                                  const string &old_broker_symbols[],
                                                  const EEA_RuntimeSymbolSpec &old_symbol_specs[],
                                                  const int old_count,
@@ -381,8 +381,7 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
   {
    for(int i=0;i<old_count;i++)
      {
-      ctx.canonical_symbols[i]=old_canonical_symbols[i];
-      // rollback equivalent: ctx.canonical_symbols[i] = old_canons[i];
+      ctx.canonical_symbols[i] = old_canons[i];
       ctx.broker_symbols[i]=old_broker_symbols[i];
       ctx.symbol_specs[i]=old_symbol_specs[i];
      }

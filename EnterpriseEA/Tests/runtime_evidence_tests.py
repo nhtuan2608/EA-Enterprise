@@ -690,6 +690,8 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "POLICY_APPLY_REJECTED"):
             self.assertIn(token, apply)
         self.assertIn("EEA_ObserverRuntimeRestoreSelectionSnapshot", runtime)
+        self.assertIn("ctx.canonical_symbols[i] = old_canons[i]", runtime)
+        self.assertEqual(runtime.count("ctx.canonical_symbols[i] = old_canons[i]"), 1)
 
     def test_apply_snapshots_complete_runtime_and_policy_identity(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
