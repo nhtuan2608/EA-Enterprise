@@ -1,6 +1,6 @@
 #property strict
 #property version   "1.000"
-#property description "Observer-only core foundation; execution adapter is compile-covered, disabled, and never invoked by lifecycle events."
+#property description "Observer-first core with an explicitly armed, fail-closed paperless market-live profile."
 
 #include "Core/Config.mqh"
 #include "Core/State.mqh"
@@ -277,7 +277,8 @@ void OnDeinit(const int reason)
 
 void OnTick()
   {
-   // Phase 1 deliberately has no market scan, order API, or per-tick file writes.
+   // Strategy scanning, risk release and any market request are timer-owned;
+   // OnTick remains free of broker mutation and per-tick file writes.
   }
 
 void OnTimer()
