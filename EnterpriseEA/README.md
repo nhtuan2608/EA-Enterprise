@@ -8,6 +8,8 @@ The [Phase 4 traceability table](PHASE4_TRACEABILITY.md) records the first close
 
 The [paperless controlled-live design](docs/superpowers/specs/2026-10-01-paperless-controlled-live-design.md) and [plan](docs/superpowers/plans/2026-10-01-paperless-controlled-live.md) define the only future controlled-live route. Runtime compile, applicable demo/retained evidence, approved risk policy, manual authorization, kill switch, rollback, and audit are mandatory gates. Until each gate has retained evidence, paperless controlled-live and live trading remain `NOT_AUTHORIZED`.
 
+The [controlled-live activation runbook](artifacts/controlled-live-activation-runbook.md) describes the evidence sequence and the intentionally blocked authorization template.
+
 The [setup-bound pending-order specification](PENDING_ORDER_LIFECYCLE_SPEC.md) and [implementation plan](PENDING_ORDER_LIFECYCLE_PLAN.md) add expiry, early cancellation, partial-fill remainder and broker reconciliation requirements for LIMIT/STOP orders. An isolated offline lifecycle prototype exists; no pending-order execution is connected to the EA shell.
 
 The proposed [Telegram control specification](TELEGRAM_CONTROL_SPEC.md) covers remote status, AI questions and replies, and authenticated pause/resume of new entries. The offline command-gate prototype and JSON contracts are isolated; no Telegram gateway, AI reply delivery, or remote command execution has been connected to the EA shell.

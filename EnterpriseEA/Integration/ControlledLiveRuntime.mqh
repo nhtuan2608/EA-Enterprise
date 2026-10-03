@@ -460,7 +460,13 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         {
          EEA_ExecutionReconcileResult(result,observer.reconciliation,result.request_ticket,
                                       "SUBMIT_MARKET",intent.sl,intent.tp,result.request_ticket_kind);
-         EEA_ExecutionStoreWriteResult(observer.root,result);
+         if(!EEA_ExecutionStoreWriteResult(observer.root,result))
+           {
+            state.recovery_result=result;
+            state.recovery_blocked=true;
+            state.last_reason="EXECUTION_RESULT_PERSISTENCE_FAILED";
+            return false;
+           }
          state.recovery_result=result;
          state.recovery_blocked=result.confirmation_state=="EXECUTION_UNKNOWN";
          state.last_candidate_id[i]=candidate_id;
