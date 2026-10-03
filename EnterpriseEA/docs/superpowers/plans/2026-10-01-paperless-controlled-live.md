@@ -118,3 +118,11 @@ The authorization audit was tightened after review: `LIVE_AUTHORIZATION_BOUND` i
 now emitted only after the concrete market intent builds successfully and includes
 the intent's risk-decision lineage. Strategy/observer symbol-array size mismatches
 are explicitly rejected before authorization or risk evaluation.
+
+Target observation evidence is retained in
+`artifacts/controlled-live-target-observation-2026-10-03.md`: the exact target
+compiled with zero errors and warnings, loaded successfully, and recorded 46
+successful timer refreshes with zero failures while remaining
+`OBSERVING/new_entries_blocked=true`. This is runtime evidence only; it does
+not close authorization, kill-switch, rollback, restart/reconciliation, or
+broker-execution gates.
