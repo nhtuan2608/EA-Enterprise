@@ -73,7 +73,6 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
    ArrayResize(brokers, count);
-   ArrayResize(brokers,count);
    for(int i = 0; i < count; i++) brokers[i]="";
    for(int i = 0; i < count; i++)
       if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],"")) brokers[i]="";
@@ -86,6 +85,7 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
          out_reason = "SYMBOL_RESOLUTION_FAILED"; return false;
         }
       brokers[i] = results[i].broker_symbol;
+      if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],brokers[i])) continue;
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
       if(!EEA_ReadRuntimeSymbolSpec(canonicals[i], brokers[i], server, spec, spec_reason))
@@ -259,15 +259,28 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
    if(refresh_seconds<1 || history_lookback_days<1 || history_lookback_days>90 || count<1 || count>EEA_RUNTIME_MAX_SYMBOLS)
      { ctx.status.reason_code="RUNTIME_CONFIGURATION_INVALID"; return false; }
    string account_reason="";
-   if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_reason))
-     { ctx.status.reason_code=account_reason; return false; }
-   string brokers[];
+    if(!EEA_ReadRuntimeAccount(ctx.config_version,ctx.refresh_seconds*2,ctx.account,account_reason))
+      {
+       ctx.status.runtime_state="DEGRADED";
+       ctx.status.reason_code="RUNTIME_ACCOUNT_INIT_DEGRADED";
+       ctx.status.new_entries_blocked=true;
+       ctx.stale=true;
+       ctx.stale_reason=account_reason;
+       ctx.status.pending_refresh=true;
+       ctx.initialized=true;
+       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_ACCOUNT_INIT_DEGRADED",ctx.status);
+       return false;
+      }
+    string brokers[];
    string discover_reason;
    if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
      {
       ctx.status.runtime_state="DEGRADED";
       ctx.status.reason_code=discover_reason;
       ctx.status.new_entries_blocked=true;
+      ctx.stale=true;
+      ctx.stale_reason=discover_reason;
+      ctx.status.pending_refresh=true;
       ctx.initialized=true;
       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_INIT_DEGRADED",ctx.status);
       return false;
@@ -353,7 +366,7 @@ void EEA_ObserverRuntimeShutdown(EEA_ObserverRuntimeContext &ctx,CAuditLog &audi
   }
 
 bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
-                                                 const string &old_canonical_symbols[],
+                                                 const string &old_canons[],
                                                  const string &old_broker_symbols[],
                                                  const EEA_RuntimeSymbolSpec &old_symbol_specs[],
                                                  const int old_count,
@@ -368,8 +381,7 @@ bool EEA_ObserverRuntimeRestoreSelectionSnapshot(EEA_ObserverRuntimeContext &ctx
   {
    for(int i=0;i<old_count;i++)
      {
-      ctx.canonical_symbols[i]=old_canonical_symbols[i];
-      // rollback equivalent: ctx.canonical_symbols[i] = old_canons[i];
+      ctx.canonical_symbols[i] = old_canons[i];
       ctx.broker_symbols[i]=old_broker_symbols[i];
       ctx.symbol_specs[i]=old_symbol_specs[i];
      }
@@ -453,3 +465,4 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
   }
 
 #endif
+
