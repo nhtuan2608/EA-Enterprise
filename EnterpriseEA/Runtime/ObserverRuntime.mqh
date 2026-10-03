@@ -264,6 +264,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
        ctx.status.runtime_state="DEGRADED";
        ctx.status.reason_code="RUNTIME_ACCOUNT_INIT_DEGRADED";
        ctx.status.new_entries_blocked=true;
+       ctx.stale=true;
+       ctx.stale_reason=account_reason;
+       ctx.status.pending_refresh=true;
        ctx.initialized=true;
        EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_ACCOUNT_INIT_DEGRADED",ctx.status);
        return false;
@@ -275,6 +278,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
       ctx.status.runtime_state="DEGRADED";
       ctx.status.reason_code=discover_reason;
       ctx.status.new_entries_blocked=true;
+      ctx.stale=true;
+      ctx.stale_reason=discover_reason;
+      ctx.status.pending_refresh=true;
       ctx.initialized=true;
       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_INIT_DEGRADED",ctx.status);
       return false;

@@ -822,6 +822,20 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
                       "ctx.initialized=true", "RUNTIME_ACCOUNT_INIT_DEGRADED"):
             self.assertIn(token, failure)
 
+    def test_degraded_startup_sets_retry_context_for_timer_recovery(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        failure = init.split("if(!EEA_ReadRuntimeAccount", 1)[1].split("string brokers", 1)[0]
+        for token in ("ctx.stale=true", "ctx.stale_reason=account_reason", "ctx.status.pending_refresh=true"):
+            self.assertIn(token, failure)
+
+    def test_discovery_failure_sets_retry_context_for_timer_recovery(self):
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        init = runtime.split("bool EEA_ObserverRuntimeInit", 1)[1].split("void EEA_ObserverRuntimeMarkStale", 1)[0]
+        failure = init.split("if(!EEA_ObserverRuntimeAutoDiscover", 1)[1].split("for(int i=0;i<count", 1)[0]
+        for token in ("ctx.stale=true", "ctx.stale_reason=discover_reason", "ctx.status.pending_refresh=true"):
+            self.assertIn(token, failure)
+
     def test_subwindow_and_disabled_evidence_guards_are_explicit(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
