@@ -43,6 +43,8 @@ class ControlledLiveRuntimeTests(unittest.TestCase):
         self.assertIn("EEA_RuntimeStatus execution_status=observer.status", runtime)
         self.assertIn("execution_status.new_entries_blocked=false", runtime)
         self.assertIn("EEA_RiskDecisionStoreWrite", runtime)
+        self.assertIn("LIVE_AUTHORIZATION_BOUND", runtime)
+        self.assertIn("EEA_ControlledLiveAuditAuthorization", runtime)
         self.assertIn("EEA_ControlledLiveReconcileRecovery", runtime)
         self.assertIn("recovery_blocked", runtime)
 

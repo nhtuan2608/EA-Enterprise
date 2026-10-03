@@ -103,6 +103,23 @@ bool EEA_ControlledLiveReconcileRecovery(EEA_ControlledLiveRuntimeState &state,
    return true;
   }
 
+bool EEA_ControlledLiveAuditAuthorization(CAuditLog &audit,
+                                          const EEA_LiveAuthorizationDecision &authorization,
+                                          const EEA_RiskDecision &decision,
+                                          const string broker_symbol)
+  {
+   EEAEvent event;
+   EEAEvent_Init(event,"LIVE_AUTHORIZATION_BOUND",TimeGMT(),"",decision.candidate_id,
+                 decision.symbol,"AUTHORIZED_CONTROLLED_LIVE","OK");
+   event.details_json="{\"authorization_id\":\""+EEA_JsonEscape(authorization.authorization_id)+
+      "\",\"intent_id\":\""+EEA_JsonEscape(authorization.intent_id)+
+      "\",\"candidate_id\":\""+EEA_JsonEscape(decision.candidate_id)+
+      "\",\"broker_symbol\":\""+EEA_JsonEscape(broker_symbol)+
+      "\",\"risk_decision_id\":\""+EEA_JsonEscape(decision.decision_id)+
+      "\",\"expires_at_utc\":"+IntegerToString((long)authorization.authorization_valid_until_utc)+"}";
+   return audit.Append(event,"EA_EXECUTION");
+  }
+
 bool EEA_ControlledLiveResolvePolicy(const string root,const string config_version,
                                      const EEA_RuntimeAccountSnapshot &account,
                                      EEA_PolicySettings &policy,string &reason)
@@ -434,6 +451,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         { state.last_reason=decision.reason_code; continue; }
       if(!EEA_RiskDecisionStoreWrite(observer.root,decision))
         { state.last_reason="LIVE_RISK_DECISION_PERSISTENCE_FAILED"; continue; }
+      if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,observer.broker_symbols[i]))
+        { state.last_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
       EEA_MarketIntentParameters params; EEA_MarketIntentParametersDefaults(params);
       params.canonical_symbol=current.canonical_symbol; params.setup_version=current.setup_config_version;
       params.risk_policy_snapshot_id="policy-"+IntegerToString(policy.revision);
