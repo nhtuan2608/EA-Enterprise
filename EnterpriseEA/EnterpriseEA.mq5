@@ -68,6 +68,7 @@ input int    InpLiveReleaseTtlSec       = 20;
 input long   InpLiveMagic               = 888888;
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
+input int    InpS02EntryMode            = 0;  // S02 v1: 0 MARKET, 1 LIMIT at zone, 2 STOP above trigger (REQ-021)
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -108,6 +109,7 @@ void EEA_LoadDurableControllerState()
   }
 
 EEA_RiskLedger g_risk_ledger;
+EEA_PendingRuntime g_pending_runtime;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -256,6 +258,7 @@ int OnInit()
    g_live_config.magic=InpLiveMagic;
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
+   g_live_config.entry_mode=(InpS02EntryMode>=0 && InpS02EntryMode<=2) ? InpS02EntryMode : 0;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -452,9 +455,16 @@ void OnTimer()
                                         g_runtime.broker_symbols,g_runtime.symbol_count);
              EEA_StrategyRuntimeWriteCheckpoints(g_strategy_runtime,TimeGMT());
             }
+          // REQ-021: every EA pending order is reconciled and its lifecycle enforced on each
+          // timer, before any new entry is considered and even when entries are blocked.
+          if(!g_pending_runtime.loaded)
+             EEA_PendingRuntimeLoad(g_pending_runtime,g_config.data_root,g_runtime.account.account_fingerprint);
+          EEA_PendingRuntimeUpdate(g_pending_runtime,g_audit,g_config.data_root,g_strategy_runtime,g_runtime,
+                                   g_live_config.enabled && g_live_config.armed);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
-                                       g_controller,g_controller_allows_market,g_audit,g_risk_ledger);
+                                       g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
+                                       g_pending_runtime);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

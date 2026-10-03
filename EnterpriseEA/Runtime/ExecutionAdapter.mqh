@@ -194,9 +194,11 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    result.idempotency_key = intent.idempotency_key;
    EEA_ExecutionBindIntentLineage(result,intent);
 
-   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+   // REQ-021 pending entries need the pending controller scope in addition to the
+   // same authorization, risk release and gate checks as a market entry.
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING && requested_scope!="PENDING_ENTRY")
      {
-      EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      EEA_ExecutionResultReject(result,"CONTROLLER_SCOPE_REJECTED");
       return false;
      }
    EEA_ExecutionBindAuthorization(result,authorization);
@@ -205,7 +207,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
       return false;
      }
-   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET)
+   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET && intent.action!=EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
       EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
       return false;
@@ -263,8 +265,30 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
 
    if(intent.action == EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
-      request.type_time = (intent.expiration > 0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
-      request.expiration = intent.expiration;
+      // Broker-enforced expiry only; a GTC order is never used for a strategy deadline.
+      // The broker compares the expiration in server time.
+      long server_offset=(long)TimeTradeServer()-(long)TimeGMT();
+      request.type_time = ORDER_TIME_SPECIFIED;
+      request.expiration = (datetime)((long)intent.expiration+server_offset);
+      request.type_filling = ORDER_FILLING_RETURN;
+      MqlTick tick;
+      ZeroMemory(tick);
+      double point=SymbolInfoDouble(intent.broker_symbol,SYMBOL_POINT);
+      double min_distance=(double)SymbolInfoInteger(intent.broker_symbol,SYMBOL_TRADE_STOPS_LEVEL)*point;
+      bool geometry_ok=SymbolInfoTick(intent.broker_symbol,tick) && tick.bid>0.0 && tick.ask>0.0;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_BUY_LIMIT)  geometry_ok=intent.price<=tick.ask-min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_SELL_LIMIT) geometry_ok=intent.price>=tick.bid+min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_BUY_STOP)   geometry_ok=intent.price>=tick.ask+min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_SELL_STOP)  geometry_ok=intent.price<=tick.bid-min_distance;
+      if(!geometry_ok)
+        {
+         result.confirmation_state = "REJECTED";
+         result.reason_code = "PENDING_PRICE_GEOMETRY_INVALID";
+         result.request_sent = false;
+         EEA_ExecutionStoreWriteResult(root, result);
+         EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+         return false;
+        }
      }
 
    bool sent = OrderSend(request, trade_result);
@@ -428,13 +452,19 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    result.idempotency_key = intent.idempotency_key;
    EEA_ExecutionBindIntentLineage(result,intent);
 
-   EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
-   return false;
-
+   // Every send path, cancellation included, stays bound to the live authorization.
+   // When that authorization has lapsed, the broker-enforced expiration (mandatory for
+   // REQ-021 orders) still removes the order at its deadline.
    EEA_ExecutionBindAuthorization(result,authorization);
    if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
      {
       EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.ticket>0 && (!OrderSelect((ulong)intent.ticket) ||
+      OrderGetInteger(ORDER_MAGIC)!=intent.magic || OrderGetString(ORDER_SYMBOL)!=intent.broker_symbol))
+     {
+      EEA_ExecutionResultReject(result,"PENDING_ORDER_NOT_ACTIVE_OR_NOT_OWNED");
       return false;
      }
    if(intent.action!=EEA_EXEC_ACTION_CANCEL_PENDING)

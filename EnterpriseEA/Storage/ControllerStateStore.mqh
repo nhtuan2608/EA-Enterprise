@@ -272,7 +272,8 @@ EEA_ControllerStateLoadStatus EEA_ControllerStateStoreLoad(const string path,
       EEA_ExecutionControllerStateDefaults(state);
       return EEA_CONTROLLER_STATE_IDENTITY_MISMATCH;
      }
-   if(state.operation_scope!=expected_scope)
+   if(state.operation_scope!=expected_scope &&
+      !EEA_ExecutionControllerScopeCovers(state.operation_scope,expected_scope))
      {
       EEA_ExecutionControllerStateDefaults(state);
       return EEA_CONTROLLER_STATE_SCOPE_MISMATCH;

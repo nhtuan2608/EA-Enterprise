@@ -19,6 +19,7 @@
 #include "../Risk/VolumeSizing.mqh"
 #include "../Risk/RiskLimitsProfile.mqh"
 #include "../Storage/RiskLedgerStore.mqh"
+#include "../Runtime/PendingOrderRuntime.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -43,6 +44,7 @@ struct EEA_ControlledLiveConfig
    long magic;
    int deviation;
    int filling_mode;
+   int entry_mode;     // S02 v1: 0 MARKET, 1 LIMIT_AT_ZONE, 2 STOP_ABOVE_TRIGGER
   };
 
 struct EEA_ControlledLiveRuntimeState
@@ -62,7 +64,7 @@ void EEA_ControlledLiveConfigDefaults(EEA_ControlledLiveConfig &c)
    c.base_risk_fraction=0.0; c.per_trade_cap_money=0.0; c.portfolio_remaining_money=0.0;
    c.minimum_net_rr=0.0; c.stop_buffer_ticks=0.0; c.target_r_multiple=0.0;
    c.max_spread_points=0.0; c.quote_freshness_seconds=30; c.release_ttl_seconds=20;
-   c.magic=888888; c.deviation=20; c.filling_mode=0;
+   c.magic=888888; c.deviation=20; c.filling_mode=0; c.entry_mode=0;
   }
 
 void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
@@ -226,6 +228,11 @@ struct EEA_ControlledLiveTradePlan
    int    max_correlated_trades;
    double min_margin_level_percent;
    double htf_risk_modifier;
+   double entry_price;          // > 0: pending entry price instead of the current quote
+   bool   allow_armed;          // LIMIT_AT_ZONE is placed while the setup is ARMED
+   int    pending_order_type;   // ORDER_TYPE_*_LIMIT / *_STOP, or -1 for market
+   datetime pending_expiration_utc;
+   int    pending_max_wait_bars;
   };
 
 void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
@@ -236,7 +243,26 @@ void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
    p.invalidation_price=0.0; p.target_price=0.0; p.target_r_multiple=0.0; p.stop_buffer_price=0.0;
    p.max_spread_points=0.0; p.max_spread_stop_fraction=0.0; p.minimum_net_rr=0.0; p.cost_per_lot_money=0.0;
    p.cost_estimated=false; p.currency_cap_money=0.0; p.max_correlated_trades=0; p.min_margin_level_percent=0.0;
-   p.htf_risk_modifier=1.0;
+   p.htf_risk_modifier=1.0; p.entry_price=0.0; p.allow_armed=false; p.pending_order_type=-1;
+   p.pending_expiration_utc=0; p.pending_max_wait_bars=0;
+  }
+
+// S02 v1 entry modes (design section 8, O-17): MARKET on the trigger bar, a LIMIT at the
+// zone edge once the break is accepted, or a STOP one tick beyond the trigger bar.
+#define EEA_S02_ENTRY_MARKET 0
+#define EEA_S02_ENTRY_LIMIT_AT_ZONE 1
+#define EEA_S02_ENTRY_STOP_ABOVE_TRIGGER 2
+
+bool EEA_ControlledLiveTriggerBar(const string broker_symbol,const string timeframe,const datetime bar_time,
+                                  MqlRates &bar)
+  {
+   ENUM_TIMEFRAMES tf=(timeframe=="H1" ? PERIOD_H1 : PERIOD_M5);
+   int shift=iBarShift(broker_symbol,tf,bar_time,true);
+   if(shift<0) return false;
+   MqlRates rates[];
+   if(CopyRates(broker_symbol,tf,shift,1,rates)!=1 || rates[0].time!=bar_time) return false;
+   bar=rates[0];
+   return true;
   }
 
 void EEA_ControlledLivePlanFromConfig(const EEA_ControlledLiveConfig &config,const EEA_S02Engine &engine,
@@ -295,11 +321,15 @@ bool EEA_ControlledLiveExposure(const EEA_ObserverRuntimeContext &observer,EEA_C
 bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strategy,const int index,
                                      const EEA_ObserverRuntimeContext &observer,
                                      const EEA_RuntimeSymbolSpec &symbol,const EEA_PolicySettings &policy,
-                                     const EEA_RiskLedger &ledger,EEA_ControlledLiveTradePlan &p,string &reason)
+                                     const EEA_RiskLedger &ledger,const int entry_mode,
+                                     EEA_ControlledLiveTradePlan &p,string &reason)
   {
    EEA_ControlledLivePlanDefaults(p);
    EEA_S02Engine engine=strategy.engines[index];
-   if(engine.state!=EEA_S02_TRIGGERED || (engine.direction!=1 && engine.direction!=-1) || symbol.broker_symbol=="")
+   bool limit_mode=(entry_mode==EEA_S02_ENTRY_LIMIT_AT_ZONE);
+   bool stop_mode=(entry_mode==EEA_S02_ENTRY_STOP_ABOVE_TRIGGER);
+   int required_state=limit_mode ? EEA_S02_ARMED : EEA_S02_TRIGGERED;
+   if(engine.state!=required_state || (engine.direction!=1 && engine.direction!=-1) || symbol.broker_symbol=="")
      { reason="LIVE_CANDIDATE_NOT_TRIGGERED"; return false; }
    EEA_RiskLimits limits;
    if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)) return false;
@@ -314,7 +344,34 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    int direction=engine.direction;
    double entry=(direction==1 ? tick.ask : tick.bid);
    double spread_price=tick.ask-tick.bid;
+   EEA_S02Config profile_config=strategy.profile_config[index];
+   long tf_seconds=PeriodSeconds(engine.timeframe=="H1" ? PERIOD_H1 : PERIOD_M5);
    double invalidation=engine.candidate.retest_extreme>0.0 ? engine.candidate.retest_extreme : engine.retest_extreme;
+   if(limit_mode)
+     {
+      // Buy the retest of the zone edge; the far edge of the zone is the thesis invalidation.
+      entry=(direction==1 ? engine.zone_high : engine.zone_low);
+      invalidation=(direction==1 ? engine.zone_low : engine.zone_high);
+      int bars_left=profile_config.max_bars_to_retest-engine.bars_since_acceptance+profile_config.max_bars_for_reaction;
+      if(bars_left<1) { reason="LIVE_PENDING_WINDOW_ELAPSED"; return false; }
+      p.pending_order_type=(direction==1 ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT);
+      p.pending_max_wait_bars=bars_left;
+      p.pending_expiration_utc=(datetime)((long)TimeGMT()+bars_left*tf_seconds);
+      p.allow_armed=true;
+     }
+   if(stop_mode)
+     {
+      MqlRates trigger;
+      if(!EEA_ControlledLiveTriggerBar(symbol.broker_symbol,engine.timeframe,engine.candidate.triggered_at_utc,trigger))
+        { reason="LIVE_TRIGGER_BAR_UNAVAILABLE"; return false; }
+      entry=(direction==1 ? trigger.high+symbol.tick_size : trigger.low-symbol.tick_size);
+      int bars_left=engine.candidate.expires_after_bars-engine.candidate.age_after_trigger_bars;
+      if(bars_left<1) { reason="LIVE_PENDING_WINDOW_ELAPSED"; return false; }
+      p.pending_order_type=(direction==1 ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP);
+      p.pending_max_wait_bars=bars_left;
+      p.pending_expiration_utc=(datetime)((long)TimeGMT()+bars_left*tf_seconds);
+     }
+   if(limit_mode || stop_mode) p.entry_price=entry;
    if(invalidation<=0.0 || (direction==1 && invalidation>=entry) || (direction==-1 && invalidation<=entry))
      { reason="LIVE_STRUCTURE_INVALIDATION_INVALID"; return false; }
    double buffer=MathMax(0.10*engine.signal_atr,1.5*spread_price);
@@ -406,7 +463,8 @@ bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &conf
       (plan.target_price<=0.0 && plan.target_r_multiple<=0.0) || plan.max_spread_points<=0.0 ||
       plan.cost_per_lot_money<0.0 || config.quote_freshness_seconds<1 || config.release_ttl_seconds<1)
      { reason="LIVE_RISK_INPUTS_INCOMPLETE"; return false; }
-   if(engine.state!=EEA_S02_TRIGGERED || engine.candidate.candidate_id=="" ||
+   bool state_ok=(engine.state==EEA_S02_TRIGGERED || (plan.allow_armed && engine.state==EEA_S02_ARMED));
+   if(!state_ok || engine.candidate.candidate_id=="" ||
       (engine.direction!=1 && engine.direction!=-1) || symbol.broker_symbol=="")
      { reason="LIVE_CANDIDATE_NOT_TRIGGERED"; return false; }
    double existing_stress_loss=0.0, floating_pnl=0.0;
@@ -416,7 +474,7 @@ bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &conf
    if(!SymbolInfoTick(symbol.broker_symbol,tick) || tick.bid<=0.0 || tick.ask<=0.0)
      { reason="LIVE_ENTRY_QUOTE_UNAVAILABLE"; return false; }
    const int order_type=(engine.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
-   const double entry=(engine.direction==1 ? tick.ask : tick.bid);
+   const double entry=plan.entry_price>0.0 ? plan.entry_price : (engine.direction==1 ? tick.ask : tick.bid);
    const double distance=MathAbs(entry-plan.invalidation_price);
    const double target=plan.target_price>0.0 ? plan.target_price :
       (engine.direction==1 ? entry+distance*plan.target_r_multiple : entry-distance*plan.target_r_multiple);
@@ -620,15 +678,21 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ExecutionControllerState &controller,
                                const bool controller_allows_market,
                                CAuditLog &audit,
-                               const EEA_RiskLedger &ledger)
+                               const EEA_RiskLedger &ledger,
+                               EEA_PendingRuntime &pending)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
    if(state.recovery_blocked) { state.last_reason="EXECUTION_UNKNOWN_RECOVERY_REQUIRED"; return false; }
    if(!strategy.enabled || observer.status.runtime_state!="OBSERVING")
      { state.last_reason="CONTROLLED_LIVE_RUNTIME_BLOCKED"; return false; }
-   if(!controller_allows_market || !EEA_ExecutionControllerAllowsNewRequest(controller,"MARKET_ENTRY",TimeGMT()))
+   bool pending_mode=(strategy.zone_mode && config.entry_mode!=EEA_S02_ENTRY_MARKET);
+   const string scope=(pending_mode ? "PENDING_ENTRY" : "MARKET_ENTRY");
+   if(!controller_allows_market || !EEA_ExecutionControllerAllowsNewRequest(controller,scope,TimeGMT()))
      { state.last_reason="CONTROLLED_LIVE_CONTROLLER_BLOCKED"; return false; }
+   // REQ-021: any pending order in review, awaiting cancel confirmation or unreadable
+   // blocks every new entry until it is resolved against the broker.
+   if(pending.entries_blocked) { state.last_reason=pending.reason; return false; }
    for(int i=0;i<strategy.symbol_count;i++)
      {
       // Bind the strategy engine to the observer row by canonical name; a row
@@ -638,9 +702,14 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         { state.last_reason="LIVE_SYMBOL_CONTEXT_MISMATCH"; continue; }
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
-      if(!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
+      bool limit_ready=(pending_mode && config.entry_mode==EEA_S02_ENTRY_LIMIT_AT_ZONE &&
+                        strategy.engines[i].state==EEA_S02_ARMED);
+      if(!limit_ready && (!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED)) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id==state.last_candidate_id[i]) continue;
+      if(EEA_PendingRuntimeHasCandidate(pending,candidate_id) ||
+         EEA_PendingRuntimeHasEngine(pending,strategy.engines[i].canonical_symbol,strategy.engines[i].timeframe))
+         continue;
       EEA_PolicySettings policy; string reason;
       if(!EEA_ControlledLiveResolvePolicy(observer.root,observer.config_version,observer.account,policy,reason))
         { state.last_reason=reason; continue; }
@@ -657,11 +726,12 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       // S02 v1 derives the whole plan (structure, costs, O-04, ledger); the prototype
       // keeps its explicit inputs. Both pass the same Risk Kernel checks afterwards.
       bool context_ready=false;
+      EEA_ControlledLiveTradePlan plan;
+      EEA_ControlledLivePlanDefaults(plan);
       if(strategy.zone_mode)
         {
-         EEA_ControlledLiveTradePlan plan;
          context_ready=EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,
-                                                       ledger,plan,reason) &&
+                                                       ledger,config.entry_mode,plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);
@@ -696,8 +766,14 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       params.order_type=decision.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
       params.deviation=config.deviation; params.filling_mode=config.filling_mode; params.magic=config.magic;
       EEA_ExecutionIntent intent; string intent_reason;
-      if(!EEA_BuildMarketExecutionIntent(decision,observer.account,observer.reconciliation,
-                                         observer.symbol_specs[row],observer.config_version,params,TimeGMT(),intent,intent_reason))
+      bool pending_order=(pending_mode && plan.pending_order_type>=ORDER_TYPE_BUY_LIMIT);
+      bool built=pending_order ?
+         EEA_BuildPendingExecutionIntent(decision,observer.account,observer.reconciliation,observer.symbol_specs[row],
+                                         observer.config_version,params,plan.pending_order_type,
+                                         plan.pending_expiration_utc,TimeGMT(),intent,intent_reason) :
+         EEA_BuildMarketExecutionIntent(decision,observer.account,observer.reconciliation,
+                                        observer.symbol_specs[row],observer.config_version,params,TimeGMT(),intent,intent_reason);
+      if(!built)
         { state.last_reason=intent_reason; continue; }
       if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,intent,observer.broker_symbols[row]))
         { state.last_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
@@ -707,13 +783,25 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       // permits the execution gate to evaluate the remaining controls.
       EEA_RuntimeStatus execution_status=observer.status;
       execution_status.new_entries_blocked=false;
-      bool submitted=EEA_ExecutionSubmit(audit,observer.root,intent,decision,controller,"MARKET_ENTRY",
+      bool submitted=EEA_ExecutionSubmit(audit,observer.root,intent,decision,controller,scope,
                                          observer.account,observer.reconciliation,observer.symbol_specs[row],
                                          execution_status,true,authorization,result);
       if(submitted)
         {
          EEA_ExecutionReconcileResult(result,observer.reconciliation,result.request_ticket,
-                                      "SUBMIT_MARKET",intent.sl,intent.tp,result.request_ticket_kind);
+                                      pending_order ? "SUBMIT_PENDING" : "SUBMIT_MARKET",
+                                      intent.sl,intent.tp,result.request_ticket_kind);
+         if(pending_order)
+           {
+            // Track the order from the broker acknowledgement on; an order that cannot
+            // be tracked blocks every further entry.
+            string track_reason;
+            EEA_PendingRuntimeRegister(pending,observer.root,intent,result.request_ticket,
+                                       strategy.engines[i].timeframe,strategy.profile[i],authorization_path,
+                                       plan.max_spread_points,strategy.engines[i].candidate.triggered_at_utc,
+                                       plan.pending_max_wait_bars,observer.symbol_specs[row].volume_step,
+                                       observer.account.account_currency,track_reason);
+           }
          if(!EEA_ExecutionStoreWriteResult(observer.root,result))
            {
             state.recovery_result=result;

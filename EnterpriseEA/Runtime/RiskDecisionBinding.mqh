@@ -31,8 +31,9 @@ bool EEA_RiskDecisionBindsExecutionIntent(const EEA_RiskDecision &decision,
       MathAbs(StringToDouble(intent.entry_reference)-decision.entry_reference)>1.0e-8 ||
       MathAbs(intent.sl-decision.stop_loss)>1.0e-8 ||
       MathAbs(intent.tp-decision.take_profit)>1.0e-8 ||
-      ((decision.direction==1 && intent.order_type!=0) ||
-       (decision.direction==-1 && intent.order_type!=1)))
+      EEA_OrderTypeDirection(intent.order_type)!=decision.direction ||
+      (intent.action==EEA_EXEC_ACTION_SUBMIT_MARKET && intent.order_type>1) ||
+      (intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING && (intent.order_type<2 || intent.order_type>5)))
       return false;
    return true;
   }

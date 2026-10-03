@@ -127,4 +127,35 @@ bool EEA_BuildMarketExecutionIntent(const EEA_RiskDecision &decision,
    return true;
   }
 
+// REQ-021: a pending LIMIT or STOP intent carries the same released risk lineage as a
+// market intent; only the action, order type, price and broker expiration differ.
+bool EEA_BuildPendingExecutionIntent(const EEA_RiskDecision &decision,
+                                     const EEA_RuntimeAccountSnapshot &account,
+                                     const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                     const EEA_RuntimeSymbolSpec &symbol,
+                                     const string config_version,
+                                     const EEA_MarketIntentParameters &p,
+                                     const int pending_order_type,
+                                     const datetime expiration_utc,
+                                     const datetime now_utc,
+                                     EEA_ExecutionIntent &intent,
+                                     string &reason)
+  {
+   if(pending_order_type<2 || pending_order_type>5 ||
+      EEA_OrderTypeDirection(pending_order_type)!=decision.direction)
+     { EEA_ExecutionIntentDefaults(intent); reason="EXECUTION_INTENT_PENDING_TYPE_INVALID"; return false; }
+   if(expiration_utc<=now_utc)
+     { EEA_ExecutionIntentDefaults(intent); reason="EXECUTION_INTENT_PENDING_EXPIRATION_INVALID"; return false; }
+   if(!EEA_BuildMarketExecutionIntent(decision,account,reconciliation,symbol,config_version,p,now_utc,intent,reason))
+      return false;
+   intent.action=EEA_EXEC_ACTION_SUBMIT_PENDING;
+   intent.order_type=pending_order_type;
+   intent.price=p.entry_reference;
+   intent.expiration=expiration_utc;
+   if(!EEA_RiskDecisionBindsExecutionIntent(decision,intent,now_utc))
+     { EEA_ExecutionIntentDefaults(intent); reason="EXECUTION_INTENT_RISK_LINEAGE_MISMATCH"; return false; }
+   reason="EXECUTION_INTENT_BUILT_PENDING";
+   return true;
+  }
+
 #endif

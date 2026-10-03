@@ -65,7 +65,19 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
         self.assertIn("if(intent.position_ticket > 0)", adapter)
         self.assertIn("request.order = (ulong)intent.ticket;", adapter)
 
-    def test_runtime_scope_is_market_only_until_pending_runtime_exists(self):
+    def test_pending_runtime_scope_is_explicit_and_stop_limit_stays_out(self):
+        gate_text = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
+        adapter_text = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        for token in ('"PENDING_ORDER_TYPE_UNSUPPORTED"', '"PENDING_EXPIRATION_UNSUPPORTED"', "SYMBOL_EXPIRATION_SPECIFIED"):
+            self.assertIn(token, gate_text)
+        self.assertIn('requested_scope!="PENDING_ENTRY"', adapter_text)
+        self.assertIn("request.type_time = ORDER_TIME_SPECIFIED;", adapter_text)
+        self.assertNotIn("ORDER_TIME_GTC", adapter_text)
+        self.assertIn('"PENDING_PRICE_GEOMETRY_INVALID"', adapter_text)
+        self.assertIn('"PENDING_ORDER_NOT_ACTIVE_OR_NOT_OWNED"', adapter_text)
+        self.test_modify_without_position_is_still_denied()
+
+    def test_modify_without_position_is_still_denied(self):
         adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
         gate = (ROOT / "Runtime/ExecutionGate.mqh").read_text(encoding="utf-8")
         self.assertIn('"PENDING_RUNTIME_NOT_IMPLEMENTED"', adapter)

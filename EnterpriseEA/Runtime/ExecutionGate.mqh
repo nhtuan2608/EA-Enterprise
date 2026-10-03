@@ -230,11 +230,31 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       EEA_ExecutionResultReject(result,"EXECUTION_CONTRACT_INVALID");
       return false;
      }
-   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING ||
-      intent.action==EEA_EXEC_ACTION_CANCEL_PENDING ||
-      (intent.action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE && intent.position_ticket<=0))
+   // Modifying a pending order's stops is still outside the REQ-021 runtime.
+   if(intent.action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE && intent.position_ticket<=0)
      {
       EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      return false;
+     }
+   // REQ-021: only LIMIT/STOP (no STOP_LIMIT), only with a broker-enforced expiration.
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+     {
+      long expiration_mode=StringToInteger(symbol.expiration_mode);
+      long order_mode=StringToInteger(symbol.order_mode);
+      bool limit=(intent.order_type==ORDER_TYPE_BUY_LIMIT || intent.order_type==ORDER_TYPE_SELL_LIMIT);
+      bool stop=(intent.order_type==ORDER_TYPE_BUY_STOP || intent.order_type==ORDER_TYPE_SELL_STOP);
+      if(!limit && !stop)
+        { EEA_ExecutionResultReject(result,"PENDING_ORDER_TYPE_UNSUPPORTED"); return false; }
+      if((limit && (order_mode & SYMBOL_ORDER_LIMIT)==0) || (stop && (order_mode & SYMBOL_ORDER_STOP)==0))
+        { EEA_ExecutionResultReject(result,"SYMBOL_PENDING_TYPE_UNSUPPORTED"); return false; }
+      if((expiration_mode & SYMBOL_EXPIRATION_SPECIFIED)==0)
+        { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_UNSUPPORTED"); return false; }
+      if(intent.expiration<=TimeGMT())
+        { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_INVALID"); return false; }
+     }
+   if(intent.action==EEA_EXEC_ACTION_CANCEL_PENDING && intent.ticket<=0)
+     {
+      EEA_ExecutionResultReject(result,"INVALID_TICKET");
       return false;
      }
    if(intent.action==EEA_EXEC_ACTION_SUBMIT_MARKET && intent.order_type>1)
