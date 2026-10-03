@@ -33,6 +33,13 @@ CAuditLog g_audit;
 bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
 
+bool EEA_LivePanelAllowed()
+  {
+   // Tester and optimization are non-live contexts; never expose live
+   // controls or observer dashboard surfaces there.
+   return MQLInfoInteger(MQL_TESTER)==0 && MQLInfoInteger(MQL_OPTIMIZATION)==0;
+  }
+
 int OnInit()
   {
    if(!EAConfig_LoadDefaults(g_config))
@@ -120,7 +127,7 @@ int OnInit()
          }
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
-   if(InpShowSymbolPanel)
+   if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, InpPanelSubWindow);
       if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
@@ -131,7 +138,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   if(InpShowSymbolPanel)
+   if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelDestroy(0);
      }
@@ -162,7 +169,7 @@ void OnTimer()
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
-       if(InpShowSymbolPanel)
+       if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
           EEA_SymbolPanelRefresh(0,g_runtime);
           EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
@@ -183,7 +190,7 @@ void OnChartEvent(const int id,
                   const double &dparam,
                   const string &sparam)
   {
-   if(InpShowSymbolPanel)
+   if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
      }

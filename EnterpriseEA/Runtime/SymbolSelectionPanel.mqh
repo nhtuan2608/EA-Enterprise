@@ -41,6 +41,7 @@
 #define EEA_PANEL_SETTINGS_ROWS_Y 454
 #define EEA_PANEL_SETTINGS_SUMMARY_Y 704
 #define EEA_PANEL_SETTINGS_SAFETY_Y 724
+#define EEA_PANEL_AUTO_REFRESH "AUTO_REFRESH"
 // EnterpriseEA — OBSERVER ONLY; explicit confirmation is required for proposals.
 #define EEA_PANEL_POLICY_PROPOSAL_ONLY "POLICY_PROPOSAL_ONLY"
 
@@ -360,7 +361,8 @@ void EEA_SymbolPanelCreateControls(const long chart_id,const int sub_window)
                                 "Controlled-live evidence  |  read-only",EEA_PANEL_MUTED_COLOR,8);
    EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Settings",22,EEA_PANEL_MAIN_BUTTON_Y,156,"Settings");
    EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard",190,EEA_PANEL_MAIN_BUTTON_Y,156,"Dashboard");
-   EEA_SymbolPanelSetButton(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Refresh",358,EEA_PANEL_MAIN_BUTTON_Y,156,"Refresh");
+   EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_AutoRefresh",358,EEA_PANEL_MAIN_BUTTON_Y+9,
+                                EEA_PANEL_AUTO_REFRESH,EEA_PANEL_MUTED_COLOR,9);
    EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Status",EEA_PANEL_CONTENT_X,126,
                                 "Runtime  BLOCKED",EEA_PANEL_DANGER_COLOR,10);
    EEA_SymbolPanelSetLabelColor(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Reason",EEA_PANEL_CONTENT_X,151,
@@ -952,14 +954,6 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
    if(id==CHARTEVENT_OBJECT_ENDEDIT && sparam!=EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7") return;
    if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings") { EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard") { EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Refresh")
-     {
-      EEA_ObserverRuntimeRefresh(ctx,audit);
-      g_panel_state.status_message="Read-only refresh requested";
-      EEA_SymbolPanelRefresh(g_panel_state.chart_id,ctx);
-      if(g_panel_state.overlay_name=="DASHBOARD") EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx);
-      return;
-     }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Close")
      { EEA_SymbolPanelCloseOverlay(g_panel_state.chart_id); EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged")

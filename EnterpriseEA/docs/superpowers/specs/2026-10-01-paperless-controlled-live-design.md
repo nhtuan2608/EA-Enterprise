@@ -10,6 +10,11 @@ The Paper ledger is permanently excluded. No paper, simulated, virtual, or shado
 
 Paperless controlled-live is not live readiness by default. It is an operating mode that may be entered only after every applicable gate below is closed with retained, reviewable evidence. Offline tests, source inspection, a successful compile, a demo result, or the existence of an adapter alone never authorizes live trading.
 
+The Settings and Dashboard surfaces are live-terminal-only controls. They must not
+be created in Strategy Tester or optimization contexts, even if the panel input
+is enabled. In a live terminal they are refreshed by the bounded runtime timer;
+there is no manual Refresh control or manual refresh event path.
+
 ## Runtime identity and symbols
 
 Account/server identity is discovered from the terminal at attachment and refresh time; operators do not type a login or broker server. Canonical symbols come from `InpCanonicalSymbols` and the chart selection panel; each selected canonical symbol is re-resolved against current broker symbols and material specifications. Identity, mapping, or specification change invalidates authorization and requires fresh reconciliation.

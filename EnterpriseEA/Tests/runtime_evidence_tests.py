@@ -25,6 +25,18 @@ FORBIDDEN_RUNTIME_CORE_TOKENS = (
 
 
 class RuntimeEvidenceContractTests(unittest.TestCase):
+    def test_panel_is_live_only_and_refresh_is_timer_owned(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("MQL_TESTER", shell)
+        self.assertIn("MQL_OPTIMIZATION", shell)
+        self.assertIn("EEA_LivePanelAllowed", shell)
+        self.assertIn("if(EEA_LivePanelAllowed() && InpShowSymbolPanel)", shell)
+        self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", shell)
+        self.assertIn("AUTO_REFRESH", panel)
+        self.assertNotIn('"Btn_Refresh"', panel)
+        self.assertNotIn('sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Refresh"', panel)
+
     def test_complete_empty_account_is_observing(self):
         status = evaluate(FIXTURE["base_snapshot"], now_utc=FIXTURE["base_snapshot"]["observed_at_utc"])
         self.assertEqual(status["runtime_state"], "OBSERVING")
@@ -360,7 +372,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_task2_panel_has_main_view_overlays_and_safe_routing(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        for token in ("Btn_Settings", "Btn_Dashboard", "Btn_Close", "Btn_Refresh",
+        for token in ("Btn_Settings", "Btn_Dashboard", "Btn_Close", "AUTO_REFRESH",
                       "Btn_Apply", "Btn_ResetStaged", "EnterpriseEA — OBSERVER ONLY",
                       "EXECUTION_DISABLED", "NOT_AUTHORIZED", "new_entries_blocked",
                       "POSITIONS", "ORDERS", "DEALS", "CONTEXT ONLY",
@@ -421,7 +433,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", timer)
         self.assertIn("EEA_SymbolPanelRenderDashboard", panel)
-        self.assertIn("if(InpShowSymbolPanel)", timer)
+        self.assertIn("EEA_LivePanelAllowed() && InpShowSymbolPanel", timer)
 
     def test_overlay_timer_guard_prevents_disabled_or_uninitialized_access(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -429,7 +441,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         refresh_open = panel.split("void EEA_SymbolPanelRefreshOpenOverlay", 1)[1].split("void EEA_SymbolPanelLoadPolicy", 1)[0]
         self.assertIn("if(!g_panel_state.overlay_open) return;", refresh_open)
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
-        self.assertLess(timer.index("if(InpShowSymbolPanel)"), timer.index("EEA_SymbolPanelRefreshOpenOverlay"))
+        self.assertLess(timer.index("EEA_LivePanelAllowed() && InpShowSymbolPanel"), timer.index("EEA_SymbolPanelRefreshOpenOverlay"))
 
     def test_policy_is_explicitly_proposal_only(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
