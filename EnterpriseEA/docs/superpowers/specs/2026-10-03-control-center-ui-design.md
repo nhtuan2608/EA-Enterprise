@@ -19,18 +19,18 @@ Source: master specification v1.4, section 9 and appendix D.5. Implementation: `
 ## Layout
 
 - Shell: header with runtime status chip, execution/live/entries summary and a collapse button; Dashboard and Settings tabs with an active indicator; status bar for action results, which clear after about 10 seconds.
-- Dashboard tabs (spec 9.1): Overview (equity, balance, floating, free margin, realized UTC-day P/L, active-risk placeholder, positions/orders, symbols, system status grid, evidence freshness), Market (selected symbols, broker mapping, digits, trade mode, S02 state), Trades (positions, read-only), Risk (committed policy, account figures, why kernel values are unavailable), News and AI (labelled not built; NEWS_UNKNOWN and OFFLINE), Calendar (month grid of realized P/L per UTC day with cash flows excluded, day detail, monthly summary).
+- Dashboard tabs (spec 9.1): Overview (equity, balance, floating, free margin, realized local-day P/L, active-risk placeholder, positions/orders, symbols, system status grid, evidence freshness), Market (selected symbols, broker mapping, digits, trade mode, S02 state), Trades (positions, read-only), Risk (committed policy, account figures, why kernel values are unavailable), News and AI (labelled not built; NEWS_UNKNOWN and OFFLINE), Calendar (month grid of realized P/L per operator-local day, O-18, with cash flows excluded, day detail, monthly summary; FTMO limits keep Prague days).
 - Settings tabs: Risk policy (segmented policy choice, continuation toggles, explicit confirmation), Symbols (paged rows, whole-row toggle, All/None, context-only rows disabled), Authorization (GMT+7 input with UTC preview and validation hint), System (read-only inputs). A shared footer shows pending changes, Discard and Apply. Apply is enabled only with staged changes, at least one tradable symbol and a confirmed policy. The persist, verify, rollback and audit path is unchanged.
 
 ## Boundaries
 
 - The panel never sends, modifies or closes orders. Trade actions remain unavailable until the spec 9.2 command queue exists.
 - Active risk, FTMO floors and headroom are shown as unavailable until the Risk Kernel publishes them; the panel does not recompute them (TC-026).
-- Calendar money mode only; percent and R wait for daily snapshots and the trading-day decision (O-03/O-18).
+- Calendar uses the terminal's local day (O-18) in money mode only; percent and R wait for start-of-day snapshots and initial-risk lineage.
 - The panel is disabled in Strategy Tester and optimization, so its visual check must run on an attached terminal.
 
 ## Evidence
 
-- Offline suite: 307 tests, including `ControlCenterInteractionTests`.
+- Offline suite: 308 tests, including `ControlCenterInteractionTests`.
 - Isolated MetaEditor build of the full EA: 0 errors, 0 warnings (`artifacts/ui-redesign-v2-metaeditor-build.log`).
 - Pending: visual check on the attached terminal after deployment with `tools/deploy_target.ps1 -RequireBinaryChanged` and an EA reload; hover hit-testing should be checked on a display with DPI scaling.

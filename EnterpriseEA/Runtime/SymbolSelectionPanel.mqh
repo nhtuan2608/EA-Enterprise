@@ -1349,6 +1349,29 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
    ChartRedraw(chart_id);
   }
 
+// O-18: Calendar and daily P/L use the operator's local day (terminal clock).
+// FTMO floors and daily reset stay on Europe/Prague in the Risk Kernel.
+long EEA_SymbolPanelLocalOffsetSeconds()
+  {
+   long offset=(long)(TimeLocal()-TimeGMT());
+   long rounded=(offset>=0 ? offset+30 : offset-30)/60;
+   return rounded*60;
+  }
+
+string EEA_SymbolPanelLocalZoneLabel()
+  {
+   long offset=EEA_SymbolPanelLocalOffsetSeconds();
+   long minutes=MathAbs(offset)/60;
+   string text="GMT"+(offset<0 ? "-" : "+")+IntegerToString(minutes/60);
+   if(minutes%60!=0) text+=StringFormat(":%02d",(int)(minutes%60));
+   return text;
+  }
+
+long EEA_SymbolPanelLocalDayIndex(const long utc_seconds)
+  {
+   return (utc_seconds+EEA_SymbolPanelLocalOffsetSeconds())/86400;
+  }
+
 double EEA_SymbolPanelRealizedForDay(const EEA_ObserverRuntimeContext &ctx,const long day_index)
   {
    double total=0.0;
@@ -1356,7 +1379,7 @@ double EEA_SymbolPanelRealizedForDay(const EEA_ObserverRuntimeContext &ctx,const
      {
       // Only buy/sell deals are trading P/L; balance, credit and other cash flows are excluded.
       if(ctx.reconciliation.deals[i].type!="0" && ctx.reconciliation.deals[i].type!="1") continue;
-      if(ctx.reconciliation.deals[i].time_utc/86400!=day_index) continue;
+      if(EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc)!=day_index) continue;
       total+=ctx.reconciliation.deals[i].profit+ctx.reconciliation.deals[i].commission+
              ctx.reconciliation.deals[i].swap+ctx.reconciliation.deals[i].fee;
      }
@@ -1378,11 +1401,11 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_FreeMargin",EEA_PANEL_INNER_X+408,y,128,"FREE MARGIN",
                           EEA_SymbolPanelFormatNumber(ctx.account.margin_free,2),EEA_PANEL_TEXT_COLOR,
                           margin_level>0.0 ? "margin level "+DoubleToString(margin_level,0)+"%" : "no margin used");
-   double today=EEA_SymbolPanelRealizedForDay(ctx,(long)TimeGMT()/86400);
+   double today=EEA_SymbolPanelRealizedForDay(ctx,EEA_SymbolPanelLocalDayIndex((long)TimeGMT()));
    int resolved=0;
    for(int i=0;i<ctx.symbol_count;i++) if(ctx.broker_symbols[i]!="") resolved++;
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_Today",EEA_PANEL_INNER_X,y+68,128,"TODAY P/L",
-                          EEA_SymbolPanelSigned(today,2),EEA_SymbolPanelPnlColor(today),"UTC day, realized");
+                          EEA_SymbolPanelSigned(today,2),EEA_SymbolPanelPnlColor(today),"local day "+EEA_SymbolPanelLocalZoneLabel()+", realized");
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_ActiveRisk",EEA_PANEL_INNER_X+136,y+68,128,"ACTIVE RISK",
                           "--",EEA_PANEL_MUTED_COLOR,"Risk Kernel not wired");
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_Book",EEA_PANEL_INNER_X+272,y+68,128,"POSITIONS / ORDERS",
@@ -1690,22 +1713,22 @@ string EEA_SymbolPanelMonthName(const int month)
 void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    MqlDateTime now;
-   TimeToStruct(TimeGMT(),now);
+   TimeToStruct((datetime)((long)TimeGMT()+EEA_SymbolPanelLocalOffsetSeconds()),now);
    if(g_panel_state.calendar_year<=0) { g_panel_state.calendar_year=now.year; g_panel_state.calendar_month=now.mon; }
    int year=g_panel_state.calendar_year, month=g_panel_state.calendar_month;
    int next_year=month==12 ? year+1 : year, next_month=month==12 ? 1 : month+1;
    long first_day=EEA_SymbolPanelDaysFromCivil(year,month,1);
    int days_in_month=(int)(EEA_SymbolPanelDaysFromCivil(next_year,next_month,1)-first_day);
    int first_weekday=(int)((first_day+3)%7); // Monday = 0; 1970-01-01 was a Thursday.
-   long today=(long)TimeGMT()/86400;
-   long loaded_from=ctx.reconciliation.history_from_utc>0 ? ctx.reconciliation.history_from_utc/86400 : today;
+   long today=EEA_SymbolPanelLocalDayIndex((long)TimeGMT());
+   long loaded_from=ctx.reconciliation.history_from_utc>0 ? EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.history_from_utc) : today;
 
    double net[32]; int trades[32]; int wins[32]; int losses[32]; double gross_profit[32]; double gross_loss[32]; bool active[32];
    for(int d=0;d<32;d++) { net[d]=0.0; trades[d]=0; wins[d]=0; losses[d]=0; gross_profit[d]=0.0; gross_loss[d]=0.0; active[d]=false; }
    for(int i=0;i<ctx.reconciliation.deal_count && i<EEA_RUNTIME_MAX_DEALS;i++)
      {
       if(ctx.reconciliation.deals[i].type!="0" && ctx.reconciliation.deals[i].type!="1") continue;
-      long day_index=ctx.reconciliation.deals[i].time_utc/86400;
+      long day_index=EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc);
       if(day_index<first_day || day_index>=first_day+days_in_month) continue;
       int d=(int)(day_index-first_day)+1;
       double value=ctx.reconciliation.deals[i].profit+ctx.reconciliation.deals[i].commission+
@@ -1792,8 +1815,8 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
                           IntegerToString(red)+EEA_SymbolPanelSep()+"closed trades "+IntegerToString(month_trades),
                           EEA_SymbolPanelPnlColor(month_net),EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalNote",EEA_PANEL_CONTENT_X,detail_y+74,
-                          "Realized P/L by UTC day from loaded history ("+IntegerToString(ctx.history_lookback_days)+
-                          " days); cash flows excluded. % and R need daily snapshots (O-03).",
+                          "Realized P/L by local day ("+EEA_SymbolPanelLocalZoneLabel()+"), last "+IntegerToString(ctx.history_lookback_days)+
+                          " days loaded; cash flows excluded. FTMO limits still use Prague days.",
                           EEA_PANEL_FAINT_COLOR,7);
   }
 

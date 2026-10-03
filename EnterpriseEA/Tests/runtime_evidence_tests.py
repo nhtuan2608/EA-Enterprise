@@ -1385,6 +1385,16 @@ class ControlCenterInteractionTests(unittest.TestCase):
         self.assertNotIn("OrderSend", publish)
         self.assertIn("EEA_SymbolPanelSetEngineView", publish)
 
+    def test_calendar_uses_operator_local_day_not_ftmo_prague_day(self):
+        calendar = self.panel.split("void EEA_SymbolPanelDashCalendar", 1)[1].split("void EEA_SymbolPanelRenderActiveView", 1)[0]
+        realized = self.panel.split("double EEA_SymbolPanelRealizedForDay", 1)[1].split("void EEA_SymbolPanelDashOverview", 1)[0]
+        offset = self.panel.split("long EEA_SymbolPanelLocalOffsetSeconds", 1)[1].split("string EEA_SymbolPanelLocalZoneLabel", 1)[0]
+        self.assertIn("TimeLocal()-TimeGMT()", offset)
+        self.assertIn("EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc)", calendar)
+        self.assertIn("EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc)", realized)
+        self.assertNotIn("time_utc/86400", self.panel)
+        self.assertNotIn("Prague", realized)
+
 
 if __name__ == "__main__":
     unittest.main()
