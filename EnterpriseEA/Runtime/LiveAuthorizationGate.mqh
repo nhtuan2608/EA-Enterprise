@@ -26,6 +26,7 @@ struct EEA_LiveAuthorizationContext
    string authorization_id;
    string build_hash;
    string account_fingerprint;
+   string candidate_id;
    string intent_id;
    string risk_policy_id;
    string config_version;
@@ -43,6 +44,7 @@ struct EEA_LiveAuthorizationDecision
    string authorization_id;
    string build_hash;
    string account_fingerprint;
+   string candidate_id;
    string intent_id;
    string risk_policy_id;
    string config_version;
@@ -75,6 +77,7 @@ void EEA_LiveAuthorizationDefaults(EEA_LiveAuthorizationContext &c)
    c.authorization_id="";
    c.build_hash="";
    c.account_fingerprint="";
+   c.candidate_id="";
    c.intent_id="";
    c.risk_policy_id="";
    c.config_version="";
@@ -92,6 +95,7 @@ void EEA_LiveAuthorizationDecisionDefaults(EEA_LiveAuthorizationDecision &d)
    d.authorization_id="";
    d.build_hash="";
    d.account_fingerprint="";
+   d.candidate_id="";
    d.intent_id="";
    d.risk_policy_id="";
    d.config_version="";
@@ -126,6 +130,7 @@ bool EEA_EvaluateLiveAuthorization(const EEA_LiveAuthorizationContext &c,
    if(c.authorization_id=="") { d.reason_code="LIVE_AUTHORIZATION_ID_MISSING"; return false; }
    if(c.build_hash=="") { d.reason_code="LIVE_BUILD_HASH_MISSING"; return false; }
    if(c.account_fingerprint=="") { d.reason_code="LIVE_ACCOUNT_FINGERPRINT_MISSING"; return false; }
+   if(c.candidate_id=="") { d.reason_code="LIVE_CANDIDATE_ID_MISSING"; return false; }
    if(c.intent_id=="") { d.reason_code="LIVE_INTENT_ID_MISSING"; return false; }
    if(c.risk_policy_id=="") { d.reason_code="LIVE_RISK_POLICY_ID_MISSING"; return false; }
    if(c.config_version=="") { d.reason_code="LIVE_CONFIG_VERSION_MISSING"; return false; }
@@ -139,6 +144,7 @@ bool EEA_EvaluateLiveAuthorization(const EEA_LiveAuthorizationContext &c,
    d.authorization_id=c.authorization_id;
    d.build_hash=c.build_hash;
    d.account_fingerprint=c.account_fingerprint;
+   d.candidate_id=c.candidate_id;
    d.intent_id=c.intent_id;
    d.risk_policy_id=c.risk_policy_id;
    d.config_version=c.config_version;

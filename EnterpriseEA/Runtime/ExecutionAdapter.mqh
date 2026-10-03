@@ -78,6 +78,7 @@ bool EEA_ExecutionAuthorizationBinds(const EEA_LiveAuthorizationDecision &author
       authorization.authorization_valid_until_utc>TimeGMT() &&
       authorization.account_fingerprint==account.account_fingerprint &&
       authorization.account_fingerprint==intent.account_fingerprint &&
+      authorization.candidate_id==intent.candidate_id &&
       authorization.intent_id==intent.intent_id &&
       authorization.config_version==intent.config_version &&
       authorization.broker_server==intent.broker_server &&

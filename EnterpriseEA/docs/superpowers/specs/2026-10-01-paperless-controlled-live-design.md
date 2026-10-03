@@ -31,6 +31,17 @@ cannot substitute prices or sizing. Missing recheck evidence remains blocked.
 
 Risk policy is selected only from versioned, pre-defined profiles. The terminal panel may display a compact selector and Apply control; Telegram/AI may submit a proposal, but neither may edit thresholds or activate a policy without explicit confirmation, fresh reconciliation, and an audit record.
 
+The controlled-live runtime path is isolated from the observer presentation layer.
+`Integration/ControlledLiveRuntime.mqh` may run only when the explicit live profile
+is armed (`InpObserverOnly=false`, `InpExecutionEnabled=true`, and
+`InpLiveTradeArmed=true`). It binds the candidate ID to the authorization record,
+calculates stress loss for every currently open protected position and working
+order, persists the released risk decision before the intent, and passes a local
+execution status to the adapter only after the observer evidence, controller,
+authorization, and release checks have passed. The observer snapshot itself stays
+entry-blocked; a valid runtime snapshot is not authorization. Missing protection
+or unsupported exposure is a hard block.
+
 The initial selector profiles are:
 
 - `FTMO_1_STEP`: daily loss 3%, overall loss 10%, high-water/trailing floor rules as defined by the FTMO profile contract.

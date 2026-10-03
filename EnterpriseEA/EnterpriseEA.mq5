@@ -20,9 +20,11 @@
 #include "Integration/RiskDecisionRelease.mqh"
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
+#include "Integration/ControlledLiveRuntime.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
+input bool   InpLiveTradeArmed         = false;
 input string InpDataRoot               = "EnterpriseEA";
 input bool   InpRuntimeEvidenceEnabled = true;
 input int    InpRuntimeRefreshSeconds  = 30;
@@ -41,6 +43,25 @@ input int    InpS02MaxBarsToAccept      = 0;
 input int    InpS02MaxBarsToRetest      = 0;
 input int    InpS02MaxBarsForReaction   = 0;
 input int    InpS02CandidateTtlBars     = 0;
+input string InpLiveAuthorizationPath  = "EnterpriseEA/current/live_authorization.json";
+input string InpLiveSetupVersion        = "";
+input double InpLiveInitialCapital      = 0.0;
+input double InpLiveSafetyBufferMoney   = 0.0;
+input double InpLiveBalanceAtDailyReset = 0.0;
+input long   InpLiveDailyResetUtc       = 0;
+input double InpLiveHighWaterBalance    = 0.0;
+input double InpLiveBaseRiskFraction    = 0.0;
+input double InpLivePerTradeCapMoney    = 0.0;
+input double InpLivePortfolioRemaining  = 0.0;
+input double InpLiveMinimumNetRR        = 0.0;
+input double InpLiveStopBufferTicks     = 0.0;
+input double InpLiveTargetRMultiple     = 0.0;
+input double InpLiveMaxSpreadPoints     = 0.0;
+input int    InpLiveQuoteFreshnessSec   = 30;
+input int    InpLiveReleaseTtlSec       = 20;
+input long   InpLiveMagic               = 888888;
+input int    InpLiveDeviation           = 20;
+input int    InpLiveFillingMode         = 0;
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -52,6 +73,8 @@ bool g_strategy_checkpoints_loaded=false;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
+EEA_ControlledLiveConfig g_live_config;
+EEA_ControlledLiveRuntimeState g_live_runtime;
 
 bool EEA_LivePanelAllowed()
   {
@@ -83,11 +106,34 @@ int OnInit()
    if(!EAConfig_LoadDefaults(g_config))
       return INIT_FAILED;
    g_config.observer_only=InpObserverOnly;
-   if(InpObserverOnly==false)
+   if(InpObserverOnly==false && (!InpExecutionEnabled || !InpLiveTradeArmed))
      {
-      Print("Execution mode is not implemented in Phase 1; refusing startup.");
-      return INIT_FAILED;
+      Print("Live execution requires both InpExecutionEnabled and InpLiveTradeArmed.");
+      return INIT_PARAMETERS_INCORRECT;
      }
+   EEA_ControlledLiveConfigDefaults(g_live_config);
+   EEA_ControlledLiveRuntimeStateDefaults(g_live_runtime);
+   g_live_config.enabled=InpExecutionEnabled && !InpObserverOnly;
+   g_live_config.armed=InpLiveTradeArmed;
+   g_live_config.authorization_path=InpLiveAuthorizationPath;
+   g_live_config.setup_version=InpLiveSetupVersion;
+   g_live_config.initial_capital=InpLiveInitialCapital;
+   g_live_config.safety_buffer_money=InpLiveSafetyBufferMoney;
+   g_live_config.balance_at_daily_reset=InpLiveBalanceAtDailyReset;
+   g_live_config.daily_reset_at_utc=(datetime)InpLiveDailyResetUtc;
+   g_live_config.prior_overall_high_water_balance=InpLiveHighWaterBalance;
+   g_live_config.base_risk_fraction=InpLiveBaseRiskFraction;
+   g_live_config.per_trade_cap_money=InpLivePerTradeCapMoney;
+   g_live_config.portfolio_remaining_money=InpLivePortfolioRemaining;
+   g_live_config.minimum_net_rr=InpLiveMinimumNetRR;
+   g_live_config.stop_buffer_ticks=InpLiveStopBufferTicks;
+   g_live_config.target_r_multiple=InpLiveTargetRMultiple;
+   g_live_config.max_spread_points=InpLiveMaxSpreadPoints;
+   g_live_config.quote_freshness_seconds=InpLiveQuoteFreshnessSec;
+   g_live_config.release_ttl_seconds=InpLiveReleaseTtlSec;
+   g_live_config.magic=InpLiveMagic;
+   g_live_config.deviation=InpLiveDeviation;
+   g_live_config.filling_mode=InpLiveFillingMode;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
       return INIT_PARAMETERS_INCORRECT;
@@ -250,6 +296,9 @@ void OnTimer()
                                         g_runtime.broker_symbols,g_runtime.symbol_count);
              EEA_StrategyRuntimeWriteCheckpoints(g_strategy_runtime,TimeGMT());
             }
+          if(g_live_config.enabled && g_live_config.armed)
+             EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
+                                       g_controller,g_controller_allows_market,g_audit);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
