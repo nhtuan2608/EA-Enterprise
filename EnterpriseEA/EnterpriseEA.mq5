@@ -17,6 +17,7 @@
 #include "Runtime/TradeQuoteAdapter.mqh"
 #include "Runtime/SymbolSelectionPanel.mqh"
 #include "Risk/RiskDecision.mqh"
+#include "Integration/RiskDecisionRelease.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;

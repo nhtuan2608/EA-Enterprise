@@ -23,7 +23,7 @@ The terminal policy selector uses versioned profiles `FTMO_1_STEP`, `FTMO_2_STEP
 
 The current increment also adds compile-covered read-only account financial and trade-quote/margin evidence contracts, plus a standalone fail-closed controller/kill-switch contract. None of these contracts is an authorization substitute; dispatch, durable control-state loading, risk decision lineage, restart recovery, and retained target-runtime evidence remain required.
 
-Risk release is now an explicit contract: `REVIEWABLE_CANDIDATE` cannot authorize execution, and only a fresh `RISK_APPROVED` decision with complete provenance can be used to construct a future intent. The execution gate additionally rejects intents that lack this lineage.
+Risk release is now an explicit contract: `REVIEWABLE_CANDIDATE` cannot authorize execution, and only `EEA_RiskDecisionReleaseFromReview` can promote a fresh second-pass bundle to `RISK_APPROVED/RELEASED` after runtime/account/quote/policy/portfolio/symbol rechecks and complete provenance. The execution gate additionally rejects intents that lack this lineage. The producer is compile-covered; lifecycle collection and operator dispatch remain open in Tasks 3–4.
 
 ## Implementation Tasks
 
