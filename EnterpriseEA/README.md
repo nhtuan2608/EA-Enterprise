@@ -59,7 +59,7 @@ From the workspace root run:
 python -m unittest discover -s EnterpriseEA/Tests -p '*tests.py' -v
 ```
 
-These checks validate JSON syntax, core required fields, fail-closed defaults, FTMO floor/headroom fixtures, runtime evidence contracts/adapters, account financial snapshots, trade quote boundaries, risk-release lineage, live-authorization identity binding, controller defaults, controlled-live orchestration and static execution/storage boundaries. The current suite contains 299 tests. The exact-target MetaEditor build records 0 errors and 0 warnings. No demo or live operation was performed; retained-sandbox checkpoint restart proof, target execution scenarios, and live authorization remain pending. These results do not authorize live trading, and there is no Paper validation requirement because the Paper ledger is permanently excluded.
+These checks validate JSON syntax, core required fields, fail-closed defaults, FTMO floor/headroom fixtures, runtime evidence contracts/adapters, account financial snapshots, trade quote boundaries, risk-release lineage, live-authorization identity binding, controller defaults, controlled-live orchestration and static execution/storage boundaries. The current suite contains 300 tests. The exact-target MetaEditor source compile records 0 errors and 0 warnings; tools/compile_target.ps1 -RequireBinaryChanged must also confirm that the target EX5 actually changed before deployment is considered complete. No demo or live operation was performed; retained-sandbox checkpoint restart proof, target execution scenarios, and live authorization remain pending. These results do not authorize live trading, and there is no Paper validation requirement because the Paper ledger is permanently excluded.
 
 ## Phase boundaries
 

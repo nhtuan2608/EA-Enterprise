@@ -2,7 +2,7 @@
 
 This runbook is for the paperless market-only route. It does not create a virtual or Paper execution path.
 
-1. Compile the exact target source and retain the MetaEditor result (`0 errors, 0 warnings`). Keep `InpObserverOnly=true`, `InpExecutionEnabled=false`, and `InpLiveTradeArmed=false` while validating the terminal and panel.
+1. Run tools/compile_target.ps1 -TargetRoot <target> -RequireBinaryChanged and retain both the MetaEditor result (0 errors, 0 warnings) and the changed EX5 hash/timestamp. If the binary does not change, detach/reload the EA and retry before validating the terminal and panel. Keep InpObserverOnly=true, InpExecutionEnabled=false, and InpLiveTradeArmed=false while validating the terminal and panel.
 2. Validate the live terminal account/server, broker symbol mapping, material symbol specifications, account-wide positions/orders/deals reconciliation, and the selected policy. Do not type raw login or account-holder identity into artifacts.
 3. Run the applicable controlled demo/retained operation protocol, including acknowledgement, fresh reconciliation, restart, timeout/unknown, kill-switch, rollback, and audit-tail checks. Synthetic tests do not close these gates.
 4. Prepare an exact-identity authorization document from `live-authorization-template.json`. Set every gate to `true` only after the corresponding retained evidence is reviewed; bind `candidate_id`, `intent_id`, account fingerprint, server, broker symbol, config version, and expiry to the one intended operation.
