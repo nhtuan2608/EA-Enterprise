@@ -54,7 +54,7 @@ struct EEA_ControlledLiveRuntimeState
 
 void EEA_ControlledLiveConfigDefaults(EEA_ControlledLiveConfig &c)
   {
-   c.enabled=false; c.armed=false; c.authorization_path="EnterpriseEA/current/live_authorization.json";
+   c.enabled=false; c.armed=false; c.authorization_path="";
    c.setup_version=""; c.initial_capital=0.0; c.safety_buffer_money=0.0;
    c.balance_at_daily_reset=0.0; c.daily_reset_at_utc=0; c.prior_overall_high_water_balance=0.0;
    c.base_risk_fraction=0.0; c.per_trade_cap_money=0.0; c.portfolio_remaining_money=0.0;

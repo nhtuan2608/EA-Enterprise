@@ -41,8 +41,9 @@ bool EAConfig_LoadDefaults(CEAConfig &c)
 bool EAConfig_Validate(const CEAConfig &c)
   {
    if(c.config_version=="" || c.source=="" || c.data_root=="") return false;
-   if(!c.observer_only) return false;
-   // Phase 1 has no account policy selection. Live values must be explicitly configured later.
+   // Execution mode is validated by the EA shell's explicit live-profile
+   // guard. This config validator must not make the non-observer profile
+   // structurally impossible to start.
    if(c.account_policy!="UNSELECTED" && c.account_policy!="FTMO_1_STEP" &&
       c.account_policy!="FTMO_2_STEP" && c.account_policy!="BALANCE_BASED_FTMO_V1" &&
       c.account_policy!="CUSTOM") return false;

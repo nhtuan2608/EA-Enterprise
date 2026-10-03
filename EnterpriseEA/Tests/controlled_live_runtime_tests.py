@@ -48,9 +48,11 @@ class ControlledLiveRuntimeTests(unittest.TestCase):
 
     def test_live_defaults_remain_disabled_and_no_paper_path_exists(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        config = (ROOT / "Core/Config.mqh").read_text(encoding="utf-8")
         self.assertIn("input bool   InpObserverOnly           = true;", shell)
         self.assertIn("input bool   InpExecutionEnabled       = false;", shell)
         self.assertIn("input bool   InpLiveTradeArmed         = false;", shell)
+        self.assertNotIn("if(!c.observer_only) return false;", config)
         self.assertNotIn("Paper ledger", shell)
 
 
