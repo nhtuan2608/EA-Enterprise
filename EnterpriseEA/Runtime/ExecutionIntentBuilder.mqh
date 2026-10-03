@@ -65,6 +65,12 @@ bool EEA_BuildMarketExecutionIntent(const EEA_RiskDecision &decision,
       !MathIsValidNumber(p.stop_loss) || !MathIsValidNumber(p.take_profit) ||
       p.stop_loss<=0.0 || p.take_profit<=0.0 || p.deviation<0 || p.magic<=0)
      { reason="EXECUTION_INTENT_PRICE_OR_CONTROL_INVALID"; return false; }
+   if(MathAbs(p.entry_reference-decision.entry_reference)>1.0e-8 ||
+      MathAbs(p.stop_loss-decision.stop_loss)>1.0e-8 ||
+      MathAbs(p.take_profit-decision.take_profit)>1.0e-8 ||
+      ((decision.direction==1 && p.order_type!=0) ||
+       (decision.direction==-1 && p.order_type!=1)))
+     { reason="EXECUTION_INTENT_PRICE_OR_DIRECTION_MISMATCH"; return false; }
    if(account.config_version!=config_version || reconciliation.config_version!=config_version ||
       account.account_fingerprint=="" || account.broker_server=="" ||
       reconciliation.account_fingerprint!=account.account_fingerprint ||

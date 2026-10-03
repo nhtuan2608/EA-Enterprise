@@ -25,7 +25,9 @@ Risk release is two-pass. A dry-run result is review-only; the release builder
 must rerun the complete candidate/economics/headroom/portfolio/volume gates on
 fresh evidence and require independent runtime, account, quote, policy,
 portfolio, and symbol rechecks before emitting `RISK_APPROVED/RELEASED` with
-bounded expiry and complete lineage. Missing recheck evidence remains blocked.
+bounded expiry and complete lineage. The release also carries direction,
+entry, stop, target, risk budget, and reward/risk so the later market intent
+cannot substitute prices or sizing. Missing recheck evidence remains blocked.
 
 Risk policy is selected only from versioned, pre-defined profiles. The terminal panel may display a compact selector and Apply control; Telegram/AI may submit a proposal, but neither may edit thresholds or activate a policy without explicit confirmation, fresh reconciliation, and an audit record.
 

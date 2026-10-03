@@ -37,6 +37,17 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         self.assertNotIn('"Btn_Refresh"', panel)
         self.assertNotIn('sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Refresh"', panel)
 
+    def test_settings_and_dashboard_clicks_render_immediately(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        settings = 'if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings")'
+        dashboard = 'if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard")'
+        for branch in (settings, dashboard):
+            self.assertIn(branch, panel)
+            start = panel.index(branch)
+            end = panel.index("return;", start)
+            self.assertIn("EEA_SymbolPanelRender", panel[start:end])
+            self.assertIn("ChartRedraw", panel[start:end])
+
     def test_complete_empty_account_is_observing(self):
         status = evaluate(FIXTURE["base_snapshot"], now_utc=FIXTURE["base_snapshot"]["observed_at_utc"])
         self.assertEqual(status["runtime_state"], "OBSERVING")

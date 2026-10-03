@@ -952,8 +952,8 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
    string old_apply_reason=g_panel_state.apply_reason;
    if(id!=CHARTEVENT_OBJECT_CLICK && id!=CHARTEVENT_OBJECT_ENDEDIT) return;
    if(id==CHARTEVENT_OBJECT_ENDEDIT && sparam!=EEA_PANEL_OVERLAY_PREFIX+"Edit_AuthorizationGmt7") return;
-   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings") { EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return; }
-   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard") { EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx); return; }
+   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings") { EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
+   if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard") { EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx); ChartRedraw(g_panel_state.chart_id); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Close")
      { EEA_SymbolPanelCloseOverlay(g_panel_state.chart_id); EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx); return; }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ResetStaged")

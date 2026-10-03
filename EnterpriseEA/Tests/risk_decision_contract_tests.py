@@ -37,6 +37,10 @@ class RiskDecisionContractTests(unittest.TestCase):
             "string quote_id",
             "string portfolio_snapshot_id",
             "double final_volume",
+            "int direction",
+            "double entry_reference",
+            "double stop_loss",
+            "double take_profit",
             "double projected_loss",
             "double available_headroom",
             "datetime decided_at_utc",
@@ -110,6 +114,8 @@ class RiskDecisionContractTests(unittest.TestCase):
         validation = self._section("bool EEA_RiskDecisionValidForRelease")
         self.assertIn("decision.risk_budget", validation)
         self.assertIn("decision.net_reward_risk", validation)
+        for field in ("decision.direction", "decision.entry_reference", "decision.stop_loss", "decision.take_profit"):
+            self.assertIn(field, validation)
 
     def test_contract_has_no_broker_io_or_shell_dependencies(self):
         forbidden = (

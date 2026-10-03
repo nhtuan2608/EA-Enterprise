@@ -122,6 +122,10 @@ bool EEA_RiskDecisionReleaseFromReview(const EEA_DryRunContext &current,
    decision.projected_loss=fresh.projected_loss;
    decision.net_reward_risk=fresh.net_reward_risk;
    decision.available_headroom=current.headroom.available_headroom;
+   decision.direction=current.economics_input.direction;
+   decision.entry_reference=current.economics_input.entry_reference;
+   decision.stop_loss=current.economics_input.stop_loss;
+   decision.take_profit=current.economics_input.take_profit;
    decision.decided_at_utc=recheck.checked_at_utc;
    decision.expires_at_utc=recheck.expires_at_utc;
    decision.reason_code="RISK_RELEASE_RECHECKS_PASSED";

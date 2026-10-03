@@ -27,7 +27,12 @@ bool EEA_RiskDecisionBindsExecutionIntent(const EEA_RiskDecision &decision,
       MathAbs(intent.volume-decision.final_volume)>1.0e-12 ||
       MathAbs(intent.risk_budget-decision.risk_budget)>1.0e-8 ||
       MathAbs(intent.net_reward_risk-decision.net_reward_risk)>1.0e-8 ||
-      MathAbs(intent.projected_loss-decision.projected_loss)>1.0e-8)
+      MathAbs(intent.projected_loss-decision.projected_loss)>1.0e-8 ||
+      MathAbs(StringToDouble(intent.entry_reference)-decision.entry_reference)>1.0e-8 ||
+      MathAbs(intent.sl-decision.stop_loss)>1.0e-8 ||
+      MathAbs(intent.tp-decision.take_profit)>1.0e-8 ||
+      ((decision.direction==1 && intent.order_type!=0) ||
+       (decision.direction==-1 && intent.order_type!=1)))
       return false;
    return true;
   }
