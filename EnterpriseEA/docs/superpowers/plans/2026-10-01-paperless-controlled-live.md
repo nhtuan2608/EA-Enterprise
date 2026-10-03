@@ -133,3 +133,10 @@ from the ordered canonical-to-broker mapping, with a regression test and exact
 target compile passing. The currently attached terminal has not reloaded this
 new binary yet, so its old empty fingerprint is retained as an open target
 verification item rather than being treated as live evidence.
+
+Deployment verification is now fail-closed as well:
+`tools/compile_target.ps1 -RequireBinaryChanged` validates the MetaEditor
+`0 errors, 0 warnings` result and requires the target EX5 hash/timestamp to
+change. The current attached terminal fails this second check, so the latest
+source compile is not treated as a deployed runtime binary until the EA is
+detached/reloaded and the check passes.

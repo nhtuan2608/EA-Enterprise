@@ -11,6 +11,13 @@ authorization and does not permit an order.
 - Terminal log: EnterpriseEA (XAUUSD-VIP,M5) loaded successfully
 - The EA was observed being removed and loaded successfully after recompilation.
 
+Subsequent deployment verification found that the attached terminal keeps the
+currently loaded binary: MetaEditor still reports 0/0, but the target
+EnterpriseEA.ex5 hash and timestamp do not change. The repository now includes
+tools/compile_target.ps1; with -RequireBinaryChanged it fails closed and asks
+the operator to detach/reload the EA before treating a compile as a deployed
+binary.
+
 ## Runtime evidence
 
 Read from the target current/runtime_status.json at
