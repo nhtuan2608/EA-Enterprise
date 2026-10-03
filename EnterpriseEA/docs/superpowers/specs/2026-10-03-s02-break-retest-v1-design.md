@@ -103,10 +103,10 @@ Mục tiêu: người dùng không phải nhập lot, pip value, SL/TP theo symb
 | Stops level, freeze level, filling, expiration | `SymbolInfo*` | Đã đọc |
 | Lỗ tại SL cho 1 lot, theo tiền tài khoản | `OrderCalcProfit` (đã gồm contract size và quy đổi tiền) | Đã dùng khi tính lot |
 | Margin cần cho lệnh (đã gồm leverage tài khoản và leverage riêng từng symbol) | `OrderCalcMargin` | Đã dùng |
-| Leverage tài khoản | `ACCOUNT_LEVERAGE` | Cần thêm vào account snapshot để audit |
-| Swap long/short | `SYMBOL_SWAP_LONG/SHORT`, `SYMBOL_SWAP_MODE` | Cần thêm cho chi phí SWING |
-| Spread hiện tại và median | Quote hiện tại, `MqlRates.spread` | Cần thêm (mục 7) |
-| Commission | Không có trong thông số symbol; học từ `DEAL_COMMISSION` của các deal gần nhất theo symbol | Cần thêm; khi chưa có deal nào thì dùng hồ sơ chi phí của tài khoản (mặc định 0 với loại "không phí hoa hồng") và gắn cờ `COST_ESTIMATED` |
+| Leverage tài khoản | `ACCOUNT_LEVERAGE` | Đã đọc (`AccountAutoProfile`) |
+| Swap long/short | `SYMBOL_SWAP_LONG/SHORT`, `SYMBOL_SWAP_MODE` | Đã dùng cho chi phí SWING (2 đêm dự kiến) |
+| Spread hiện tại và median | Quote hiện tại, `MqlRates.spread` | Đã dùng (2 × median 288 nến M5; ≤ 25% stop) |
+| Commission | Không có trong thông số symbol; học từ `DEAL_COMMISSION` của các deal gần nhất theo symbol | Đã dùng; khi chưa có deal nào thì dùng hồ sơ chi phí của tài khoản (mặc định 0 với loại "không phí hoa hồng") và gắn cờ `COST_ESTIMATED` |
 | Tên symbol khác nhau theo loại tài khoản (hậu tố) | Symbol registry, chặn riêng từng symbol (SYM-02) | Đã có |
 
 Quy tắc:
@@ -158,11 +158,11 @@ Mỗi chuyển trạng thái ghi: candidate_id, symbol canonical và broker, pro
 | TC-S02-12 | Restart giữa chừng → engine khôi phục đúng trạng thái, không tạo candidate trùng |
 | TC-S02-13 | SCALP và SWING trên cùng symbol chạy độc lập, không dùng chung trạng thái |
 
-Kiểm chứng trên MT5 Strategy Tester với 5 symbol mặc định, mỗi profile, **tối đa 1 tuần lịch sử** (yêu cầu người dùng ngày 03/10/2026): xác nhận logic chạy đúng thứ tự trạng thái, vùng hợp lưu được dựng đúng, không tạo candidate trùng, và đo sơ bộ tần suất tín hiệu, MFE/MAE, thời gian tới 1R. Một tuần cho rất ít mẫu nên không đủ để khóa tham số theo thống kê; tham số mục 10 giữ PROPOSED và chỉ chuyển CONFIRMED khi có thêm bằng chứng forward trên demo/retained runtime theo phụ lục D.
+Kiểm chứng (yêu cầu người dùng ngày 03/10/2026): người dùng chạy EA **forward 1 tuần** trên terminal với 5 symbol mặc định, `InpStrategyRuntimeEnabled = true`, rồi báo lại. Trong tuần đó EA lưu toàn bộ chuyển trạng thái vào audit, checkpoint và daily stats; cuối tuần đánh giá: logic chạy đúng thứ tự, vùng hợp lưu dựng đúng, không có candidate trùng, tần suất tín hiệu theo symbol/profile, và với các candidate TRIGGERED thì MFE/MAE, thời gian tới 1R, lý do bị Risk Kernel từ chối. Strategy Tester chỉ là kiểm tra bổ sung. Một tuần không đủ mẫu để khóa tham số theo thống kê, nên tham số mục 10 giữ PROPOSED cho tới khi có thêm bằng chứng forward.
 
 ## 14. Kế hoạch triển khai
 
-Trạng thái ngày 03/10/2026: bước 1, 2, 3 đã xong (commit 71817d0 và bước nối runtime); controlled-live chặn candidate v1 với reason LIVE_S02_V1_RISK_PATH_PENDING cho tới khi xong bước 5.
+Trạng thái ngày 03/10/2026: bước 1 đến 5 đã xong. Candidate v1 đi qua kế hoạch tự suy (SL/TP cấu trúc, chi phí, O-04, ledger FTMO) rồi qua cùng Risk Kernel như prototype; việc gửi lệnh vẫn cần đủ bảy cổng controlled-live (phụ lục D.2). Còn lại: bước 6 (chạy forward 1 tuần) và bước 7 (lệnh chờ sau REQ-021).
 
 1. Module Location: tính level theo từng nguồn, gom vùng, kiểm tra độc lập; fixture và oracle Python (TC-S02-01 đến 03).
 2. Module HTF structure (TC-S02-06).

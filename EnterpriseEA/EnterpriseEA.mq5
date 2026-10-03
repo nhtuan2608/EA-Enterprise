@@ -454,7 +454,7 @@ void OnTimer()
             }
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
-                                       g_controller,g_controller_allows_market,g_audit);
+                                       g_controller,g_controller_allows_market,g_audit,g_risk_ledger);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

@@ -17,6 +17,8 @@
 #include "../Risk/FtmoHeadroom.mqh"
 #include "../Risk/PortfolioBudget.mqh"
 #include "../Risk/VolumeSizing.mqh"
+#include "../Risk/RiskLimitsProfile.mqh"
+#include "../Storage/RiskLedgerStore.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -194,6 +196,180 @@ bool EEA_ControlledLiveExistingStress(const EEA_ObserverRuntimeContext &observer
    return true;
   }
 
+// Everything the risk path needs for one candidate. The prototype builds it from the
+// EA inputs; S02 v1 derives it from structure, broker data, the risk ledger and O-04.
+#define EEA_S02_SWING_EXPECTED_NIGHTS 2.0
+#define EEA_S02_SPREAD_MEDIAN_BARS 288
+
+struct EEA_ControlledLiveTradePlan
+  {
+   string setup_version;
+   double initial_capital;
+   double safety_buffer_money;
+   double balance_at_daily_reset;
+   datetime daily_reset_at_utc;
+   double prior_overall_high_water_balance;
+   double base_risk_fraction;
+   double per_trade_cap_money;
+   double portfolio_cap_money;
+   bool   portfolio_cap_includes_existing;  // cap is the total open risk; existing stress is subtracted
+   double invalidation_price;
+   double target_price;                     // > 0: structural target
+   double target_r_multiple;                // prototype only
+   double stop_buffer_price;
+   double max_spread_points;
+   double max_spread_stop_fraction;
+   double minimum_net_rr;
+   double cost_per_lot_money;               // round-trip commission plus expected swap
+   bool   cost_estimated;
+   double currency_cap_money;
+   int    max_correlated_trades;
+   double min_margin_level_percent;
+   double htf_risk_modifier;
+  };
+
+void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
+  {
+   p.setup_version=""; p.initial_capital=0.0; p.safety_buffer_money=0.0; p.balance_at_daily_reset=0.0;
+   p.daily_reset_at_utc=0; p.prior_overall_high_water_balance=0.0; p.base_risk_fraction=0.0;
+   p.per_trade_cap_money=0.0; p.portfolio_cap_money=0.0; p.portfolio_cap_includes_existing=false;
+   p.invalidation_price=0.0; p.target_price=0.0; p.target_r_multiple=0.0; p.stop_buffer_price=0.0;
+   p.max_spread_points=0.0; p.max_spread_stop_fraction=0.0; p.minimum_net_rr=0.0; p.cost_per_lot_money=0.0;
+   p.cost_estimated=false; p.currency_cap_money=0.0; p.max_correlated_trades=0; p.min_margin_level_percent=0.0;
+   p.htf_risk_modifier=1.0;
+  }
+
+void EEA_ControlledLivePlanFromConfig(const EEA_ControlledLiveConfig &config,const EEA_S02Engine &engine,
+                                      const EEA_RuntimeSymbolSpec &symbol,EEA_ControlledLiveTradePlan &p)
+  {
+   EEA_ControlledLivePlanDefaults(p);
+   p.setup_version=config.setup_version; p.initial_capital=config.initial_capital;
+   p.safety_buffer_money=config.safety_buffer_money; p.balance_at_daily_reset=config.balance_at_daily_reset;
+   p.daily_reset_at_utc=config.daily_reset_at_utc; p.prior_overall_high_water_balance=config.prior_overall_high_water_balance;
+   p.base_risk_fraction=config.base_risk_fraction; p.per_trade_cap_money=config.per_trade_cap_money;
+   p.portfolio_cap_money=config.portfolio_remaining_money; p.invalidation_price=engine.invalidation_price;
+   p.target_r_multiple=config.target_r_multiple; p.stop_buffer_price=config.stop_buffer_ticks*symbol.tick_size;
+   p.max_spread_points=config.max_spread_points; p.minimum_net_rr=config.minimum_net_rr;
+  }
+
+// Open risk per currency from positions and pending orders (spec 5.5). Every open
+// exposure must carry a stop; one without fails closed.
+bool EEA_ControlledLiveExposure(const EEA_ObserverRuntimeContext &observer,EEA_CurrencyExposure &exposure,
+                                string &reason)
+  {
+   EEA_CurrencyExposureReset(exposure);
+   for(int i=0;i<observer.reconciliation.position_count;i++)
+     {
+      EEA_RuntimePositionRow p=observer.reconciliation.positions[i];
+      int type=(int)StringToInteger(p.type);
+      int direction=(type==ORDER_TYPE_BUY ? 1 : -1);
+      if(p.sl<=0.0) { reason="LIVE_EXISTING_POSITION_PROTECTION_UNAVAILABLE"; return false; }
+      double loss=0.0;
+      if(!OrderCalcProfit((ENUM_ORDER_TYPE)type,p.symbol,p.volume,p.current_price,p.sl,loss) || !EEA_IsFiniteDouble(loss))
+        { reason="LIVE_EXISTING_POSITION_STRESS_INVALID"; return false; }
+      if(!EEA_CurrencyExposureAddPosition(exposure,SymbolInfoString(p.symbol,SYMBOL_CURRENCY_BASE),
+                                          SymbolInfoString(p.symbol,SYMBOL_CURRENCY_PROFIT),direction,MathMax(0.0,-loss)))
+        { reason="CURRENCY_EXPOSURE_INVALID"; return false; }
+     }
+   for(int i=0;i<observer.reconciliation.order_count;i++)
+     {
+      EEA_RuntimeOrderRow o=observer.reconciliation.orders[i];
+      int type=(int)StringToInteger(o.type);
+      int direction=(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_BUY_STOP || type==ORDER_TYPE_BUY_STOP_LIMIT) ? 1 : -1;
+      if(o.sl<=0.0) { reason="LIVE_EXISTING_ORDER_PROTECTION_UNAVAILABLE"; return false; }
+      double loss=0.0;
+      if(!OrderCalcProfit(direction>0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,o.symbol,o.volume,o.price,o.sl,loss) ||
+         !EEA_IsFiniteDouble(loss))
+        { reason="LIVE_EXISTING_ORDER_STRESS_INVALID"; return false; }
+      if(!EEA_CurrencyExposureAddPosition(exposure,SymbolInfoString(o.symbol,SYMBOL_CURRENCY_BASE),
+                                          SymbolInfoString(o.symbol,SYMBOL_CURRENCY_PROFIT),direction,MathMax(0.0,-loss)))
+        { reason="CURRENCY_EXPOSURE_INVALID"; return false; }
+     }
+   reason="CURRENCY_EXPOSURE_READY";
+   return true;
+  }
+
+// S02 v1 plan (design sections 8, 9, 11): structural SL beyond the retest extreme,
+// nearest structural target at least 1R away, relative spread guard, broker-derived
+// costs, O-04 limits scaled by the HTF modifier, FTMO facts from the risk ledger.
+bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strategy,const int index,
+                                     const EEA_ObserverRuntimeContext &observer,
+                                     const EEA_RuntimeSymbolSpec &symbol,const EEA_PolicySettings &policy,
+                                     const EEA_RiskLedger &ledger,EEA_ControlledLiveTradePlan &p,string &reason)
+  {
+   EEA_ControlledLivePlanDefaults(p);
+   EEA_S02Engine engine=strategy.engines[index];
+   if(engine.state!=EEA_S02_TRIGGERED || (engine.direction!=1 && engine.direction!=-1) || symbol.broker_symbol=="")
+     { reason="LIVE_CANDIDATE_NOT_TRIGGERED"; return false; }
+   EEA_RiskLimits limits;
+   if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)) return false;
+   if(ledger.initial_capital<=0.0) { reason="LIVE_INITIAL_CAPITAL_UNKNOWN"; return false; }
+   long reset=EEA_PragueDailyResetUtc((long)TimeGMT());
+   if(ledger.last_reset_utc!=reset || ledger.last_reset_balance<=0.0)
+     { reason="LIVE_DAILY_RESET_SNAPSHOT_STALE"; return false; }
+   bool swing=(strategy.profile[index]=="SWING");
+   MqlTick tick; ZeroMemory(tick);
+   if(!SymbolInfoTick(symbol.broker_symbol,tick) || tick.bid<=0.0 || tick.ask<=0.0)
+     { reason="LIVE_ENTRY_QUOTE_UNAVAILABLE"; return false; }
+   int direction=engine.direction;
+   double entry=(direction==1 ? tick.ask : tick.bid);
+   double spread_price=tick.ask-tick.bid;
+   double invalidation=engine.candidate.retest_extreme>0.0 ? engine.candidate.retest_extreme : engine.retest_extreme;
+   if(invalidation<=0.0 || (direction==1 && invalidation>=entry) || (direction==-1 && invalidation<=entry))
+     { reason="LIVE_STRUCTURE_INVALIDATION_INVALID"; return false; }
+   double buffer=MathMax(0.10*engine.signal_atr,1.5*spread_price);
+   if(buffer<=0.0) { reason="LIVE_STOP_BUFFER_INVALID"; return false; }
+   double stop=(direction==1 ? invalidation-buffer : invalidation+buffer);
+   double risk_distance=MathAbs(entry-stop);
+
+   EEA_LevelPoint points[]; EEA_LevelBar bars[];
+   int point_count=0, level_count=0; double context_atr=0.0;
+   if(!EEA_StrategyRuntimeCollectLevels(symbol.broker_symbol,swing,points,point_count,bars,level_count,context_atr,reason))
+      return false;
+   double target=0.0;
+   if(!EEA_S02V1StructuralTarget(points,point_count,direction,entry,risk_distance,target))
+     { reason="NO_STRUCTURAL_TARGET"; return false; }
+
+   double median_spread=EEA_MedianSpreadPoints(symbol.broker_symbol,EEA_S02_SPREAD_MEDIAN_BARS);
+   if(median_spread<=0.0) { reason="LIVE_SPREAD_MEDIAN_UNAVAILABLE"; return false; }
+   bool learned=false;
+   double cost=2.0*EEA_CommissionPerLotPerSide(observer.reconciliation,symbol.broker_symbol,learned);
+   if(swing)
+     {
+      bool known=false;
+      double swap=EEA_SwapMoneyPerLotPerNight(symbol,direction,known);
+      if(swap<0.0) cost+=-swap*EEA_S02_SWING_EXPECTED_NIGHTS;
+      if(!known) learned=false;
+     }
+   double htf=MathMax(0.0,MathMin(1.0,strategy.htf_risk_modifier[index]));
+
+   p.setup_version=engine.config_version;
+   p.initial_capital=ledger.initial_capital;
+   p.safety_buffer_money=limits.safety_buffer_fraction*ledger.initial_capital;
+   p.balance_at_daily_reset=ledger.last_reset_balance;
+   p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
+   p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
+   p.base_risk_fraction=limits.per_trade_fraction*htf;
+   p.per_trade_cap_money=limits.per_trade_fraction*ledger.initial_capital;
+   p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
+   p.portfolio_cap_includes_existing=true;
+   p.invalidation_price=invalidation;
+   p.target_price=target;
+   p.stop_buffer_price=buffer;
+   p.max_spread_points=2.0*median_spread;
+   p.max_spread_stop_fraction=0.25;
+   p.minimum_net_rr=swing ? 2.0 : 1.5;
+   p.cost_per_lot_money=cost;
+   p.cost_estimated=!learned;
+   p.currency_cap_money=limits.currency_exposure_fraction*ledger.initial_capital;
+   p.max_correlated_trades=limits.max_correlated_trades;
+   p.min_margin_level_percent=limits.min_margin_level_percent;
+   p.htf_risk_modifier=htf;
+   if(p.base_risk_fraction<=0.0) { reason="LIVE_RISK_REDUCED_TO_ZERO"; return false; }
+   reason=learned ? "LIVE_V1_PLAN_READY" : "LIVE_V1_PLAN_READY_COST_ESTIMATED";
+   return true;
+  }
+
 bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
                                         const EEA_ObserverRuntimeContext &observer,
                                         const EEA_S02Engine &engine,
@@ -204,14 +380,31 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
                                         EEA_RuntimeTradeQuote &final_quote,
                                         string &reason)
   {
+   EEA_ControlledLiveTradePlan plan;
+   EEA_ControlledLivePlanFromConfig(config,engine,symbol,plan);
+   return EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,engine,symbol,policy,current,evidence,
+                                                 final_quote,reason);
+  }
+
+bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &config,
+                                            const EEA_ControlledLiveTradePlan &plan,
+                                        const EEA_ObserverRuntimeContext &observer,
+                                        const EEA_S02Engine &engine,
+                                        const EEA_RuntimeSymbolSpec &symbol,
+                                        const EEA_PolicySettings &policy,
+                                        EEA_DryRunContext &current,
+                                        EEA_DryRunEvidence &evidence[],
+                                        EEA_RuntimeTradeQuote &final_quote,
+                                        string &reason)
+  {
    reason="LIVE_RISK_CONTEXT_INVALID";
-   if(config.setup_version=="" || config.initial_capital<=0.0 || config.safety_buffer_money<0.0 ||
-      config.balance_at_daily_reset<=0.0 || config.daily_reset_at_utc<=0 ||
-      config.base_risk_fraction<=0.0 || config.base_risk_fraction>1.0 ||
-      config.per_trade_cap_money<=0.0 || config.portfolio_remaining_money<=0.0 ||
-      config.minimum_net_rr<=0.0 || config.stop_buffer_ticks<=0.0 ||
-      config.target_r_multiple<=0.0 || config.max_spread_points<=0.0 ||
-      config.quote_freshness_seconds<1 || config.release_ttl_seconds<1)
+   if(plan.setup_version=="" || plan.initial_capital<=0.0 || plan.safety_buffer_money<0.0 ||
+      plan.balance_at_daily_reset<=0.0 || plan.daily_reset_at_utc<=0 ||
+      plan.base_risk_fraction<=0.0 || plan.base_risk_fraction>1.0 ||
+      plan.per_trade_cap_money<=0.0 || plan.portfolio_cap_money<=0.0 ||
+      plan.minimum_net_rr<=0.0 || plan.stop_buffer_price<=0.0 || plan.invalidation_price<=0.0 ||
+      (plan.target_price<=0.0 && plan.target_r_multiple<=0.0) || plan.max_spread_points<=0.0 ||
+      plan.cost_per_lot_money<0.0 || config.quote_freshness_seconds<1 || config.release_ttl_seconds<1)
      { reason="LIVE_RISK_INPUTS_INCOMPLETE"; return false; }
    if(engine.state!=EEA_S02_TRIGGERED || engine.candidate.candidate_id=="" ||
       (engine.direction!=1 && engine.direction!=-1) || symbol.broker_symbol=="")
@@ -224,13 +417,12 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
      { reason="LIVE_ENTRY_QUOTE_UNAVAILABLE"; return false; }
    const int order_type=(engine.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
    const double entry=(engine.direction==1 ? tick.ask : tick.bid);
-   const double distance=MathAbs(entry-engine.invalidation_price);
-   const double target=(engine.direction==1 ? entry+distance*config.target_r_multiple :
-                                                entry-distance*config.target_r_multiple);
+   const double distance=MathAbs(entry-plan.invalidation_price);
+   const double target=plan.target_price>0.0 ? plan.target_price :
+      (engine.direction==1 ? entry+distance*plan.target_r_multiple : entry-distance*plan.target_r_multiple);
    EEA_StructuralLevels levels;
-   if(!EEA_ProposeStructuralLevels(engine.direction,entry,engine.invalidation_price,
-                                    target,config.stop_buffer_ticks*symbol.tick_size,
-                                    symbol.tick_size,levels))
+   if(!EEA_ProposeStructuralLevels(engine.direction,entry,plan.invalidation_price,
+                                    target,plan.stop_buffer_price,symbol.tick_size,levels))
      { reason="LIVE_STRUCTURAL_LEVELS_INVALID"; return false; }
 
    EEA_RuntimeTradeQuote unit_quote;
@@ -239,8 +431,11 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
                                   levels.take_profit,1.0,config.quote_freshness_seconds,
                                   unit_quote,quote_reason))
      { reason=quote_reason; return false; }
-   if(unit_quote.spread_points>config.max_spread_points)
+   if(unit_quote.spread_points>plan.max_spread_points)
      { reason="LIVE_SPREAD_LIMIT_EXCEEDED"; return false; }
+   if(plan.max_spread_stop_fraction>0.0 &&
+      unit_quote.spread_points*symbol.point>plan.max_spread_stop_fraction*MathAbs(entry-levels.stop_loss))
+     { reason="SPREAD_TOO_WIDE_FOR_STOP"; return false; }
 
    double gain_unit=0.0;
    if(!OrderCalcProfit((ENUM_ORDER_TYPE)order_type,symbol.broker_symbol,1.0,
@@ -254,7 +449,7 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
    ftmo_policy.config_version=observer.config_version; ftmo_policy.source_version="policy-settings-v1.0.0";
    ftmo_policy.source_reference="policy-settings-revision-"+IntegerToString(policy.revision);
    ftmo_policy.policy_timezone="Europe/Prague"; ftmo_policy.account_currency=observer.account.account_currency;
-   ftmo_policy.initial_capital=config.initial_capital; ftmo_policy.safety_buffer_money=config.safety_buffer_money;
+   ftmo_policy.initial_capital=plan.initial_capital; ftmo_policy.safety_buffer_money=plan.safety_buffer_money;
    ftmo_policy.continue_after_daily_profit_target=policy.committed_daily_continuation;
    ftmo_policy.continue_after_overall_profit_target=policy.committed_overall_continuation;
 
@@ -262,19 +457,19 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
    ftmo_input.daily_snapshot_config_version=observer.config_version;
    ftmo_input.daily_snapshot_currency=observer.account.account_currency;
    ftmo_input.daily_snapshot_quality="OK";
-   ftmo_input.daily_snapshot_id="daily-"+IntegerToString((long)config.daily_reset_at_utc);
-   ftmo_input.daily_reset_at_utc=config.daily_reset_at_utc; ftmo_input.daily_snapshot_valid=true;
+   ftmo_input.daily_snapshot_id="daily-"+IntegerToString((long)plan.daily_reset_at_utc);
+   ftmo_input.daily_reset_at_utc=plan.daily_reset_at_utc; ftmo_input.daily_snapshot_valid=true;
    ftmo_input.reset_window_confirmed_by_caller=true;
-   ftmo_input.balance_at_daily_reset=config.balance_at_daily_reset;
+   ftmo_input.balance_at_daily_reset=plan.balance_at_daily_reset;
    ftmo_input.current_balance=observer.account.balance;
    ftmo_input.floating_pnl_after_costs=floating_pnl;
-   ftmo_input.proposed_stress_loss=MathMin(config.per_trade_cap_money,
-                                           observer.account.equity*config.base_risk_fraction);
+   ftmo_input.proposed_stress_loss=MathMin(plan.per_trade_cap_money,
+                                           observer.account.equity*plan.base_risk_fraction);
    ftmo_input.stress_loss_currency=observer.account.account_currency;
    ftmo_input.high_water_snapshot_valid=true; ftmo_input.high_water_snapshot_quality="OK";
    ftmo_input.high_water_config_version=observer.config_version;
-   ftmo_input.high_water_as_of_utc=config.daily_reset_at_utc;
-   ftmo_input.prior_overall_high_water_balance=config.prior_overall_high_water_balance;
+   ftmo_input.high_water_as_of_utc=plan.daily_reset_at_utc;
+   ftmo_input.prior_overall_high_water_balance=plan.prior_overall_high_water_balance;
    EEA_FtmoHeadroom headroom;
    if(!EEA_FtmoCalculate(ftmo_policy,ftmo_input,headroom) || headroom.headroom_status!="SUFFICIENT")
      { reason=headroom.reason_code; return false; }
@@ -291,16 +486,27 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
    portfolio_input.external_orders_included=true; portfolio_input.account_mode_reconciled=true;
    portfolio_input.portfolio_limits_confirmed=true;
    portfolio_input.equity_after_costs=observer.account.equity;
-   portfolio_input.base_risk_fraction=config.base_risk_fraction;
-   portfolio_input.per_trade_cap_money=config.per_trade_cap_money;
-   portfolio_input.portfolio_remaining_money=config.portfolio_remaining_money;
+   portfolio_input.base_risk_fraction=plan.base_risk_fraction;
+   portfolio_input.per_trade_cap_money=plan.per_trade_cap_money;
+   portfolio_input.portfolio_remaining_money=plan.portfolio_cap_includes_existing ?
+      MathMax(0.0,plan.portfolio_cap_money-existing_stress_loss) : plan.portfolio_cap_money;
    portfolio_input.policy_headroom_after_buffer_money=headroom.available_headroom;
    portfolio_input.existing_stress_loss_money=existing_stress_loss;
    EEA_PortfolioBudgetResult portfolio;
    if(!EEA_CalculatePortfolioBudget(portfolio_input,portfolio) || portfolio.budget_status!="BUDGET_AVAILABLE")
      { reason=portfolio.reason_code; return false; }
 
-   double raw_volume=portfolio.budget_money/unit_quote.projected_loss;
+   if(plan.currency_cap_money>0.0)
+     {
+      EEA_CurrencyExposure exposure; string exposure_reason;
+      if(!EEA_ControlledLiveExposure(observer,exposure,exposure_reason)) { reason=exposure_reason; return false; }
+      if(!EEA_CurrencyExposureAllows(exposure,symbol.base_currency,symbol.profit_currency,engine.direction,
+                                     portfolio.budget_money,plan.currency_cap_money,plan.max_correlated_trades,
+                                     exposure_reason))
+        { reason=exposure_reason; return false; }
+     }
+   // Costs per lot are part of the loss at the stop, so they reduce the volume.
+   double raw_volume=portfolio.budget_money/(unit_quote.projected_loss+plan.cost_per_lot_money);
    double final_volume=MathFloor(MathMin(raw_volume,symbol.volume_max)/symbol.volume_step)*symbol.volume_step;
    if(!EEA_IsFiniteDouble(final_volume) || final_volume<symbol.volume_min)
      { reason="LIVE_VOLUME_BELOW_SYMBOL_MINIMUM"; return false; }
@@ -308,8 +514,14 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
                                  levels.take_profit,final_volume,config.quote_freshness_seconds,
                                  final_quote,quote_reason))
      { reason=quote_reason; return false; }
-   if(final_quote.spread_points>config.max_spread_points)
+   if(final_quote.spread_points>plan.max_spread_points)
      { reason="LIVE_SPREAD_LIMIT_EXCEEDED"; return false; }
+   if(plan.min_margin_level_percent>0.0)
+     {
+      double margin_after=observer.account.margin+final_quote.required_margin;
+      if(margin_after>0.0 && observer.account.equity/margin_after*100.0<plan.min_margin_level_percent)
+        { reason="MARGIN_LEVEL_TOO_LOW"; return false; }
+     }
    double gain_final=0.0;
    if(!OrderCalcProfit((ENUM_ORDER_TYPE)order_type,symbol.broker_symbol,final_volume,
                        final_quote.entry_price,levels.take_profit,gain_final) ||
@@ -349,13 +561,13 @@ bool EEA_ControlledLiveBuildRiskContext(const EEA_ControlledLiveConfig &config,
    economics_input.quote_quality="OK"; economics_input.pricing_snapshot_id=final_quote.snapshot_id;
    economics_input.loss_quote_valid=true; economics_input.reward_quote_valid=true;
    economics_input.target_space_confirmed=true;
-   economics_input.execution_constraints_confirmed=final_quote.spread_points<=config.max_spread_points;
+   economics_input.execution_constraints_confirmed=final_quote.spread_points<=plan.max_spread_points;
    economics_input.direction=engine.direction; economics_input.entry_reference=final_quote.entry_price;
    economics_input.stop_loss=levels.stop_loss; economics_input.take_profit=levels.take_profit;
    economics_input.final_volume=final_volume; economics_input.quote_volume=final_volume;
-   economics_input.net_loss_at_sl_money=final_quote.projected_loss;
-   economics_input.net_gain_at_tp_money=gain_final;
-   economics_input.minimum_net_rr=config.minimum_net_rr;
+   economics_input.net_loss_at_sl_money=final_quote.projected_loss+plan.cost_per_lot_money*final_volume;
+   economics_input.net_gain_at_tp_money=gain_final-plan.cost_per_lot_money*final_volume;
+   economics_input.minimum_net_rr=plan.minimum_net_rr;
    EEA_TradeEconomicsResult economics;
    if(!EEA_CheckTradeEconomics(economics_input,economics) || economics.economics_status!="ECONOMICS_ACCEPTABLE")
      { reason=economics.reason_code; return false; }
@@ -407,7 +619,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ObserverRuntimeContext &observer,
                                const EEA_ExecutionControllerState &controller,
                                const bool controller_allows_market,
-                               CAuditLog &audit)
+                               CAuditLog &audit,
+                               const EEA_RiskLedger &ledger)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -426,10 +639,6 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
       if(!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
-      // S02 v1 candidates need the structural SL/TP and O-04 risk path (plan step 5);
-      // until then they are observed only and never reach the execution path.
-      if(strategy.zone_mode)
-        { state.last_reason="LIVE_S02_V1_RISK_PATH_PENDING"; continue; }
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id==state.last_candidate_id[i]) continue;
       EEA_PolicySettings policy; string reason;
@@ -445,9 +654,22 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(auth_context.candidate_id!=candidate_id)
         { state.last_reason="LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"; continue; }
       EEA_DryRunContext current; EEA_DryRunEvidence evidence[]; EEA_RuntimeTradeQuote quote;
-      if(!EEA_ControlledLiveBuildRiskContext(config,observer,strategy.engines[i],observer.symbol_specs[row],
-                                             policy,current,evidence,quote,reason))
-        { state.last_reason=reason; continue; }
+      // S02 v1 derives the whole plan (structure, costs, O-04, ledger); the prototype
+      // keeps its explicit inputs. Both pass the same Risk Kernel checks afterwards.
+      bool context_ready=false;
+      if(strategy.zone_mode)
+        {
+         EEA_ControlledLiveTradePlan plan;
+         context_ready=EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,
+                                                       ledger,plan,reason) &&
+                       EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
+                                                              observer.symbol_specs[row],policy,current,
+                                                              evidence,quote,reason);
+        }
+      else
+         context_ready=EEA_ControlledLiveBuildRiskContext(config,observer,strategy.engines[i],observer.symbol_specs[row],
+                                                          policy,current,evidence,quote,reason);
+      if(!context_ready) { state.last_reason=reason; continue; }
       EEA_DryRunDecision review; EEA_RiskDecision decision;
       if(!EEA_EvaluateDryRunCandidate(current,evidence,review)) { state.last_reason="LIVE_DRY_RUN_"+review.decision_status; continue; }
       EEA_RiskReleaseRecheck recheck; EEA_RiskReleaseRecheckDefaults(recheck);

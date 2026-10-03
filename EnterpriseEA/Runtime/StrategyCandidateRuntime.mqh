@@ -284,22 +284,24 @@ double EEA_StrategyRuntimeAtrFromRates(const MqlRates &rates[],const int last,co
    return MathIsValidNumber(atr) && atr>0.0 ? atr : 0.0;
   }
 
-// Levels, zones, context ATR and HTF structure for one engine, rebuilt from the
-// profile's level timeframe (H1 for SCALP, H4 for SWING).
-bool EEA_StrategyRuntimeBuildZones(EEA_StrategyCandidateRuntime &runtime,const int index,
-                                   const string broker_symbol,const bool swing,
-                                   EEA_ConfluenceZone &zones[],int &zone_count,string &structure)
+// Level points, context ATR and level bars for one profile, taken from the profile's
+// level timeframe (H1 for SCALP, H4 for SWING). Shared by zone building and by the
+// structural take-profit selection so both use the same levels.
+bool EEA_StrategyRuntimeCollectLevels(const string broker_symbol,const bool swing,
+                                      EEA_LevelPoint &points[],int &point_count,
+                                      EEA_LevelBar &bars[],int &level_count,
+                                      double &context_atr,string &reason)
   {
+   point_count=0; level_count=0; context_atr=0.0;
    ENUM_TIMEFRAMES level_tf=swing ? PERIOD_H4 : PERIOD_H1;
    int level_wanted=swing ? EEA_S02_SWING_LEVEL_BARS : EEA_S02_SCALP_LEVEL_BARS;
    MqlRates level_rates[];
    ArraySetAsSeries(level_rates,false);
-   int level_count=CopyRates(broker_symbol,level_tf,1,level_wanted,level_rates);
+   level_count=CopyRates(broker_symbol,level_tf,1,level_wanted,level_rates);
    if(level_count<EEA_S02_MIN_LEVEL_BARS)
-     { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_LEVEL_BARS_UNAVAILABLE"; return false; }
-   double context_atr=EEA_StrategyRuntimeAtrFromRates(level_rates,level_count-1,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
-   if(context_atr<=0.0) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_CONTEXT_ATR_INVALID"; return false; }
-   EEA_LevelBar bars[];
+     { reason="EEA_STRATEGY_RUNTIME_LEVEL_BARS_UNAVAILABLE"; return false; }
+   context_atr=EEA_StrategyRuntimeAtrFromRates(level_rates,level_count-1,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
+   if(context_atr<=0.0) { reason="EEA_STRATEGY_RUNTIME_CONTEXT_ATR_INVALID"; return false; }
    ArrayResize(bars,level_count);
    for(int i=0;i<level_count;i++)
      {
@@ -308,8 +310,6 @@ bool EEA_StrategyRuntimeBuildZones(EEA_StrategyCandidateRuntime &runtime,const i
      }
    long now_server=(long)TimeTradeServer();
    long offset=(long)MathRound(((double)now_server-(double)TimeGMT())/900.0)*900;
-   EEA_LevelPoint points[];
-   int point_count=0;
    EEA_LevelsPreviousDay(bars,level_count,now_server,points,point_count);
    if(swing)
      {
@@ -323,6 +323,38 @@ bool EEA_StrategyRuntimeBuildZones(EEA_StrategyCandidateRuntime &runtime,const i
       EEA_LevelsSession(bars,level_count,now_server,offset,12,21,points,point_count); // New York
       EEA_LevelsSwings(bars,level_count,EEA_S02_SWING_WING,EEA_S02_SCALP_SWING_LOOKBACK,points,point_count);
      }
+   reason="LEVELS_COLLECTED";
+   return true;
+  }
+
+// Nearest structural level in the trade direction at least min_distance beyond entry
+// (design section 8). Any single source counts as a target.
+bool EEA_S02V1StructuralTarget(const EEA_LevelPoint &points[],const int point_count,const int direction,
+                               const double entry,const double min_distance,double &target)
+  {
+   target=0.0;
+   double best=0.0;
+   for(int i=0;i<point_count;i++)
+     {
+      double distance=direction*(points[i].price-entry);
+      if(distance<min_distance) continue;
+      if(target<=0.0 || distance<best) { best=distance; target=points[i].price; }
+     }
+   return target>0.0;
+  }
+
+// Zones and HTF structure for one engine.
+bool EEA_StrategyRuntimeBuildZones(EEA_StrategyCandidateRuntime &runtime,const int index,
+                                   const string broker_symbol,const bool swing,
+                                   EEA_ConfluenceZone &zones[],int &zone_count,string &structure)
+  {
+   EEA_LevelPoint points[];
+   EEA_LevelBar bars[];
+   int point_count=0, level_count=0;
+   double context_atr=0.0;
+   string reason;
+   if(!EEA_StrategyRuntimeCollectLevels(broker_symbol,swing,points,point_count,bars,level_count,context_atr,reason))
+     { runtime.scan_reason[index]=reason; return false; }
    zone_count=EEA_BuildConfluenceZones(points,point_count,0.25*context_atr,0.5*context_atr,2,zones);
    structure=EEA_HtfStructure(bars,level_count,EEA_S02_SWING_WING);
    runtime.htf_structure[index]=structure;

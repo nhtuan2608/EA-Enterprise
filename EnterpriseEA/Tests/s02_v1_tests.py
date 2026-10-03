@@ -206,7 +206,7 @@ class ZoneEngineTests(unittest.TestCase):
 class RuntimeWiringTests(unittest.TestCase):
     def setUp(self):
         self.runtime = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
-        self.scan = self.runtime.split("bool EEA_StrategyRuntimeBuildZones", 1)[1].split("bool EEA_StrategyRuntimeLoadEngine", 1)[0]
+        self.scan = self.runtime.split("bool EEA_StrategyRuntimeCollectLevels", 1)[1].split("bool EEA_StrategyRuntimeLoadEngine", 1)[0]
 
     def test_two_profile_engines_per_symbol(self):
         init = self.runtime.split("bool EEA_StrategyCandidateRuntimeInitV1", 1)[1].split("string EEA_StrategyRuntimeCheckpointPath", 1)[0]
@@ -272,12 +272,42 @@ class RuntimeWiringTests(unittest.TestCase):
         self.assertLess(init.index("EEA_RuntimeStoreLoadSymbolSelectionList"), init.index("EEA_ObserverRuntimeAutoDiscover"))
         self.assertIn("EEA_ObserverRuntimeAutoDiscover(selection, brokers, discover_reasons, selection_count", init)
 
-    def test_v1_candidates_never_reach_execution_before_risk_path(self):
+    def test_v1_candidates_use_the_derived_plan_and_the_same_risk_kernel(self):
         live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
         loop = live.split("bool EEA_ControlledLiveOnTimer", 1)[1]
-        self.assertIn("LIVE_S02_V1_RISK_PATH_PENDING", loop)
-        self.assertLess(loop.index("LIVE_S02_V1_RISK_PATH_PENDING"), loop.index("EEA_ControlledLiveBuildRiskContext"))
+        self.assertNotIn("LIVE_S02_V1_RISK_PATH_PENDING", live)
+        self.assertLess(loop.index("EEA_ControlledLiveResolveV1Plan"), loop.index("EEA_ControlledLiveBuildRiskContextPlan"))
+        self.assertLess(loop.index("EEA_ControlledLiveBuildRiskContextPlan"), loop.index("EEA_EvaluateDryRunCandidate"))
         self.assertIn("last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_ENGINES]", live)
+
+    def test_v1_plan_is_structural_and_broker_derived(self):
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        plan = live.split("bool EEA_ControlledLiveResolveV1Plan", 1)[1].split("bool EEA_ControlledLiveBuildRiskContext(", 1)[0]
+        for token in ("engine.candidate.retest_extreme", "MathMax(0.10*engine.signal_atr,1.5*spread_price)",
+                      "EEA_S02V1StructuralTarget(points,point_count,direction,entry,risk_distance,target)",
+                      '"NO_STRUCTURAL_TARGET"', "p.max_spread_points=2.0*median_spread", "p.max_spread_stop_fraction=0.25",
+                      "p.minimum_net_rr=swing ? 2.0 : 1.5", "EEA_CommissionPerLotPerSide", "EEA_SwapMoneyPerLotPerNight",
+                      "EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)",
+                      "p.base_risk_fraction=limits.per_trade_fraction*htf",
+                      "p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital",
+                      "p.currency_cap_money=limits.currency_exposure_fraction*ledger.initial_capital",
+                      '"LIVE_DAILY_RESET_SNAPSHOT_STALE"', '"LIVE_INITIAL_CAPITAL_UNKNOWN"'):
+            self.assertIn(token, plan)
+        for manual in ("config.stop_buffer_ticks", "config.target_r_multiple", "config.max_spread_points",
+                       "config.minimum_net_rr", "config.base_risk_fraction"):
+            self.assertNotIn(manual, plan)
+
+    def test_risk_kernel_applies_costs_exposure_spread_and_margin(self):
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        body = live.split("bool EEA_ControlledLiveBuildRiskContextPlan", 1)[1].split("bool EEA_ControlledLiveOnTimer", 1)[0]
+        for token in ('"SPREAD_TOO_WIDE_FOR_STOP"', "EEA_CurrencyExposureAllows(exposure,symbol.base_currency,symbol.profit_currency",
+                      "portfolio.budget_money/(unit_quote.projected_loss+plan.cost_per_lot_money)",
+                      '"MARGIN_LEVEL_TOO_LOW"', "final_quote.projected_loss+plan.cost_per_lot_money*final_volume",
+                      "gain_final-plan.cost_per_lot_money*final_volume",
+                      "MathMax(0.0,plan.portfolio_cap_money-existing_stress_loss)"):
+            self.assertIn(token, body)
+        self.assertNotIn("config.base_risk_fraction", body)
+        self.assertNotIn("config.max_spread_points", body)
 
     def test_shell_defaults_to_v1_and_panel_shows_zone_detail(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
