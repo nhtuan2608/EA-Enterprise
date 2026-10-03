@@ -610,14 +610,14 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
-        self.assertIn("EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",30,274,180", settings)
+        self.assertIn("EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",EEA_PANEL_CONTENT_X,298,220", settings)
         self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,EEA_PANEL_CONTROL_HEIGHT)", panel)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",30,314", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",30,378", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",30,620", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",EEA_PANEL_CONTENT_X,338", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",EEA_PANEL_CONTENT_X,400", settings)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",EEA_PANEL_CONTENT_X,EEA_PANEL_SETTINGS_SAFETY_Y", settings)
         self.assertNotEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 2)
         rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
-        self.assertIn("404+i*EEA_PANEL_ROW_HEIGHT", rows)
+        self.assertIn("EEA_PANEL_SETTINGS_ROWS_Y+i*EEA_PANEL_ROW_HEIGHT", rows)
 
     def test_policy_verification_failure_checks_runtime_and_policy_rollback_results(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -872,6 +872,40 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
             "ObjectsDeleteAll(chart_id,EEA_PANEL_OVERLAY_PREFIX,g_panel_state.sub_window)",
         ):
             self.assertIn(token, panel)
+
+    def test_panel_presentation_scales_for_readability_and_spacing(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "#define EEA_PANEL_MAIN_WIDTH 540",
+            "#define EEA_PANEL_ROW_HEIGHT 29",
+            "#define EEA_PANEL_CONTROL_HEIGHT 30",
+            "#define EEA_PANEL_BODY_FONT_SIZE 10",
+            "#define EEA_PANEL_META_FONT_SIZE 9",
+            "#define EEA_PANEL_TITLE_FONT_SIZE 13",
+            "#define EEA_PANEL_INNER_WIDTH 516",
+        ):
+            self.assertIn(token, panel)
+
+    def test_panel_reuses_same_overlay_and_clears_dynamic_rows_before_rebinding(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_SymbolPanelBeginOverlay",
+            "EEA_SymbolPanelClearSettingsRows",
+            "EEA_SymbolPanelClearDashboardRows",
+            'ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(i))',
+            'ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_Chk")',
+        ):
+            self.assertIn(token, panel)
+        settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split(
+            "void EEA_SymbolPanelRenderDashboard", 1
+        )[0]
+        dashboard = panel.split("void EEA_SymbolPanelRenderDashboard", 1)[1].split(
+            "void EEA_SymbolPanelResetStaged", 1
+        )[0]
+        self.assertIn("EEA_SymbolPanelBeginOverlay", settings)
+        self.assertIn("EEA_SymbolPanelBeginOverlay", dashboard)
+        self.assertNotIn("EEA_SymbolPanelClearOverlay(chart_id);", settings)
+        self.assertNotIn("EEA_SymbolPanelClearOverlay(chart_id);", dashboard)
 
     def test_panel_status_uses_semantic_color_without_changing_fail_closed_copy(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
