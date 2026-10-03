@@ -108,7 +108,7 @@ int OnInit()
    g_config.observer_only=InpObserverOnly;
    if(InpObserverOnly==false && (!InpExecutionEnabled || !InpLiveTradeArmed))
      {
-      Print("Live execution requires both InpExecutionEnabled and InpLiveTradeArmed.");
+      Print("INIT_PARAMETERS_INCORRECT: live profile requires InpObserverOnly=false, InpExecutionEnabled=true and InpLiveTradeArmed=true.");
       return INIT_PARAMETERS_INCORRECT;
      }
    EEA_ControlledLiveConfigDefaults(g_live_config);
@@ -136,7 +136,10 @@ int OnInit()
    g_live_config.filling_mode=InpLiveFillingMode;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
+     {
+      Print("INIT_PARAMETERS_INCORRECT: EAConfig_Validate failed; check InpDataRoot and core configuration.");
       return INIT_PARAMETERS_INCORRECT;
+     }
    EEA_EnsureFolder(g_config.data_root);
    EEA_EnsureFolder(g_config.data_root+"/logs");
    EEA_EnsureFolder(g_config.data_root+"/current");
@@ -190,7 +193,11 @@ int OnInit()
      {
       string canonical[];
       int count = EEA_NormalizeCanonicalCsv(InpCanonicalSymbols, canonical);
-      if(count <= 0) return INIT_PARAMETERS_INCORRECT;
+      if(count <= 0)
+        {
+         Print("INIT_PARAMETERS_INCORRECT: InpCanonicalSymbols is empty or invalid.");
+         return INIT_PARAMETERS_INCORRECT;
+        }
 
       EEA_S02Config strategy_config;
       EEA_S02ResearchSeedConfig(strategy_config);
@@ -207,7 +214,11 @@ int OnInit()
       if(!EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                            strategy_config,InpStrategyRuntimeEnabled) &&
          InpStrategyRuntimeEnabled)
+        {
+         Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",
+               g_strategy_runtime.reason_code);
          return INIT_PARAMETERS_INCORRECT;
+        }
 
       if(!EEA_ObserverRuntimeInit(g_runtime,g_audit,g_config.data_root,g_config.config_version,
                                   InpRuntimeRefreshSeconds,InpHistoryLookbackDays,

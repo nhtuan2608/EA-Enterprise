@@ -58,6 +58,16 @@ class ControlledLiveRuntimeTests(unittest.TestCase):
         self.assertNotIn("if(!c.observer_only) return false;", config)
         self.assertNotIn("Paper ledger", shell)
 
+    def test_init_parameter_failures_have_diagnostic_reasons(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        for token in (
+            "INIT_PARAMETERS_INCORRECT: live profile requires",
+            "INIT_PARAMETERS_INCORRECT: EAConfig_Validate failed",
+            "INIT_PARAMETERS_INCORRECT: InpCanonicalSymbols is empty or invalid",
+            "INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid",
+        ):
+            self.assertIn(token, shell)
+
 
 if __name__ == "__main__":
     unittest.main()

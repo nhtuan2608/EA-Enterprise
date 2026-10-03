@@ -145,3 +145,9 @@ The current readiness snapshot is retained in
 `artifacts/live-readiness-current-2026-10-03.md`. It records the exact open
 runtime, selection, policy, controller and authorization checks; it does not
 grant permission to trade.
+
+The attach failure diagnostic now logs a specific reason for every
+INIT_PARAMETERS_INCORRECT path. Observer validation must use
+InpObserverOnly=true, InpExecutionEnabled=false, InpLiveTradeArmed=false,
+and InpStrategyRuntimeEnabled=false; any opt-in live/strategy configuration
+must pass its own explicit input requirements before initialization.
