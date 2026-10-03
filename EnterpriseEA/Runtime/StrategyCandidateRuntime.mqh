@@ -218,11 +218,21 @@ bool EEA_StrategyRuntimeOnTimer(EEA_StrategyCandidateRuntime &runtime,
                                 const string &canonical[],const string &broker[],const int count)
   {
    if(!runtime.enabled) return true;
-   if(!runtime.initialized || count!=runtime.symbol_count) return false;
-   for(int i=0;i<count;i++)
-      if(!EEA_StrategyRuntimeScanSymbol(runtime,i,broker[i])) return false;
+   if(!runtime.initialized) return false;
+   // Engines are matched to the live selection by canonical name, never by row
+   // index. A symbol that is not selected or is UNRESOLVED (SYM-02) is skipped
+   // on its own; a scan failure on one symbol does not stop the others.
+   bool all_scanned=true;
+   for(int e=0;e<runtime.symbol_count;e++)
+     {
+      int row=-1;
+      for(int k=0;k<count;k++)
+         if(canonical[k]==runtime.engines[e].canonical_symbol) { row=k; break; }
+      if(row<0 || broker[row]=="") continue;
+      if(!EEA_StrategyRuntimeScanSymbol(runtime,e,broker[row])) all_scanned=false;
+     }
    runtime.last_scan_utc=(long)TimeGMT();
-   return true;
+   return all_scanned;
   }
 
 #endif

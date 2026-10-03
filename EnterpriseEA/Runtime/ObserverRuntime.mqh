@@ -27,6 +27,8 @@ struct EEA_ObserverRuntimeContext
    EEA_RuntimeAccountSnapshot account;
    EEA_RuntimeReconciliationSnapshot reconciliation;
    EEA_RuntimeStatus status;
+   string symbol_block_reason[EEA_RUNTIME_MAX_SYMBOLS];
+   string unresolved_fingerprint;
   };
 
 bool EEA_ObserverRuntimeAudit(CAuditLog &audit,const string config_version,
@@ -55,7 +57,12 @@ bool EEA_ObserverRuntimeIsContextOnly(const string canonical,const string broker
    return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX.";
   }
 
-bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers[], const int count, const string server, string &out_reason)
+// SYM-02: every symbol resolves on its own. A symbol that cannot be mapped, or
+// whose specification cannot be read, keeps an empty broker symbol plus a
+// per-symbol reason and is blocked alone; the other symbols keep running.
+// Discovery fails only when no tradable symbol resolves at all.
+bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers[], string &reasons[],
+                                     const int count, const string server, string &out_reason)
   {
    out_reason = "";
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS)
@@ -73,25 +80,42 @@ bool EEA_ObserverRuntimeAutoDiscover(const string &canonicals[], string &brokers
    EEA_SymbolDiscoveryResult results[];
    EEA_ResolveSymbolsBatch(canonicals, candidates, results);
    ArrayResize(brokers, count);
-   for(int i = 0; i < count; i++) brokers[i]="";
-   for(int i = 0; i < count; i++)
-      if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],"")) brokers[i]="";
+   ArrayResize(reasons, count);
+   for(int i = 0; i < count; i++) { brokers[i]=""; reasons[i]=""; }
+   int tradable=0, resolved=0;
    for(int i = 0; i < count; i++)
      {
       if(!results[i].resolved)
         {
-         if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],""))
-           { brokers[i]=""; continue; }
-         out_reason = "SYMBOL_RESOLUTION_FAILED"; return false;
+         if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],"")) continue;
+         tradable++;
+         reasons[i]=(results[i].reason_code=="" ? "SYMBOL_UNRESOLVED" : results[i].reason_code);
+         continue;
         }
       brokers[i] = results[i].broker_symbol;
       if(EEA_ObserverRuntimeIsContextOnly(canonicals[i],brokers[i])) continue;
+      tradable++;
       EEA_RuntimeSymbolSpec spec;
       string spec_reason;
       if(!EEA_ReadRuntimeSymbolSpec(canonicals[i], brokers[i], server, spec, spec_reason))
-        { out_reason = spec_reason; return false; }
+        {
+         brokers[i]="";
+         reasons[i]=(spec_reason=="" ? "SYMBOL_SPEC_UNAVAILABLE" : spec_reason);
+         continue;
+        }
+      resolved++;
      }
+   if(tradable>0 && resolved==0)
+     { out_reason = "SYMBOL_RESOLUTION_FAILED"; return false; }
+   if(resolved<tradable) out_reason = "SYMBOL_RESOLUTION_PARTIAL";
    return true;
+  }
+
+int EEA_ObserverRuntimeIndexOf(const EEA_ObserverRuntimeContext &ctx,const string canonical)
+  {
+   for(int i=0;i<ctx.symbol_count;i++)
+      if(ctx.canonical_symbols[i]==canonical) return i;
+   return -1;
   }
 
 bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit)
@@ -127,23 +151,39 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) && ctx.broker_symbols[i]=="") missing_broker_mapping=true;
    if(missing_broker_mapping)
      {
-      string rediscover_reason=""; string rediscovered[];
-      if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
-         for(int i=0;i<ctx.symbol_count;i++) ctx.broker_symbols[i]=rediscovered[i];
+      string rediscover_reason=""; string rediscovered[]; string rediscovered_reasons[];
+      if(EEA_ObserverRuntimeAutoDiscover(ctx.canonical_symbols,rediscovered,rediscovered_reasons,ctx.symbol_count,ctx.account.broker_server,rediscover_reason))
+         for(int i=0;i<ctx.symbol_count;i++) { ctx.broker_symbols[i]=rediscovered[i]; ctx.symbol_block_reason[i]=rediscovered_reasons[i]; }
       else { ctx.stale=true; ctx.stale_reason="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.pending_refresh=true; ctx.status.refresh_in_progress=false; ctx.status.refresh_failure_count++; ctx.status.consecutive_refresh_failures++; ctx.status.runtime_state="DEGRADED"; ctx.status.reason_code="RUNTIME_SYMBOL_DISCOVERY_DEGRADED"; ctx.status.new_entries_blocked=true; EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_DEGRADED",ctx.status); return false; }
      }
+   int tradable_count=0, resolved_count=0;
    for(int i=0;i<ctx.symbol_count;i++)
-     if(!EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) &&
-        !EEA_ReadRuntimeSymbolSpec(ctx.canonical_symbols[i],ctx.broker_symbols[i],
-                                   ctx.account.broker_server,ctx.symbol_specs[i],reason))
-       {
-        ctx.status.refresh_in_progress = false;
-        ctx.status.refresh_failure_count++;
-        ctx.status.consecutive_refresh_failures++;
-        ctx.status.reason_code=reason;
-        EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_FAILED",ctx.status);
-        return false;
-       }
+     {
+      if(EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i])) continue;
+      tradable_count++;
+      if(ctx.broker_symbols[i]=="") continue;
+      if(!EEA_ReadRuntimeSymbolSpec(ctx.canonical_symbols[i],ctx.broker_symbols[i],
+                                    ctx.account.broker_server,ctx.symbol_specs[i],reason))
+        {
+         // SYM-02: a missing or unreadable specification blocks this symbol only.
+         ctx.symbol_block_reason[i]=(reason=="" ? "SYMBOL_SPEC_UNAVAILABLE" : reason);
+         ctx.broker_symbols[i]="";
+         ctx.symbol_specs[i].broker_symbol="";
+         ctx.symbol_specs[i].trade_mode="BLOCKED";
+         continue;
+        }
+      ctx.symbol_block_reason[i]="";
+      resolved_count++;
+     }
+   if(tradable_count>0 && resolved_count==0)
+     {
+      ctx.status.refresh_in_progress = false;
+      ctx.status.refresh_failure_count++;
+      ctx.status.consecutive_refresh_failures++;
+      ctx.status.reason_code=(reason=="" ? "SYMBOL_RESOLUTION_FAILED" : reason);
+      EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_FAILED",ctx.status);
+      return false;
+     }
    if(!EEA_ReadRuntimeReconciliation(ctx.account,ctx.config_version,ctx.history_lookback_days,
                                       ctx.refresh_seconds*2,ctx.reconciliation,reason))
      {
@@ -154,8 +194,12 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_REFRESH_FAILED",ctx.status);
       return false;
      }
-   ctx.reconciliation.symbol_count=ctx.symbol_count;
-   for(int i=0;i<ctx.symbol_count;i++) ctx.reconciliation.symbols[i]=ctx.symbol_specs[i];
+   // Only resolved, tradable symbols carry a validated specification.
+   int spec_count=0;
+   for(int i=0;i<ctx.symbol_count;i++)
+      if(ctx.broker_symbols[i]!="" && !EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]))
+        { ctx.reconciliation.symbols[spec_count]=ctx.symbol_specs[i]; spec_count++; }
+   ctx.reconciliation.symbol_count=spec_count;
    ctx.status.selected_symbols_fingerprint=EEA_RuntimeSelectedSymbolsFingerprint(
       ctx.canonical_symbols,ctx.broker_symbols,ctx.symbol_count);
    EEA_RuntimeStatus val_status;
@@ -213,8 +257,48 @@ bool EEA_ObserverRuntimeRefresh(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit
       EEA_ObserverRuntimeAuditChecked(ctx,audit,"RUNTIME_PERSISTENCE_FAILED",ctx.status);
       return false;
      }
+   if(!EEA_ObserverRuntimeAuditSymbolResolution(ctx,audit)) return false;
    EEA_ObserverRuntimeAuditChecked(ctx,audit,prior.runtime_state=="" ? "RUNTIME_INITIALIZED" : "RUNTIME_REFRESHED",ctx.status);
    return ctx.status.runtime_state=="OBSERVING";
+  }
+
+// Records a change in the set of blocked symbols; an audit failure blocks the runtime.
+bool EEA_ObserverRuntimeAuditSymbolResolution(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit)
+  {
+   string blocked="";
+   string json="[";
+   for(int i=0;i<ctx.symbol_count;i++)
+     {
+      if(EEA_ObserverRuntimeIsContextOnly(ctx.canonical_symbols[i],ctx.broker_symbols[i]) ||
+         ctx.broker_symbols[i]!="") continue;
+      string reason=(ctx.symbol_block_reason[i]=="" ? "SYMBOL_UNRESOLVED" : ctx.symbol_block_reason[i]);
+      if(blocked!="") { blocked+=","; json+=","; }
+      blocked+=ctx.canonical_symbols[i]+":"+reason;
+      json+="{\"canonical_symbol\":\""+EEA_JsonEscape(ctx.canonical_symbols[i])+
+            "\",\"reason\":\""+EEA_JsonEscape(reason)+"\"}";
+     }
+   json+="]";
+   if(blocked==ctx.unresolved_fingerprint) return true;
+   if(audit.IsOpen())
+     {
+      EEAEvent e;
+      EEAEvent_Init(e,blocked=="" ? "SYMBOL_RESOLUTION_RESTORED" : "SYMBOL_RESOLUTION_PARTIAL",TimeGMT(),"",
+                    "runtime-evidence","",ctx.status.runtime_state,blocked=="" ? "OK" : "DEGRADED");
+      e.config_version=ctx.config_version;
+      EEAEvent_AddReason(e,blocked=="" ? "SYMBOL_RESOLUTION_COMPLETE" : "SYMBOL_BLOCKED_INDIVIDUALLY");
+      e.details_json="{\"observer_only\":true,\"blocked_symbols\":"+json+"}";
+      if(audit.Append(e,"EA_RUNTIME_OBSERVER"))
+        {
+         ctx.unresolved_fingerprint=blocked;
+         return true;
+        }
+     }
+   ctx.status.runtime_state="BLOCKED";
+   ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED";
+   ctx.status.new_entries_blocked=true;
+   EEA_RuntimeStoreWriteStatus(ctx.root,ctx.status,ctx.config_version,
+      ctx.account.account_fingerprint,ctx.reconciliation.observed_at_utc);
+   return false;
   }
 
 bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
@@ -253,7 +337,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
      {
       ctx.canonical_symbols[i]=canonical[i];
       ctx.broker_symbols[i]="";
+      ctx.symbol_block_reason[i]="";
      }
+   ctx.unresolved_fingerprint="";
    ctx.enabled=true; ctx.initialized=false; ctx.stale=true; ctx.stale_reason="STARTUP";
    ctx.root=root; ctx.config_version=config_version; ctx.refresh_seconds=refresh_seconds;
    ctx.history_lookback_days=history_lookback_days; ctx.last_refresh_utc=0;
@@ -274,8 +360,9 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
        return false;
       }
     string brokers[];
+   string discover_reasons[];
    string discover_reason;
-   if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
+   if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, discover_reasons, count, ctx.account.broker_server, discover_reason))
      {
       ctx.status.runtime_state="DEGRADED";
       ctx.status.reason_code=discover_reason;
@@ -291,6 +378,7 @@ bool EEA_ObserverRuntimeInit(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,
      {
       ctx.canonical_symbols[i]=canonical[i];
       ctx.broker_symbols[i]=brokers[i];
+      ctx.symbol_block_reason[i]=discover_reasons[i];
      }
    EEAStateLoadResult checkpoint=EEA_RuntimeStoreCheckStatus(
       ctx.root+"/current/runtime_status.json",ctx.config_version,ctx.account.account_fingerprint);
@@ -413,8 +501,9 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
   {
    if(count < 1 || count > EEA_RUNTIME_MAX_SYMBOLS) return false;
    string brokers[];
+   string discover_reasons[];
    string discover_reason;
-   if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, count, ctx.account.broker_server, discover_reason))
+   if(!EEA_ObserverRuntimeAutoDiscover(canonical, brokers, discover_reasons, count, ctx.account.broker_server, discover_reason))
      { return false; }
    string old_canons[EEA_RUNTIME_MAX_SYMBOLS];
    string old_brokers[EEA_RUNTIME_MAX_SYMBOLS];
@@ -438,6 +527,7 @@ bool EEA_ObserverRuntimeApplySelection(EEA_ObserverRuntimeContext &ctx, CAuditLo
      {
       ctx.canonical_symbols[i] = canonical[i];
       ctx.broker_symbols[i] = brokers[i];
+      ctx.symbol_block_reason[i] = discover_reasons[i];
      }
    ctx.symbol_count = count;
    ctx.status.selection_revision++;

@@ -785,6 +785,21 @@ void EEA_SymbolPanelCreateControls(const long chart_id,const int sub_window)
    ChartRedraw(chart_id);
   }
 
+// SYM-02 per-symbol state: UNRESOLVED (no unique broker mapping) or BLOCKED
+// (mapping found but the specification could not be read).
+string EEA_SymbolPanelSymbolStatus(const EEA_ObserverRuntimeContext &ctx,const int index)
+  {
+   if(EEA_SymbolPanelIsContextOnly(ctx.canonical_symbols[index],ctx.broker_symbols[index])) return "CONTEXT ONLY";
+   if(ctx.broker_symbols[index]!="") return "RESOLVED";
+   return StringFind(ctx.symbol_block_reason[index],"SPEC")>=0 ? "BLOCKED" : "UNRESOLVED";
+  }
+
+string EEA_SymbolPanelBlockReason(const EEA_ObserverRuntimeContext &ctx,const int index)
+  {
+   if(ctx.broker_symbols[index]!="") return "";
+   return ctx.symbol_block_reason[index]=="" ? "SYMBOL_UNRESOLVED" : ctx.symbol_block_reason[index];
+  }
+
 EEA_ObserverPanelMarketRow EEA_ObserverPanelMarketRowFromRuntime(const EEA_ObserverRuntimeContext &ctx,const int index)
   {
    EEA_ObserverPanelMarketRow row;
@@ -792,7 +807,7 @@ EEA_ObserverPanelMarketRow EEA_ObserverPanelMarketRowFromRuntime(const EEA_Obser
    if(index<0 || index>=ctx.symbol_count) return row;
    row.canonical=ctx.canonical_symbols[index];
    row.broker=ctx.broker_symbols[index];
-   row.status=(row.broker=="" ? "UNRESOLVED" : "RESOLVED");
+   row.status=EEA_SymbolPanelSymbolStatus(ctx,index);
    row.context_only=EEA_SymbolPanelIsContextOnly(row.canonical,row.broker);
    if(row.context_only) row.status="CONTEXT ONLY";
    row.digits=ctx.symbol_specs[index].digits;
@@ -911,7 +926,8 @@ void EEA_SymbolPanelRenderSettingsRows(const long chart_id)
                                  context_only ? EEA_PANEL_BUTTON_DISABLED :
                                  (checked ? EEA_PANEL_BUTTON_ON : EEA_PANEL_BUTTON_OFF),EEA_PANEL_META_FONT_SIZE);
       string broker=g_panel_state.rows[row_index].broker_symbol;
-      if(broker=="") broker=(g_panel_state.rows[row_index].status=="AVAILABLE" ? "resolves on Apply" : "[UNRESOLVED]");
+      if(broker=="") broker=(g_panel_state.rows[row_index].status=="AVAILABLE" ? "resolves on Apply" :
+                             (g_panel_state.rows[row_index].description=="" ? "[UNRESOLVED]" : g_panel_state.rows[row_index].description));
       color row_color=context_only ? EEA_PANEL_MUTED_COLOR :
                       (checked ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
       EEA_SymbolPanelSetText(chart_id,prefix+"Lbl",EEA_PANEL_CONTENT_X+48,y+4,
@@ -949,8 +965,8 @@ void EEA_SymbolPanelRefresh(const long chart_id,EEA_ObserverRuntimeContext &ctx)
      {
       g_panel_state.rows[count].canonical_symbol=ctx.canonical_symbols[i];
       g_panel_state.rows[count].broker_symbol=ctx.broker_symbols[i];
-      g_panel_state.rows[count].status=(ctx.broker_symbols[i]!="" ? "RESOLVED" : "UNRESOLVED");
-      g_panel_state.rows[count].description="Observer symbol";
+      g_panel_state.rows[count].status=EEA_SymbolPanelSymbolStatus(ctx,i);
+      g_panel_state.rows[count].description=EEA_SymbolPanelBlockReason(ctx,i);
       g_panel_state.rows[count].context_only=EEA_SymbolPanelIsContextOnly(g_panel_state.rows[count].canonical_symbol,
                                                                          g_panel_state.rows[count].broker_symbol);
       if(g_panel_state.rows[count].context_only) g_panel_state.rows[count].status="CONTEXT ONLY";
@@ -1516,7 +1532,8 @@ void EEA_SymbolPanelDashMarket(const long chart_id,EEA_ObserverRuntimeContext &c
       color status_color=row.context_only ? EEA_PANEL_FAINT_COLOR :
                          row.status=="RESOLVED" ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR;
       EEA_SymbolPanelSetText(chart_id,n,24,ry+6,row.canonical,text_color,EEA_PANEL_BODY_FONT_SIZE,EEA_PANEL_FONT_BOLD);
-      EEA_SymbolPanelSetText(chart_id,n+"_b",104,ry+6,row.broker=="" ? "--" : row.broker,text_color,
+      EEA_SymbolPanelSetText(chart_id,n+"_b",104,ry+6,row.broker=="" ? EEA_SymbolPanelBlockReason(ctx,i) : row.broker,
+                             row.broker=="" ? EEA_PANEL_WARNING_COLOR : text_color,
                              EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_LEFT_UPPER,16);
       EEA_SymbolPanelSetText(chart_id,n+"_s",214,ry+6,row.status,status_color,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
       EEA_SymbolPanelSetText(chart_id,n+"_d",330,ry+6,IntegerToString(row.digits),text_color,EEA_PANEL_META_FONT_SIZE,

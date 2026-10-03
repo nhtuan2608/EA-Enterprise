@@ -418,9 +418,13 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
      { state.last_reason="CONTROLLED_LIVE_CONTROLLER_BLOCKED"; return false; }
    for(int i=0;i<strategy.symbol_count;i++)
      {
-      if(i>=observer.symbol_count || i>=ArraySize(observer.broker_symbols) ||
-         i>=ArraySize(observer.symbol_specs))
+      // Bind the strategy engine to the observer row by canonical name; a row
+      // index can differ after a selection change and must never be reused.
+      const int row=EEA_ObserverRuntimeIndexOf(observer,strategy.engines[i].canonical_symbol);
+      if(row<0 || row>=ArraySize(observer.broker_symbols) || row>=ArraySize(observer.symbol_specs))
         { state.last_reason="LIVE_SYMBOL_CONTEXT_MISMATCH"; continue; }
+      if(observer.broker_symbols[row]=="")
+        { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
       if(!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id==state.last_candidate_id[i]) continue;
@@ -432,12 +436,12 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(authorization_path=="") authorization_path=observer.root+"/current/live_authorization.json";
       if(!EEA_LiveAuthorizationStoreLoad(authorization_path,
             observer.config_version,observer.account.account_fingerprint,observer.account.broker_server,
-            observer.broker_symbols[i],auth_context,authorization,reason))
+            observer.broker_symbols[row],auth_context,authorization,reason))
         { state.last_reason=reason; continue; }
       if(auth_context.candidate_id!=candidate_id)
         { state.last_reason="LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"; continue; }
       EEA_DryRunContext current; EEA_DryRunEvidence evidence[]; EEA_RuntimeTradeQuote quote;
-      if(!EEA_ControlledLiveBuildRiskContext(config,observer,strategy.engines[i],observer.symbol_specs[i],
+      if(!EEA_ControlledLiveBuildRiskContext(config,observer,strategy.engines[i],observer.symbol_specs[row],
                                              policy,current,evidence,quote,reason))
         { state.last_reason=reason; continue; }
       EEA_DryRunDecision review; EEA_RiskDecision decision;
@@ -467,9 +471,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       params.deviation=config.deviation; params.filling_mode=config.filling_mode; params.magic=config.magic;
       EEA_ExecutionIntent intent; string intent_reason;
       if(!EEA_BuildMarketExecutionIntent(decision,observer.account,observer.reconciliation,
-                                         observer.symbol_specs[i],observer.config_version,params,TimeGMT(),intent,intent_reason))
+                                         observer.symbol_specs[row],observer.config_version,params,TimeGMT(),intent,intent_reason))
         { state.last_reason=intent_reason; continue; }
-      if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,intent,observer.broker_symbols[i]))
+      if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,intent,observer.broker_symbols[row]))
         { state.last_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
       EEA_ExecutionResult result;
       // Observer evidence remains entry-blocked by design. Only the fully
@@ -478,7 +482,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       EEA_RuntimeStatus execution_status=observer.status;
       execution_status.new_entries_blocked=false;
       bool submitted=EEA_ExecutionSubmit(audit,observer.root,intent,decision,controller,"MARKET_ENTRY",
-                                         observer.account,observer.reconciliation,observer.symbol_specs[i],
+                                         observer.account,observer.reconciliation,observer.symbol_specs[row],
                                          execution_status,true,authorization,result);
       if(submitted)
         {

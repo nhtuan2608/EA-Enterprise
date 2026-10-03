@@ -1396,5 +1396,63 @@ class ControlCenterInteractionTests(unittest.TestCase):
         self.assertNotIn("Prague", realized)
 
 
+class PerSymbolResolutionTests(unittest.TestCase):
+    """SYM-02: an unresolved or spec-less symbol is blocked alone."""
+
+    def setUp(self):
+        self.runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.discover = self.runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("int EEA_ObserverRuntimeIndexOf", 1)[0]
+        self.refresh = self.runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("// Records a change in the set of blocked symbols", 1)[0]
+
+    def test_discovery_blocks_symbols_individually_and_fails_only_when_none_resolve(self):
+        unresolved = self.discover.split("if(!results[i].resolved)", 1)[1].split("brokers[i] = results[i].broker_symbol;", 1)[0]
+        self.assertIn("continue;", unresolved)
+        self.assertNotIn("return false", unresolved)
+        self.assertIn("reasons[i]=", unresolved)
+        spec = self.discover.split("EEA_ReadRuntimeSymbolSpec", 1)[1].split("resolved++;", 1)[0]
+        self.assertIn('brokers[i]="";', spec)
+        self.assertNotIn("return false", spec)
+        self.assertIn("if(tradable>0 && resolved==0)", self.discover)
+        self.assertIn('"SYMBOL_RESOLUTION_FAILED"', self.discover)
+        self.assertIn('"SYMBOL_RESOLUTION_PARTIAL"', self.discover)
+
+    def test_refresh_blocks_spec_failures_per_symbol_and_excludes_them_from_validation(self):
+        spec_failure = self.refresh.split("if(!EEA_ReadRuntimeSymbolSpec", 1)[1].split("resolved_count++;", 1)[0]
+        self.assertIn("ctx.symbol_block_reason[i]=", spec_failure)
+        self.assertIn('ctx.broker_symbols[i]="";', spec_failure)
+        self.assertNotIn("return false", spec_failure)
+        self.assertIn("if(tradable_count>0 && resolved_count==0)", self.refresh)
+        rows = self.refresh.split("int spec_count=0;", 1)[1].split("ctx.reconciliation.symbol_count=spec_count;", 1)[0]
+        self.assertIn('ctx.broker_symbols[i]!=""', rows)
+        self.assertIn("!EEA_ObserverRuntimeIsContextOnly", rows)
+
+    def test_blocked_symbol_set_changes_are_audited_fail_closed(self):
+        helper = self.runtime.split("bool EEA_ObserverRuntimeAuditSymbolResolution", 1)[1].split("bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,\r\n                                     const string event_type,const EEA_RuntimeStatus &status)\r\n  {", 1)[0]
+        for token in ("SYMBOL_RESOLUTION_PARTIAL", "SYMBOL_RESOLUTION_RESTORED", "blocked_symbols",
+                      'ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"', "ctx.status.new_entries_blocked=true"):
+            self.assertIn(token, helper)
+        self.assertIn("if(!EEA_ObserverRuntimeAuditSymbolResolution(ctx,audit)) return false;", self.runtime)
+
+    def test_strategy_and_live_runtime_bind_symbols_by_name_not_row_index(self):
+        strategy = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
+        on_timer = strategy.split("bool EEA_StrategyRuntimeOnTimer", 1)[1]
+        self.assertIn("canonical[k]==runtime.engines[e].canonical_symbol", on_timer)
+        self.assertIn('if(row<0 || broker[row]=="") continue;', on_timer)
+        self.assertNotIn("count!=runtime.symbol_count", on_timer)
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        loop = live.split("bool EEA_ControlledLiveOnTimer", 1)[1]
+        self.assertIn("EEA_ObserverRuntimeIndexOf(observer,strategy.engines[i].canonical_symbol)", loop)
+        self.assertIn("LIVE_SYMBOL_UNRESOLVED", loop)
+        self.assertNotIn("observer.broker_symbols[i]", loop)
+        self.assertNotIn("observer.symbol_specs[i]", loop)
+
+    def test_panel_shows_per_symbol_status_and_reason(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        status = panel.split("string EEA_SymbolPanelSymbolStatus", 1)[1].split("string EEA_SymbolPanelBlockReason", 1)[0]
+        for token in ('"RESOLVED"', '"BLOCKED"', '"UNRESOLVED"', "ctx.symbol_block_reason[index]"):
+            self.assertIn(token, status)
+        self.assertIn("g_panel_state.rows[count].description=EEA_SymbolPanelBlockReason(ctx,i);", panel)
+
+
 if __name__ == "__main__":
     unittest.main()
