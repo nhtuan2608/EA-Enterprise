@@ -229,6 +229,9 @@ int OnInit()
        if(!EventSetTimer(InpRuntimeRefreshSeconds)) return INIT_FAILED;
      }
    EEA_LoadDurableControllerState();
+   string recovery_reason="";
+   if(!EEA_ControlledLiveLoadRecovery(g_live_runtime,g_config.data_root,recovery_reason))
+      Print("Execution recovery is fail-closed: ",recovery_reason);
    if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING")
      {
       EEA_StrategyRuntimeConfigurePersistence(g_strategy_runtime,g_config.data_root,
@@ -283,6 +286,9 @@ void OnTimer()
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
        EEA_LoadDurableControllerState();
+       if(g_runtime.initialized)
+          EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
+                                              g_runtime.reconciliation,g_audit);
        if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
           g_strategy_runtime.enabled)
          {
@@ -296,7 +302,7 @@ void OnTimer()
                                         g_runtime.broker_symbols,g_runtime.symbol_count);
              EEA_StrategyRuntimeWriteCheckpoints(g_strategy_runtime,TimeGMT());
             }
-          if(g_live_config.enabled && g_live_config.armed)
+          if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit);
          }

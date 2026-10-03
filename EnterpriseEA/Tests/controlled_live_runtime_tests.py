@@ -26,6 +26,9 @@ class ControlledLiveRuntimeTests(unittest.TestCase):
         decision_store = (ROOT / "Storage/RiskDecisionStore.mqh").read_text(encoding="utf-8")
         self.assertIn("EEA_RiskDecisionStoreWrite", decision_store)
         self.assertIn("risk_decision.json", decision_store)
+        recovery_store = (ROOT / "Storage/ExecutionRecoveryStore.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_ExecutionRecoveryLoad", recovery_store)
+        self.assertIn("EXECUTION_UNKNOWN", recovery_store)
 
     def test_shell_routes_live_work_through_controlled_runtime(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
@@ -40,6 +43,8 @@ class ControlledLiveRuntimeTests(unittest.TestCase):
         self.assertIn("EEA_RuntimeStatus execution_status=observer.status", runtime)
         self.assertIn("execution_status.new_entries_blocked=false", runtime)
         self.assertIn("EEA_RiskDecisionStoreWrite", runtime)
+        self.assertIn("EEA_ControlledLiveReconcileRecovery", runtime)
+        self.assertIn("recovery_blocked", runtime)
 
     def test_live_defaults_remain_disabled_and_no_paper_path_exists(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")

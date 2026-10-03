@@ -42,6 +42,13 @@ authorization, and release checks have passed. The observer snapshot itself stay
 entry-blocked; a valid runtime snapshot is not authorization. Missing protection
 or unsupported exposure is a hard block.
 
+An `EXECUTION_UNKNOWN` result is a restart barrier. The runtime restores the
+durable result checkpoint, attempts reconciliation against the next fresh
+positions/orders/deals snapshot, persists `CONFIRMED` only when broker evidence
+proves the request, and keeps new dispatch blocked on timeout, missing history,
+identity change, or any other unresolved state. It never silently retries the
+same candidate.
+
 The initial selector profiles are:
 
 - `FTMO_1_STEP`: daily loss 3%, overall loss 10%, high-water/trailing floor rules as defined by the FTMO profile contract.

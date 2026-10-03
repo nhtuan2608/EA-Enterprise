@@ -8,6 +8,7 @@
 #include "../Runtime/LiveAuthorizationGate.mqh"
 #include "../Storage/LiveAuthorizationStore.mqh"
 #include "../Storage/RiskDecisionStore.mqh"
+#include "../Storage/ExecutionRecoveryStore.mqh"
 #include "../Storage/PolicySettingsStore.mqh"
 #include "RiskDecisionRelease.mqh"
 #include "../Runtime/ExecutionIntentBuilder.mqh"
@@ -47,6 +48,8 @@ struct EEA_ControlledLiveRuntimeState
    long last_attempt_utc;
    string last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_SYMBOLS];
    string last_reason;
+   bool recovery_blocked;
+   EEA_ExecutionResult recovery_result;
   };
 
 void EEA_ControlledLiveConfigDefaults(EEA_ControlledLiveConfig &c)
@@ -63,7 +66,41 @@ void EEA_ControlledLiveConfigDefaults(EEA_ControlledLiveConfig &c)
 void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
   {
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
+   s.recovery_blocked=false;
+   EEA_ExecutionResultDefaults(s.recovery_result);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_SYMBOLS;i++) s.last_candidate_id[i]="";
+  }
+
+bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
+  {
+   bool found=false;
+   if(!EEA_ExecutionRecoveryLoad(root,state.recovery_result,found))
+     { state.recovery_blocked=true; reason="EXECUTION_RECOVERY_CHECKPOINT_INVALID"; return false; }
+   state.recovery_blocked=found && EEA_ExecutionRecoveryNeedsReconciliation(state.recovery_result);
+   reason=state.recovery_blocked ? "EXECUTION_UNKNOWN_RECOVERY_REQUIRED" : "EXECUTION_RECOVERY_CLEAR";
+   return true;
+  }
+
+bool EEA_ControlledLiveReconcileRecovery(EEA_ControlledLiveRuntimeState &state,
+                                         const string root,
+                                         const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                         CAuditLog &audit)
+  {
+   if(!state.recovery_blocked) return true;
+   if(!EEA_ExecutionReconcileResult(state.recovery_result,reconciliation,
+                                    state.recovery_result.request_ticket,"SUBMIT_MARKET",
+                                    0.0,0.0,state.recovery_result.request_ticket_kind))
+      return false;
+   if(!EEA_ExecutionStoreWriteResult(root,state.recovery_result))
+     { state.last_reason="EXECUTION_RECOVERY_PERSISTENCE_FAILED"; return false; }
+   EEAEvent event;
+   EEAEvent_Init(event,"EXECUTION_RECOVERY_CONFIRMED",TimeGMT(),"","","","","OK");
+   event.details_json="{\"intent_id\":\""+EEA_JsonEscape(state.recovery_result.intent_id)+"\"}";
+   if(!audit.Append(event,"EA_EXECUTION"))
+     { state.last_reason="EXECUTION_RECOVERY_AUDIT_FAILED"; return false; }
+   state.recovery_blocked=false;
+   state.last_reason="EXECUTION_RECOVERY_CONFIRMED";
+   return true;
   }
 
 bool EEA_ControlledLiveResolvePolicy(const string root,const string config_version,
@@ -355,6 +392,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
+   if(state.recovery_blocked) { state.last_reason="EXECUTION_UNKNOWN_RECOVERY_REQUIRED"; return false; }
    if(!strategy.enabled || observer.status.runtime_state!="OBSERVING")
      { state.last_reason="CONTROLLED_LIVE_RUNTIME_BLOCKED"; return false; }
    if(!controller_allows_market || !EEA_ExecutionControllerAllowsNewRequest(controller,"MARKET_ENTRY",TimeGMT()))
@@ -423,6 +461,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
          EEA_ExecutionReconcileResult(result,observer.reconciliation,result.request_ticket,
                                       "SUBMIT_MARKET",intent.sl,intent.tp,result.request_ticket_kind);
          EEA_ExecutionStoreWriteResult(observer.root,result);
+         state.recovery_result=result;
+         state.recovery_blocked=result.confirmation_state=="EXECUTION_UNKNOWN";
          state.last_candidate_id[i]=candidate_id;
          state.last_reason=result.confirmation_state;
          return true;
