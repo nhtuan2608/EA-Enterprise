@@ -44,6 +44,8 @@ input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
 input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
 input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
+enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
+input EEA_S02ModeInput InpS02Mode       = S02_LIVE;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
 input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
@@ -873,8 +875,8 @@ void EEA_PublishPanelEngineView()
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
    if(g_strategy_runtime.zone_mode)
-      view.strategy_reason+=" | S04 "+(g_strategy_runtime.s04_mode==EEA_S04_MODE_LIVE ? "LIVE" :
-                                      g_strategy_runtime.s04_mode==EEA_S04_MODE_SHADOW ? "SHADOW" : "OFF")+
+      view.strategy_reason+=" | S02 "+EEA_SetupModeName(g_strategy_runtime.s02_mode)+
+                            " | S04 "+EEA_SetupModeName(g_strategy_runtime.s04_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
@@ -1059,7 +1061,8 @@ int OnInit()
       bool strategy_ready=InpS02UsePrototype ?
          EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                           strategy_config,InpStrategyRuntimeEnabled) :
-         EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode);
+         EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
+                                            (int)InpS02Mode);
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",

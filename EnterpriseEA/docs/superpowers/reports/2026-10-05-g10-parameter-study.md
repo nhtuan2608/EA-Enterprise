@@ -28,3 +28,41 @@ Chỉnh tham số trong khuôn thiết kế hiện tại không tạo được l
 - Chưa mô phỏng lệnh LIMIT tại mép vùng của S02 (vào khi ARMED, cùng chiều HTF). Live S02 có dùng nhánh này.
 - Chưa áp News Guard, sentiment, giới hạn phiên; chưa tính commission.
 - Mô phỏng theo nến: trong một nến, chạm SL được tính trước TP.
+
+## Phần 2 (phương án 3): nhánh LIMIT, chi phí, News Guard, setup mới
+
+Bổ sung vào replay: nhánh LIMIT tại mép vùng của S02 (như live), commission ước tính (USD 6/lot khứ hồi cho FX và vàng, 0 cho BTC), News Guard từ lịch tin HIGH đã ghi (`news_reactions.jsonl`).
+
+**S02/S04 với tham số hiện tại, mô hình đầy đủ (train 01–06 / test 07–10, R mỗi lệnh):**
+
+| Nhóm | Chỉ MARKET | Chỉ LIMIT | Như live (MARKET + LIMIT) |
+|---|---|---|---|
+| S02 SCALP | −0,25 / −0,34 | −0,35 / −0,62 | −0,32 / **−0,53** |
+| S02 SWING | −0,16 / −0,56 (n 4/5) | −0,57 / −1,02 | −0,47 / −0,88 |
+| S04 SCALP | −0,15 / −0,22 | — | — |
+
+**Prototype S01/S03/S05/S06** (`research/g10/setups.py`, 32–256 biến thể mỗi nhóm, chọn trên train):
+
+| Nhóm | Biến thể dương ở cả train và test | Tốt nhất trên train → kết quả test |
+|---|---|---|
+| S01 Asian Range Break (SCALP) | 0 | −0,05 → +0,11 (n 39) |
+| S03 PDH/PDL Break SCALP / SWING | 0 / 0 | −0,14 → −0,20 / +0,02 → −0,20 |
+| S05 Trend Pullback SCALP / SWING | 0 / 8 | −0,12 → −0,15 / +0,26 → −0,14 |
+| S06 Compression Expansion SCALP / SWING | 0 / 3 | −0,07 → −0,09 / +0,35 → −0,15 |
+
+**Đối chứng vào lệnh ngẫu nhiên** (SL 1 ATR, TP 1,5R, cùng chi phí và Trade Manager):
+
+| Khung | Không chi phí | Có spread + commission | Chi phí trung bình mỗi lệnh |
+|---|---|---|---|
+| M5 (SCALP) | −0,02R | **−0,24R** | **0,27R** |
+| H1 (SWING) | −0,02R | −0,10R | 0,10R |
+
+## Kết luận phần 2
+1. Không setup nào (S01–S06) có lợi thế dương ổn định ngoài mẫu trên dữ liệu 01–10/2026.
+2. Trên M5, spread và commission ăn khoảng 0,27R mỗi lệnh. Các setup SCALP (−0,15 đến −0,5R) ngang hoặc kém hơn vào lệnh ngẫu nhiên. Với stop cỡ 1–2 ATR M5, SCALP không có cửa thắng ở mức chi phí này.
+3. SWING (H1) chịu chi phí thấp hơn nhiều (0,10R) nhưng 9 tháng dữ liệu chỉ cho vài chục lệnh mỗi setup, chưa đủ để kết luận.
+4. Nhánh LIMIT của S02 làm kết quả tệ hơn.
+
+## Hướng tiếp theo đề xuất
+- Không dùng M5 cho vào lệnh. Nghiên cứu SWING H1/H4 trên lịch sử dài hơn (2023–2026) để đủ mẫu.
+- Thêm `InpS02Mode` (OFF/SHADOW/LIVE) để chuyển S02 sang chỉ ghi nhận khi cần.

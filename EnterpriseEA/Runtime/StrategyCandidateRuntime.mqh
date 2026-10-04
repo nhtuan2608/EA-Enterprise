@@ -45,6 +45,7 @@ struct EEA_StrategyCandidateRuntime
    string scan_reason[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string setup[EEA_STRATEGY_RUNTIME_MAX_ENGINES];   // S02 or S04
    int s04_mode;       // EEA_S04_MODE_*
+   int s02_mode;       // same values: OFF, SHADOW or LIVE
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -66,6 +67,7 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.broker_server="";
    runtime.zone_mode=false;
    runtime.s04_mode=EEA_S04_MODE_OFF;
+   runtime.s02_mode=EEA_S04_MODE_LIVE;
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
      {
@@ -110,6 +112,13 @@ bool EEA_StrategyCandidateRuntimeInit(EEA_StrategyCandidateRuntime &runtime,
    return true;
   }
 
+// Entry mode of a setup: OFF, SHADOW (record only) or LIVE.
+int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,const string setup)
+  { return setup=="S04" ? runtime.s04_mode : runtime.s02_mode; }
+
+string EEA_SetupModeName(const int mode)
+  { return mode==EEA_S04_MODE_LIVE ? "LIVE" : mode==EEA_S04_MODE_SHADOW ? "SHADOW" : "OFF"; }
+
 // Engines per symbol: S02 SCALP, S02 SWING and, unless S04 is OFF, S04 SCALP, S04 SWING.
 int EEA_StrategyRuntimeStride(const EEA_StrategyCandidateRuntime &runtime)
   { return runtime.s04_mode==EEA_S04_MODE_OFF ? 2 : 4; }
@@ -127,12 +136,14 @@ void EEA_StrategyRuntimeSlot(const int p,string &setup,string &profile,string &t
 // S02 v1: a SCALP (M5) and a SWING (H1) engine per symbol with the v1 seed configs.
 bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
                                         const string &canonical[],const int count,const bool enabled,
-                                        const int s04_mode=EEA_S04_MODE_OFF)
+                                        const int s04_mode=EEA_S04_MODE_OFF,
+                                        const int s02_mode=EEA_S04_MODE_LIVE)
   {
    EEA_StrategyCandidateRuntimeDefaults(runtime);
    runtime.enabled=enabled;
    runtime.zone_mode=true;
    runtime.s04_mode=s04_mode;
+   runtime.s02_mode=s02_mode;
    EEA_S02V1Config(runtime.config,"SCALP");
    runtime.config_version="s02-v1";
    if(!enabled)

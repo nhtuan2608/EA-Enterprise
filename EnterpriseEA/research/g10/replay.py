@@ -47,8 +47,12 @@ def engine_params(setup: str, profile: str, over: dict | None = None) -> dict:
 
 def candidates(ctx: dict, setup: str, params: dict) -> list[dict]:
     """Every TRIGGERED transition with what the evaluation needs."""
+    """S02 also yields LIMIT opportunities (kind LIMIT): while ARMED, HTF aligned and price at
+    least 0.25 ATR beyond the zone edge, the live path places a LIMIT at the edge
+    (EEA_S02SelectEntryMode / EEA_ControlledLiveResolveV1Plan)."""
     entry, bar_level, levels = ctx["entry"], ctx["bar_level"], ctx["levels"]
     out = []
+    open_limits = {}
     if setup == "S02":
         eng = s02_oracle.new_engine({"canonical_symbol": ctx["symbol"], "timeframe": "X"}, params)
     else:
@@ -66,14 +70,32 @@ def candidates(ctx: dict, setup: str, params: dict) -> list[dict]:
                 z = _pick(lvl["zones"], bar)
                 if z is None:
                     eng["last_processed_bar"] = bar["time"]
+                    _close_limits(open_limits, eng, i)
                     continue
                 s02_oracle.process_zone(eng, bar, z["low"], z["high"], params)
             else:
                 s02_oracle.process_zone(eng, bar, eng["zone_low"], eng["zone_high"], params)
+            _close_limits(open_limits, eng, i)
+            key = eng["breakout_bar"]
+            if eng["state"] == "ARMED" and key not in open_limits and htf_aligned(lvl["structure"], eng["direction"]):
+                d = eng["direction"]
+                edge = eng["zone_high"] if d == 1 else eng["zone_low"]
+                if d * (b["close"] - edge) >= 0.25 * eng["signal_atr"]:
+                    lim = {"kind": "LIMIT", "i": i, "time": b["time"], "breakout": key, "direction": d, "edge": edge,
+                           "extreme": eng["zone_low"] if d == 1 else eng["zone_high"],
+                           "zone_low": eng["zone_low"], "zone_high": eng["zone_high"], "signal_atr": eng["signal_atr"],
+                           "points": lvl["points"], "structure": lvl["structure"], "invalid_at": None,
+                           "bars_left": params["max_bars_to_retest"] - eng["bars_since_acceptance"] + params["max_bars_for_reaction"]}
+                    open_limits[key] = lim
+                    out.append(lim)
             if eng["state"] != "TRIGGERED" or before == "TRIGGERED":
                 continue
             d, extreme = eng["direction"], eng["candidate"]["retest_extreme"]
             zl, zh, satr = eng["zone_low"], eng["zone_high"], eng["signal_atr"]
+            out.append({"kind": "MARKET", "i": i, "time": b["time"], "breakout": key, "direction": d, "extreme": extreme,
+                        "zone_low": zl, "zone_high": zh, "signal_atr": satr, "points": lvl["points"],
+                        "structure": lvl["structure"]})
+            continue
         else:
             before = eng.state
             if before in ("IDLE", "INVALIDATED", "EXPIRED"):
@@ -87,9 +109,16 @@ def candidates(ctx: dict, setup: str, params: dict) -> list[dict]:
                 continue
             d, extreme = eng.direction, eng.extreme
             (zl, zh), satr = eng.zone, eng.atr
-        out.append({"i": i, "time": b["time"], "direction": d, "extreme": extreme, "zone_low": zl, "zone_high": zh,
-                    "signal_atr": satr, "points": lvl["points"], "structure": lvl["structure"]})
+        out.append({"kind": "MARKET", "i": i, "time": b["time"], "direction": d, "extreme": extreme, "zone_low": zl,
+                    "zone_high": zh, "signal_atr": satr, "points": lvl["points"], "structure": lvl["structure"]})
     return out
+
+
+def _close_limits(open_limits, eng, i):
+    """A working LIMIT is cancelled at the close of the bar where its setup stops being valid."""
+    for key, lim in open_limits.items():
+        if lim["invalid_at"] is None and (key != eng["breakout_bar"] or eng["state"] in ("IDLE", "INVALIDATED", "EXPIRED")):
+            lim["invalid_at"] = i
 
 
 def _pick(zones, bar):
@@ -135,8 +164,16 @@ def evaluate(ctx: dict, c: dict, setup: str, profile: str, model: str = "tm", tr
         if not (s <= h < e):
             res["status"] = "FILTER_HOURS"
             return res
+    factor = 1.0
+    if t.get("news"):
+        blocked, factor = news_status(ctx["symbol"], profile, bars[i]["utc"])
+        if blocked:
+            res["status"] = "FILTER_NEWS"
+            return res
     spread = bars[i]["spread"] * point
     entry = bars[i]["close"] + (spread if (model == "tm" and d == 1) else 0.0)
+    if c.get("kind") == "LIMIT":
+        entry = c["edge"]
     buffer = max(t["buffer_atr"] * c["signal_atr"], 1.5 * spread)
     stop = c["extreme"] - buffer if d == 1 else c["extreme"] + buffer
     risk = d * (entry - stop)
@@ -161,10 +198,83 @@ def evaluate(ctx: dict, c: dict, setup: str, profile: str, model: str = "tm", tr
     if rr < t["min_rr"]:
         res["status"] = "RR_TOO_LOW"
         return res
-    res.update(entry=entry, stop=stop, target=target, rr=rr)
+    res.update(entry=entry, stop=stop, target=target, rr=rr, kind=c.get("kind", "MARKET"))
     if model == "ea":
         return _walk_ea(bars, i, d, entry, stop, target, risk, rr, HORIZON[profile], res)
-    return _walk_tm(bars, i, d, entry, stop, target, risk, profile, c, point, res, t["tm"])
+    start = i
+    if c.get("kind") == "LIMIT":
+        start = _limit_fill(bars, c, point)
+        if start is None:
+            res["status"] = "LIMIT_NOT_FILLED"
+            return res
+        res["fill_time"] = bars[start]["time"]
+        # The fill bar can already reach the stop (stop touch wins).
+        sp = bars[start]["spread"] * point if d == -1 else 0.0
+        if (d == 1 and bars[start]["low"] <= stop) or (d == -1 and bars[start]["high"] + sp >= stop):
+            res.update(result="SL", r=-1.0)
+            return _apply_costs(ctx, res, risk, t, factor)
+    _walk_tm(bars, start, d, entry, stop, target, risk, profile, c, point, res, t["tm"])
+    return _apply_costs(ctx, res, risk, t, factor)
+
+
+# Round-trip commission in price units per unit volume (assumption: raw-spread account,
+# USD 6 per lot round trip on FX and gold, none on BTC). Set "costs": False to ignore.
+COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0}
+
+
+def _apply_costs(ctx, res, risk, t, factor):
+    if t.get("costs", True):
+        res["r"] -= COMMISSION.get(ctx["symbol"], 0.0) / risk
+    res["r"] *= factor
+    return res
+
+
+def _limit_fill(bars, c, point):
+    """First bar after placement where the working LIMIT is touched, before it expires or
+    its setup is cancelled (the cancel happens at the close of the invalidating bar)."""
+    d, edge = c["direction"], c["edge"]
+    last = c["i"] + max(0, c["bars_left"])
+    if c["invalid_at"] is not None:
+        last = min(last, c["invalid_at"])
+    for j in range(c["i"] + 1, min(last, len(bars) - 1) + 1):
+        b = bars[j]
+        ask_low = b["low"] + b["spread"] * point
+        if (d == 1 and ask_low <= edge) or (d == -1 and b["high"] >= edge):
+            return j
+    return None
+
+
+_NEWS = None
+
+
+def news_status(symbol: str, profile: str, utc: int):
+    """News Guard from the recorded HIGH events (logs/news_reactions.jsonl): DIRECT blocks
+    SCALP from T-60 and SWING from T-180 until the market was normal again; INDIRECT
+    (yellow) blocks SWING from T-180 to T+15 and halves SCALP risk in that window."""
+    global _NEWS
+    if _NEWS is None:
+        import json
+        import context
+        path = context.DATA.parent / "logs" / "news_reactions.jsonl"
+        _NEWS = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            e = json.loads(line)
+            normal = e.get("guard_normal_min") or 60
+            _NEWS.setdefault(e["symbol"], []).append((int(e["event_utc"]), e["impact"], int(normal)))
+    before = 180 if profile == "SWING" else 60
+    factor = 1.0
+    for t0, impact, normal in _NEWS.get(symbol, []):
+        if not (t0 - before * 60 <= utc <= t0 + max(15, normal) * 60):
+            continue
+        if impact == "DIRECT":
+            return True, 1.0
+        if utc <= t0 + 15 * 60:
+            if profile == "SWING":
+                return True, 1.0
+            factor = 0.5
+    return False, factor
 
 
 def _walk_ea(bars, i, d, entry, stop, target, risk, rr, horizon, res):
@@ -262,3 +372,23 @@ def summarize(rows: list[dict]) -> dict:
 
 def clone(x):
     return copy.deepcopy(x)
+
+
+def evaluate_all(ctx: dict, cands: list[dict], setup: str, profile: str, trade: dict | None = None,
+                 branches: str = "both") -> list[dict]:
+    """Live-like entry selection: a filled LIMIT owns its breakout, so the MARKET trigger of
+    the same breakout is not taken again. branches: market | limit | both."""
+    rows, filled = [], set()
+    for c in sorted(cands, key=lambda x: (x["i"], x.get("kind") != "LIMIT")):
+        kind = c.get("kind", "MARKET")
+        if branches == "market" and kind == "LIMIT":
+            continue
+        if branches == "limit" and kind == "MARKET" and setup == "S02":
+            continue
+        if kind == "MARKET" and c.get("breakout") in filled:
+            continue
+        r = evaluate(ctx, c, setup, profile, "tm", trade)
+        if kind == "LIMIT" and r["status"] == "EVALUATED":
+            filled.add(c["breakout"])
+        rows.append(r)
+    return rows

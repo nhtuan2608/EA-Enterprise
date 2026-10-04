@@ -114,10 +114,11 @@ class SourceTests(unittest.TestCase):
 
     def test_tc_s04_09_shadow_never_submits(self):
         on_timer = section(self.cl, "bool EEA_ControlledLiveOnTimer")
-        self.assertIn("strategy.s04_mode!=EEA_S04_MODE_LIVE", on_timer)
+        self.assertIn("EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_LIVE", on_timer)
         shadow = section(self.cl, "void EEA_S04ShadowOnTimer")
         self.assertNotIn("EEA_ExecutionSubmit", shadow)
-        self.assertIn('"S04_SHADOW_CANDIDATE"', shadow)
+        self.assertIn('setup+"_SHADOW_CANDIDATE"', shadow)
+        self.assertIn("EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_SHADOW", shadow)
 
     def test_s04_never_uses_limit_and_target_beyond_far_edge(self):
         select = section(self.cl, "int EEA_S02SelectEntryMode")

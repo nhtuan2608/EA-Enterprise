@@ -914,17 +914,19 @@ bool EEA_ControlledLiveOppositeActive(const EEA_TradeManagerRuntime &trades,cons
    return false;
   }
 
-// S04 SHADOW mode (D5): every triggered S04 candidate is recorded once with the trade the
-// live path would have planned (entry type, SL, TP, risk, volume, filters). Nothing is sent.
+// SHADOW mode (S02 and S04): every triggered candidate of a setup in SHADOW is recorded once
+// with the trade the live path would have planned (entry type, SL, TP, risk, volume,
+// filters). Nothing is sent. An S02 LIMIT at the zone (ARMED) is not recorded.
 void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_StrategyCandidateRuntime &strategy,
                           const EEA_ObserverRuntimeContext &observer,const EEA_RiskLedger &ledger,
                           const EEA_NewsRuntime &news,const EEA_SentimentRuntime &sentiment,
                           const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,CAuditLog &audit)
   {
-   if(strategy.s04_mode!=EEA_S04_MODE_SHADOW || !strategy.enabled) return;
+   if(!strategy.enabled) return;
    for(int i=0;i<strategy.symbol_count;i++)
      {
-      if(strategy.setup[i]!="S04" || !strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
+      if(EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_SHADOW ||
+         !strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
       const EEA_S02Engine engine=strategy.engines[i];
       const string candidate_id=engine.candidate.candidate_id;
       if(candidate_id=="" || state.shadow_noted_candidate[i]==candidate_id) continue;
@@ -965,7 +967,9 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
       const bool opposite=EEA_ControlledLiveOppositeActive(trades,pending,engine.canonical_symbol,engine.direction);
       const int digits=(int)SymbolInfoInteger(broker,SYMBOL_DIGITS);
       const string mode_name=(mode==EEA_S02_ENTRY_MARKET ? "MARKET" : mode==EEA_S02_ENTRY_STOP_ABOVE_TRIGGER ? "STOP" : "NONE");
-      string details="{\"candidate_id\":\""+EEA_JsonEscape(candidate_id)+"\",\"symbol\":\""+engine.canonical_symbol+
+      const string setup=strategy.setup[i];
+      string details="{\"candidate_id\":\""+EEA_JsonEscape(candidate_id)+"\",\"setup\":\""+setup+
+         "\",\"symbol\":\""+engine.canonical_symbol+
          "\",\"profile\":\""+strategy.profile[i]+"\",\"direction\":"+IntegerToString(engine.direction)+
          ",\"triggered_at\":"+IntegerToString((long)engine.candidate.triggered_at_utc)+
          ",\"zone_low\":"+DoubleToString(engine.zone_low,digits)+",\"zone_high\":"+DoubleToString(engine.zone_high,digits)+
@@ -979,12 +983,13 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
          ",\"news_block\":\""+news_block+"\",\"opposite_active\":"+(opposite ? "true" : "false")+
          ",\"plan_reason\":\""+EEA_JsonEscape(reason)+"\"}";
       EEAEvent event;
-      EEAEvent_Init(event,"S04_SHADOW_CANDIDATE",TimeGMT(),engine.canonical_symbol,candidate_id,"","SHADOW","OK");
+      EEAEvent_Init(event,setup+"_SHADOW_CANDIDATE",TimeGMT(),engine.canonical_symbol,candidate_id,"","SHADOW","OK");
       event.config_version=observer.config_version;
       EEAEvent_AddReason(event,reason);
       event.details_json=details;
-      audit.Append(event,"EA_S04_SHADOW");
-      EEA_WriteAtomicAppendText(observer.root+"/logs/s04_shadow.jsonl",details+"\r\n");
+      audit.Append(event,"EA_"+setup+"_SHADOW");
+      EEA_WriteAtomicAppendText(observer.root+(setup=="S04" ? "/logs/s04_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
+                                details+"\r\n");
      }
   }
 
@@ -1026,8 +1031,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         { state.last_reason="LIVE_SYMBOL_CONTEXT_MISMATCH"; continue; }
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
-      // S04 sends orders only in LIVE mode; SHADOW is recorded by EEA_S04ShadowOnTimer.
-      if(strategy.setup[i]=="S04" && strategy.s04_mode!=EEA_S04_MODE_LIVE) continue;
+      // A setup sends orders only in LIVE mode; SHADOW is recorded by EEA_S04ShadowOnTimer.
+      if(strategy.zone_mode && EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_LIVE) continue;
       bool limit_ready=(strategy.zone_mode && strategy.setup[i]=="S02" && strategy.engines[i].state==EEA_S02_ARMED);
       if(!limit_ready && (!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED)) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;

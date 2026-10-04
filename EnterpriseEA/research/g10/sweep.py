@@ -80,6 +80,8 @@ def parity():
         for s in SYMBOLS:
             c = ctx(s, profile)
             for x in replay.candidates(c, setup, replay.engine_params(setup, profile)):
+                if x.get("kind") == "LIMIT":
+                    continue
                 r = replay.evaluate(c, x, setup, profile, "ea")
                 mine.append((s, x["time"], x["direction"], r))
         theirs = {(e["symbol"], e["bar_time"], e["direction"]): e for e in ea
@@ -90,6 +92,25 @@ def parity():
         same_result = sum(1 for k in both if ours[k]["status"] == "EVALUATED" and ours[k].get("result") == theirs[k]["result"])
         print(f"{setup} {profile}: EA {len(theirs)} python {len(ours)} common {len(both)} "
               f"same_status {same_status} same_result {same_result}")
+
+
+def realistic():
+    """Current parameters, spread + Trade Manager + commission + News Guard, per entry branch."""
+    trade = {"costs": True, "news": True}
+    for setup, profile in itertools.product(["S02", "S04"], ["SCALP", "SWING"]):
+        params = replay.engine_params(setup, profile)
+        for branches in (["market", "limit", "both"] if setup == "S02" else ["market"]):
+            rows = []
+            for s in SYMBOLS:
+                c = ctx(s, profile)
+                rows += replay.evaluate_all(c, replay.candidates(c, setup, params), setup, profile, trade, branches)
+            tr = replay.summarize([r for r in rows if _utc(r) < SPLIT_UTC])
+            te = replay.summarize([r for r in rows if _utc(r) >= SPLIT_UTC])
+            print(f"{setup} {profile} {branches:6s}: train n={tr['n']:4d} exp={tr['exp']:+.3f} win={tr['win']:.0%} | "
+                  f"test n={te['n']:4d} exp={te['exp']:+.3f} win={te['win']:.0%} dd={te['dd']:.1f}")
+            for s in SYMBOLS:
+                a = replay.summarize([r for r in rows if r["symbol"] == s])
+                print(f"      {s}: n={a['n']:3d} exp={a['exp']:+.3f}")
 
 
 def baseline():
@@ -130,5 +151,51 @@ def sweep():
                   f"exp={r['test']['exp']:+.3f} dd={r['test']['dd']:.1f} | {r['engine']} {r['trade']}")
 
 
-if __name__ == "__main__":
-    {"parity": parity, "baseline": baseline, "sweep": sweep}[sys.argv[1]]()
+if __name__ == "__main__" and sys.argv[1] != "newsetups":
+    {"parity": parity, "baseline": baseline, "realistic": realistic, "sweep": sweep}[sys.argv[1]]()
+
+
+NEW_TRADE_GRID = [{"target": "structural", "min_rr": 1.0}, {"target": "structural", "min_rr": 1.5},
+                  {"target": "fixed", "fixed_r": 1.5, "min_rr": 1.5}, {"target": "fixed", "fixed_r": 2.0, "min_rr": 2.0}]
+
+
+def run_new(job):
+    import setups
+    name, profile, p = job
+    out = []
+    cands = {s: setups.DETECTORS[name](ctx(s, profile), p) for s in SYMBOLS}
+    for base in NEW_TRADE_GRID:
+        for htf in ("any", "aligned"):
+            t = dict(base, htf=htf, costs=True, news=True)
+            rows = []
+            for s in SYMBOLS:
+                rows += [replay.evaluate(ctx(s, profile), c, name, profile, "tm", t) for c in cands[s]]
+            out.append({"engine": p, "trade": t,
+                        "train": replay.summarize([r for r in rows if _utc(r) < SPLIT_UTC]),
+                        "test": replay.summarize([r for r in rows if _utc(r) >= SPLIT_UTC])})
+    return name, profile, out
+
+
+def newsetups():
+    import setups
+    OUT.mkdir(exist_ok=True)
+    jobs = [(n, pr, p) for n in setups.DETECTORS for pr in setups.PROFILES[n] for p in grid(setups.GRIDS[n])]
+    results = {}
+    with Pool() as pool:
+        for name, profile, rows in pool.imap_unordered(run_new, jobs):
+            results.setdefault(f"{name}_{profile}", []).extend(rows)
+    (OUT / "new_setups.json").write_text(json.dumps(results, default=str), encoding="utf-8")
+    for key in sorted(results):
+        rows = results[key]
+        profile = key.split("_")[1]
+        eligible = sorted([r for r in rows if r["train"]["n"] >= MIN_TRAIN[profile]], key=lambda r: r["train"]["exp"], reverse=True)
+        both = sum(1 for r in eligible if r["train"]["exp"] > 0 and r["test"]["exp"] > 0)
+        print(f"== {key}: variants {len(rows)} eligible {len(eligible)} positive_both {both}")
+        for r in eligible[:4]:
+            print(f"  train n={r['train']['n']:4d} exp={r['train']['exp']:+.3f} | test n={r['test']['n']:4d} "
+                  f"exp={r['test']['exp']:+.3f} dd={r['test']['dd']:.1f} | {r['engine']} {r['trade']['target']} "
+                  f"rr{r['trade']['min_rr']} {r['trade']['htf']}")
+
+
+if __name__ == "__main__" and sys.argv[1] == "newsetups":
+    newsetups()

@@ -55,7 +55,7 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 | G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ✅ Đã deploy; bridge chạy tay bằng `run_bridge.ps1` (Windows) hoặc systemd (Ubuntu) |
 | G8 | Command queue + CLOSE / PARTIAL / BE / TRAIL (P4, đặc tả 9.2) | ✅ Đã deploy; kiểm chứng với lệnh thật từ thứ Hai |
 | G9 | S04 Failed Break (P5) | ✅ LIVE cùng S02 theo yêu cầu người dùng 04/10 (InpS04Mode=S04_LIVE); replay S02/S04 từ 01/01 để theo dõi |
-| G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | 🔬 Nghiên cứu xong 05/10 (reports/2026-10-05-g10-parameter-study.md): không có tham số SCALP dương ngoài mẫu; chờ quyết định |
+| G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | 🔬 05/10: S01–S06 không có lợi thế ngoài mẫu; chi phí M5 ≈ 0,27R/lệnh (report 2026-10-05); đề xuất nghiên cứu SWING trên lịch sử dài |
 | G11 | Sentiment: dòng tóm tắt trên Overview + replay sentiment theo từng tin | ⬜ |
 | G12 | S01 / S03 / S05 / S06 (P7), Telegram (P8) | ⬜ |
 | G13 | Push `main` lên GitHub | ⬜ Chờ người dùng đồng ý |
