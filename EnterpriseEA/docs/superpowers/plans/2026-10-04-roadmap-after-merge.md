@@ -21,6 +21,7 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 | # | Hạng mục | Vì sao ở vị trí này | Ra kết quả |
 |---|---|---|---|
 | P1 | **Replay News Guard trên tin và giá từ 01/01/2026** | Kiểm chứng News Guard bằng dữ liệu lịch sử, không phải chờ tin thật | Mỗi bản ghi phản ứng có thêm đánh giá "News Guard có che được nhịp biến động không"; có thống kê theo cụm tin |
+| P1b | **Market sentiment từ đường giá và cặp chéo** (`2026-10-04-market-sentiment-design.md`) | Người dùng yêu cầu dùng cho thực thi; chỉ giảm rủi ro, không tăng | Sức mạnh 8 đồng tiền, risk regime, điểm xác nhận cho từng lệnh, hệ số rủi ro hoặc chặn SWING |
 | P2 | **Tự động kiểm tra số liệu tin** (AI design mục 7) | Chạy được ngay, không cần AI; bắt lỗi dữ liệu trước khi AI đọc | `news_data_health.json` + dòng Data health trên tab News |
 | P3 | **AI Bridge v1, Level 0** | Tự động hóa việc đọc số liệu mà người dùng đang làm tay | Báo cáo AI hằng ngày, giải thích từng cụm tin, chẩn đoán EA, nút ASK AI |
 | P4 | **Command queue + thao tác tay** CLOSE / PARTIAL / BE / TRAIL (đặc tả 9.2) | Cần trước khi có nhiều lệnh thật; cũng là nền cho Telegram và AI Level 2 | Nút trên tab Trades, có xác nhận, đi qua cùng các cổng kiểm tra |
