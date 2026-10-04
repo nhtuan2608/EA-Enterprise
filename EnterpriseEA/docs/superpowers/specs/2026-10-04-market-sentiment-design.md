@@ -1,6 +1,14 @@
 # Market Sentiment từ đường giá và cặp chéo
 
-Ngày 04/10/2026. Trạng thái: **DESIGN — chưa sửa source**. Chờ người dùng chốt các quyết định ở mục 9.
+Ngày 04/10/2026. Trạng thái: **IMPLEMENTED** (`Market/Sentiment.mqh`, `Market/SentimentRuntime.mqh`, nối vào vòng live sau News Guard). Người dùng chốt M1–M6 theo đề xuất (04/10/2026).
+
+Ghi chú triển khai:
+- Sức mạnh đồng tiền chỉ tính từ các cặp FX; vàng, BTC và chỉ số chứng khoán chỉ dùng cho risk regime.
+- Biến động được chuẩn hóa theo ATR14(H1) × √số nến (√4 cho 4 giờ, √24 cho 24 giờ).
+- Snapshot chỉ tính lại khi có nến H1 mới; kết quả lưu ở `current/sentiment.json`.
+- Mỗi candidate bị giảm rủi ro hoặc bị chặn vì sentiment có một sự kiện audit `SENTIMENT_APPLIED`.
+- Tab Market có phần "Market sentiment".
+- Chưa làm: dòng tóm tắt trên tab Overview, và phần replay sentiment theo từng tin (mục 7). Hai việc này nằm trong roadmap.
 
 Nguồn: yêu cầu người dùng 04/10/2026 ("với đường giá và cross pair đang có thì nên check market sentiment để hệ thống đánh giá cho thực thi"); master specification mục 4.3 (symbol profile: correlation, exposure), 5 (portfolio risk), 2.3 (đọc Price Action theo context).
 

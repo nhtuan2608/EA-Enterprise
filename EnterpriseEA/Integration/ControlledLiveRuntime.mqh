@@ -23,6 +23,7 @@
 #include "../Runtime/LiveSessionAuthorization.mqh"
 #include "../Runtime/TradeManagerRuntime.mqh"
 #include "../News/NewsCalendar.mqh"
+#include "../Market/SentimentRuntime.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -55,6 +56,7 @@ struct EEA_ControlledLiveRuntimeState
    string last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string last_reason;
    string news_blocked_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string sentiment_noted_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    bool recovery_blocked;
    EEA_ExecutionResult recovery_result;
   };
@@ -75,7 +77,7 @@ void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
    s.recovery_blocked=false;
    EEA_ExecutionResultDefaults(s.recovery_result);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; }
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; s.sentiment_noted_candidate[i]=""; }
   }
 
 bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
@@ -865,6 +867,26 @@ bool EEA_ControlledLiveApplyNewsRisk(const EEA_NewsRuntime &news,const string ca
    return true;
   }
 
+// Market sentiment (M1-M6): reduce-only. A SWING trade strongly against the flow is
+// blocked; against the flow halves the risk; when HTF x yellow news x sentiment falls
+// below the floor the trade is skipped. Unavailable sentiment is neutral.
+bool EEA_ControlledLiveApplySentiment(const EEA_SentimentRuntime &sentiment,const EEA_NewsRuntime &news,
+                                      const EEA_StrategyCandidateRuntime &strategy,const int index,
+                                      EEA_ControlledLiveTradePlan &plan,EEA_SentAlignment &alignment,string &reason)
+  {
+   const EEA_S02Engine engine=strategy.engines[index];
+   const string profile=strategy.profile[index];
+   EEA_SentimentAlignFor(sentiment,engine.canonical_symbol,engine.direction,profile,alignment);
+   if(alignment.block) { reason="SENTIMENT_STRONGLY_AGAINST"; return false; }
+   if(alignment.factor<=0.0 || alignment.factor>1.0) { reason="SENTIMENT_FACTOR_INVALID"; return false; }
+   double combined=MathMax(0.0,MathMin(1.0,strategy.htf_risk_modifier[index]))*
+                   EEA_NewsRiskFactorFor(news,engine.canonical_symbol,profile)*alignment.factor;
+   if(combined<sentiment.cfg.min_combined_factor) { reason="RISK_MODIFIERS_TOO_LOW"; return false; }
+   plan.base_risk_fraction*=alignment.factor;
+   plan.per_trade_cap_money*=alignment.factor;
+   return true;
+  }
+
 bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ControlledLiveConfig &config,
                                const EEA_StrategyCandidateRuntime &strategy,
@@ -876,7 +898,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                EEA_PendingRuntime &pending,
                                EEA_LiveSessionRuntime &session,
                                EEA_TradeManagerRuntime &trades,
-                               EEA_NewsRuntime &news)
+                               EEA_NewsRuntime &news,
+                               const EEA_SentimentRuntime &sentiment)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -977,6 +1000,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       bool context_ready=false;
       EEA_ControlledLiveTradePlan plan;
       EEA_ControlledLivePlanDefaults(plan);
+      EEA_SentAlignment alignment;
+      alignment.ok=false; alignment.verdict="UNAVAILABLE"; alignment.factor=1.0; alignment.block=false; alignment.reason="";
+      alignment.a4=0.0; alignment.a24=0.0; alignment.against4=0.0; alignment.against24=0.0;
       if(strategy.zone_mode)
         {
          context_ready=EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,
@@ -986,6 +1012,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                                          strategy.engines[i].timeframe,plan,reason) &&
                        EEA_ControlledLiveApplyNewsRisk(news,strategy.engines[i].canonical_symbol,news_profile,
                                                        plan,reason) &&
+                       EEA_ControlledLiveApplySentiment(sentiment,news,strategy,i,plan,alignment,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);
@@ -993,6 +1020,22 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       else
          context_ready=EEA_ControlledLiveBuildRiskContext(config,observer,strategy.engines[i],observer.symbol_specs[row],
                                                           policy,current,evidence,quote,reason);
+      // Sentiment effect is audited once per candidate (blocked or reduced).
+      if(strategy.zone_mode && alignment.ok && (alignment.block || alignment.factor<1.0) &&
+         state.sentiment_noted_candidate[i]!=candidate_id)
+        {
+         state.sentiment_noted_candidate[i]=candidate_id;
+         EEAEvent event;
+         EEAEvent_Init(event,"SENTIMENT_APPLIED",TimeGMT(),strategy.engines[i].canonical_symbol,candidate_id,"",
+                       alignment.verdict,"OK");
+         event.config_version=observer.config_version;
+         EEAEvent_AddReason(event,alignment.reason);
+         event.details_json="{\"profile\":\""+strategy.profile[i]+"\",\"direction\":"+IntegerToString(strategy.engines[i].direction)+
+            ",\"a4\":"+DoubleToString(alignment.a4,3)+",\"a24\":"+DoubleToString(alignment.a24,3)+
+            ",\"against4\":"+DoubleToString(alignment.against4,2)+",\"against24\":"+DoubleToString(alignment.against24,2)+
+            ",\"factor\":"+DoubleToString(alignment.factor,2)+",\"regime\":\""+sentiment.snap.regime+"\"}";
+         audit.Append(event,"EA_SENTIMENT");
+        }
       if(!context_ready) { state.last_reason=reason; continue; }
       EEA_DryRunDecision review; EEA_RiskDecision decision;
       if(!EEA_EvaluateDryRunCandidate(current,evidence,review)) { state.last_reason="LIVE_DRY_RUN_"+review.decision_status; continue; }

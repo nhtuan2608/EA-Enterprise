@@ -66,6 +66,7 @@ input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit 
 input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
 input string InpNewsIgnoreKeywords      = "";     // News Guard: comma list of HIGH event names to ignore (empty = none)
 input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
+input bool   InpSentimentEnabled        = true;   // Market sentiment: reduce-only filter from cross-pair flow
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -129,6 +130,7 @@ EEA_LiveSessionRuntime g_live_session;
 EEA_TradeManagerRuntime g_trade_manager;
 EEA_NewsRuntime g_news;
 EEA_NewsReactionRuntime g_news_reaction;
+EEA_SentimentRuntime g_sentiment;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -391,6 +393,45 @@ string EEA_PanelControllerStatusText(const EEA_ControllerStateLoadStatus status)
      }
   }
 
+// Market sentiment for the dashboard Market tab and the Overview line.
+void EEA_PublishSentimentView(EEA_SymbolPanelEngineView &view)
+  {
+   view.sentiment_ok=g_sentiment.snap.ok;
+   view.sentiment_reason=g_sentiment.snap.reason;
+   view.sentiment_regime=g_sentiment.snap.regime;
+   view.sentiment_bar_time=g_sentiment.snap.bar_time;
+   for(int c=0;c<EEA_SENT_CCY;c++)
+     {
+      view.sentiment_ccy[c]=EEA_SentCurrency(c);
+      view.sentiment_s4[c]=g_sentiment.snap.s4[c];
+      view.sentiment_s24[c]=g_sentiment.snap.s24[c];
+     }
+   view.sentiment_symbol_count=0;
+   string strongest="", weakest="";
+   double hi=-1e9, lo=1e9;
+   for(int c=0;c<EEA_SENT_CCY;c++)
+     {
+      if(g_sentiment.snap.n[c]==0) continue;
+      if(g_sentiment.snap.s4[c]>hi) { hi=g_sentiment.snap.s4[c]; strongest=EEA_SentCurrency(c); }
+      if(g_sentiment.snap.s4[c]<lo) { lo=g_sentiment.snap.s4[c]; weakest=EEA_SentCurrency(c); }
+     }
+   view.sentiment_summary=g_sentiment.snap.ok ?
+      "Strong "+strongest+"  weak "+weakest+EEA_SymbolPanelSep()+g_sentiment.snap.regime : g_sentiment.snap.reason;
+   for(int i=0;i<g_runtime.symbol_count && view.sentiment_symbol_count<EEA_PANEL_MAX_ROWS;i++)
+     {
+      string canonical=g_runtime.canonical_symbols[i];
+      if(g_runtime.broker_symbols[i]=="") continue;
+      EEA_SentAlignment buy, sell;
+      EEA_SentimentAlignFor(g_sentiment,canonical,1,"SCALP",buy);
+      EEA_SentimentAlignFor(g_sentiment,canonical,-1,"SCALP",sell);
+      int k=view.sentiment_symbol_count++;
+      view.sentiment_symbol[k]=canonical;
+      view.sentiment_symbol_text[k]=buy.ok ?
+         "buy "+DoubleToString(buy.a4,2)+"/"+DoubleToString(buy.a24,2)+" "+buy.verdict+"   sell "+
+         DoubleToString(sell.a4,2)+"/"+DoubleToString(sell.a24,2)+" "+sell.verdict : buy.reason;
+     }
+  }
+
 // News Guard facts for the dashboard News tab.
 void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
   {
@@ -490,6 +531,7 @@ void EEA_PublishPanelEngineView()
    view.strategy_reason=g_strategy_runtime.reason_code;
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
+   EEA_PublishSentimentView(view);
    view.recovery_message=g_recovery_message;
    if(g_live_runtime.recovery_blocked)
       view.recovery_detail="intent "+g_live_runtime.recovery_result.intent_id+"  ticket "+
@@ -705,6 +747,10 @@ int OnInit()
    news_config.allow_when_unknown=InpNewsAllowWhenUnknown;
    news_config.ignore_keywords=InpNewsIgnoreKeywords;
    EEA_NewsRuntimeInit(g_news,news_config,g_config.config_version);
+   EEA_SentConfig sentiment_config; EEA_SentConfigDefaults(sentiment_config);
+   sentiment_config.enabled=InpSentimentEnabled;
+   EEA_SentimentRuntimeInit(g_sentiment,sentiment_config);
+   if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
                      g_runtime.symbol_count);
@@ -775,6 +821,7 @@ void OnTimer()
        if(g_runtime.initialized)
           EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
                          g_runtime.symbol_count);
+       if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
        if(g_runtime.initialized)
           EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
                                               g_runtime.reconciliation,g_audit);
@@ -821,7 +868,7 @@ void OnTimer()
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
-                                       g_pending_runtime,g_live_session,g_trade_manager,g_news);
+                                       g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

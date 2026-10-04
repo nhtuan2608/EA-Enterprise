@@ -182,6 +182,17 @@ struct EEA_SymbolPanelEngineView
    string session_message;
    bool session_real_account;
    string trade_manager_reason;
+   bool sentiment_ok;             // market sentiment (cross-pair flow)
+   string sentiment_reason;
+   string sentiment_regime;
+   long sentiment_bar_time;
+   string sentiment_summary;
+   string sentiment_ccy[8];
+   double sentiment_s4[8];
+   double sentiment_s24[8];
+   int sentiment_symbol_count;
+   string sentiment_symbol[EEA_PANEL_MAX_ROWS];
+   string sentiment_symbol_text[EEA_PANEL_MAX_ROWS];
    string news_reason;            // News Guard calendar status
    long news_last_success_utc;
    string news_policy;
@@ -241,6 +252,9 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_max_entries=0; view.session_swing_entries_today=0; view.session_max_swing_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
    view.recovery_detail=""; view.recovery_message="";
+   view.sentiment_ok=false; view.sentiment_reason="SENTIMENT_NOT_PUBLISHED"; view.sentiment_regime="UNKNOWN";
+   view.sentiment_bar_time=0; view.sentiment_summary=""; view.sentiment_symbol_count=0;
+   for(int i=0;i<8;i++) { view.sentiment_ccy[i]=""; view.sentiment_s4[i]=0.0; view.sentiment_s24[i]=0.0; }
    view.news_reason="NEWS_GUARD_NOT_PUBLISHED"; view.news_last_success_utc=0; view.news_policy="";
    view.news_symbol_count=0; view.news_event_count=0;
    view.news_focus=""; view.news_recent_count=0; view.news_reaction_reason="";
@@ -1842,6 +1856,44 @@ void EEA_SymbolPanelDashMarket(const long chart_id,EEA_ObserverRuntimeContext &c
       EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_Empty",EEA_PANEL_CONTENT_X,y+56,
                              "No symbols selected. Choose them in Settings "+EEA_SymbolPanelGlyph(0x203A)+" Symbols.",
                              EEA_PANEL_MUTED_COLOR,EEA_PANEL_BODY_FONT_SIZE);
+   EEA_SymbolPanelSentiment(chart_id,y+46+MathMax(line,1)*EEA_PANEL_TABLE_ROW_HEIGHT+10);
+  }
+
+// Market sentiment: currency strength (4h / 24h, ATR-normalised), risk regime and how the
+// flow agrees with a buy or a sell on each selected symbol. Reduce-only filter.
+void EEA_SymbolPanelSentiment(const long chart_id,const int y)
+  {
+   string p=EEA_PANEL_OVERLAY_PREFIX+"Sent_";
+   EEA_SymbolPanelSetCaption(chart_id,p+"Title",EEA_PANEL_CONTENT_X,y,
+                             "MARKET SENTIMENT"+EEA_SymbolPanelSep()+"CURRENCY STRENGTH 4H / 24H"+EEA_SymbolPanelSep()+
+                             (g_panel_engine.sentiment_ok ? g_panel_engine.sentiment_regime : g_panel_engine.sentiment_reason));
+   if(!g_panel_engine.sentiment_ok)
+     {
+      EEA_SymbolPanelSetText(chart_id,p+"Off",EEA_PANEL_CONTENT_X,y+20,
+                             "Sentiment unavailable: neutral, no effect on entries ("+g_panel_engine.sentiment_reason+").",
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+      return;
+     }
+   ObjectDelete(chart_id,p+"Off");
+   for(int c=0;c<8;c++)
+     {
+      int col=c%4, row=c/4;
+      int x=EEA_PANEL_CONTENT_X+col*130, ry=y+20+row*20;
+      double v=g_panel_engine.sentiment_s4[c];
+      color tone=v>=0.3 ? EEA_PANEL_OK_COLOR : (v<=-0.3 ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_MUTED_COLOR);
+      EEA_SymbolPanelSetText(chart_id,p+"Ccy_"+IntegerToString(c),x,ry,
+                             g_panel_engine.sentiment_ccy[c]+"  "+DoubleToString(v,2)+" / "+
+                             DoubleToString(g_panel_engine.sentiment_s24[c],2),tone,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+     }
+   int sy=y+64;
+   for(int i=0;i<6;i++)
+     {
+      string n=p+"Sym_"+IntegerToString(i);
+      if(i>=g_panel_engine.sentiment_symbol_count) { ObjectDelete(chart_id,n); continue; }
+      EEA_SymbolPanelSetText(chart_id,n,EEA_PANEL_CONTENT_X,sy+i*16,
+                             g_panel_engine.sentiment_symbol[i]+"   "+g_panel_engine.sentiment_symbol_text[i],
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_LEFT_UPPER,90);
+     }
   }
 
 int EEA_SymbolPanelDigitsForBroker(const EEA_ObserverRuntimeContext &ctx,const string broker)
