@@ -372,6 +372,13 @@ void EEA_PublishPanelEngineView()
    view.session_message=g_live_session.last_action!="" ? g_live_session.last_action :
                         (view.session_state=="ACTIVE" && g_live_session.reason!="LIVE_SESSION_NONE" ? g_live_session.reason : "");
    view.session_real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
+   if(g_runtime.initialized && g_runtime.status.runtime_state=="OBSERVING")
+     {
+      double stress=0.0, floating=0.0; string stress_reason;
+      view.active_risk_valid=EEA_ControlledLiveExistingStress(g_runtime,stress,floating,stress_reason);
+      view.active_risk_money=stress;
+      view.active_risk_capital=g_risk_ledger.initial_capital;
+     }
    if(g_strategy_runtime.enabled)
       for(int i=0;i<g_strategy_runtime.symbol_count;i++)
         {

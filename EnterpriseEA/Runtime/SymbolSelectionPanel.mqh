@@ -176,6 +176,9 @@ struct EEA_SymbolPanelEngineView
    string session_reason;
    string session_message;
    bool session_real_account;
+   bool active_risk_valid;
+   double active_risk_money;      // loss at SL of open positions and EA/broker pending orders
+   double active_risk_capital;    // initial capital the percentage is measured against
   };
 
 static EEA_SymbolPanelEngineView g_panel_engine;
@@ -211,6 +214,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_state="NONE"; view.session_id=""; view.session_until_utc=0; view.session_symbols="";
    view.session_risk_fraction=0.0; view.session_daily_loss_fraction=0.0; view.session_entries_today=0;
    view.session_max_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
+   view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
   }
@@ -855,10 +859,11 @@ void EEA_SymbolPanelRenderMainView(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelStateFill(ctx.status.runtime_state,pill_fill,pill_text);
    EEA_SymbolPanelSetPill(chart_id,EEA_PANEL_MAIN_PREFIX+"Pill",EEA_PANEL_MAIN_WIDTH-178,13,128,
                           ctx.status.runtime_state,pill_fill,pill_text);
-   string execution=g_panel_engine.execution_enabled ? "Execution ENABLED" : "EXECUTION_DISABLED";
+   string execution=g_panel_engine.execution_enabled ? "Exec ON" : "EXECUTION_DISABLED";
    string live=(g_panel_engine.execution_enabled && g_panel_engine.live_armed) ?
-      (g_panel_engine.session_state=="ACTIVE" ? "Live SESSION ACTIVE" : "Live ARMED, no session") : "Live NOT_AUTHORIZED";
-   string entries=ctx.status.new_entries_blocked ? "Entries BLOCKED" : "Entries REVIEW";
+      (g_panel_engine.session_state=="ACTIVE" ? "Session ACTIVE" : "Armed, no session") : "Live NOT_AUTHORIZED";
+   string entries=EEA_SymbolPanelLivePathOpen() ? "Entries LIVE" :
+                  (ctx.status.new_entries_blocked ? "Entries BLOCKED" : "Entries REVIEW");
    string subheader=g_panel_state.collapsed ?
       "Equity "+EEA_SymbolPanelFormatNumber(ctx.account.equity,2)+" "+ctx.account.account_currency+
       EEA_SymbolPanelSep()+entries :
@@ -1318,6 +1323,15 @@ void EEA_SymbolPanelSettingsSymbols(const long chart_id,EEA_ObserverRuntimeConte
    EEA_SymbolPanelRenderSettingsRows(chart_id);
   }
 
+// The observer evidence always blocks entries by design; only the identity-bound live
+// path (inputs armed, session active, kill switch released) may send, per candidate.
+bool EEA_SymbolPanelLivePathOpen()
+  {
+   return g_panel_engine.execution_enabled && g_panel_engine.live_armed &&
+          g_panel_engine.session_state=="ACTIVE" && !g_panel_engine.controller_kill_active &&
+          g_panel_engine.controller_allows_market && !g_panel_engine.recovery_blocked;
+  }
+
 string EEA_SymbolPanelPercent(const double fraction) { return DoubleToString(fraction*100.0,2)+"%"; }
 
 string EEA_SymbolPanelDurationText(const long seconds)
@@ -1490,8 +1504,9 @@ void EEA_SymbolPanelSettingsFooter(const long chart_id,EEA_ObserverRuntimeContex
                           "Reason  "+(g_panel_state.apply_reason=="" ? "NONE" : g_panel_state.apply_reason),
                           EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_RIGHT_UPPER,46);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Safety",EEA_PANEL_CONTENT_X,EEA_PANEL_SETTINGS_SAFETY_Y,
-                          "Safety  EXECUTION_DISABLED  |  NOT_AUTHORIZED  |  "+EEA_PANEL_POLICY_PROPOSAL_ONLY+
-                          "  |  proposal only; no execution",
+                          EEA_SymbolPanelLivePathOpen() ?
+                          "Safety  LIVE SESSION ACTIVE  |  settings here change policy and symbols, never send orders" :
+                          "Safety  NOT_AUTHORIZED  |  "+EEA_PANEL_POLICY_PROPOSAL_ONLY+"  |  proposal only; no execution",
                           EEA_PANEL_WARNING_COLOR,7);
   }
 
@@ -1581,8 +1596,18 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
    for(int i=0;i<ctx.symbol_count;i++) if(ctx.broker_symbols[i]!="") resolved++;
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_Today",EEA_PANEL_INNER_X,y+68,128,"TODAY P/L",
                           EEA_SymbolPanelSigned(today,2),EEA_SymbolPanelPnlColor(today),"local day "+EEA_SymbolPanelLocalZoneLabel()+", realized");
+   string risk_value="--", risk_note="open SL risk unavailable";
+   color risk_color=EEA_PANEL_MUTED_COLOR;
+   if(g_panel_engine.active_risk_valid)
+     {
+      risk_value=EEA_SymbolPanelFormatNumber(g_panel_engine.active_risk_money,2);
+      risk_note=g_panel_engine.active_risk_capital>0.0 ?
+         EEA_SymbolPanelPercent(g_panel_engine.active_risk_money/g_panel_engine.active_risk_capital)+" of capital at SL" :
+         "loss at SL";
+      risk_color=g_panel_engine.active_risk_money>0.0 ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR;
+     }
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_ActiveRisk",EEA_PANEL_INNER_X+136,y+68,128,"ACTIVE RISK",
-                          "--",EEA_PANEL_MUTED_COLOR,"Risk Kernel not wired");
+                          risk_value,risk_color,risk_note);
    EEA_SymbolPanelSetTile(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tile_Book",EEA_PANEL_INNER_X+272,y+68,128,"POSITIONS / ORDERS",
                           IntegerToString(ctx.reconciliation.position_count)+" / "+IntegerToString(ctx.reconciliation.order_count),
                           EEA_PANEL_TEXT_COLOR,IntegerToString(ctx.reconciliation.deal_count)+" deals loaded");
@@ -1598,9 +1623,12 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                            ctx.status.runtime_state,EEA_SymbolPanelStatusColor(ctx.status.runtime_state));
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Reason",right,s+28,"Reason",
                            ctx.status.reason_code,EEA_PANEL_MUTED_COLOR);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Entries",left,s+60,"New entries (new_entries_blocked)",
-                           ctx.status.new_entries_blocked ? "BLOCKED" : "REVIEW",
-                           ctx.status.new_entries_blocked ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR);
+   bool live_open=EEA_SymbolPanelLivePathOpen();
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Entries",left,s+60,"New entries",
+                           live_open ? "LIVE - each candidate risk-gated" :
+                           (ctx.status.new_entries_blocked ? "BLOCKED (observer only)" : "REVIEW"),
+                           live_open ? EEA_PANEL_WARNING_COLOR :
+                           (ctx.status.new_entries_blocked ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR));
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Execution",right,s+60,"Execution",
                            g_panel_engine.execution_enabled ? (g_panel_engine.live_armed ? "ENABLED / ARMED" : "ENABLED") :
                            "EXECUTION_DISABLED",
@@ -1620,8 +1648,9 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02",
                            g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED",
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_External",right,s+124,"AI bridge / News center",
-                           "OFFLINE / UNKNOWN  (not built)",EEA_PANEL_MUTED_COLOR);
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_External",right,s+124,"Live engine - last decision",
+                           g_panel_engine.live_reason=="" ? "--" : g_panel_engine.live_reason,
+                           EEA_PANEL_MUTED_COLOR,40);
 
    int e=s+172;
    EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"EvidenceSurface",EEA_PANEL_INNER_X,e,
@@ -1629,8 +1658,8 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_EvidenceTitle",EEA_PANEL_CONTENT_X,e+10,
                              "EVIDENCE"+EEA_SymbolPanelSep()+"Evidence freshness:");
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Freshness",EEA_PANEL_CONTENT_X,e+28,
-                          "observed_at_utc  "+EEA_SymbolPanelReadableUtc(ctx.reconciliation.observed_at_utc)+
-                          "     valid_until_utc  "+EEA_SymbolPanelReadableUtc(ctx.reconciliation.valid_until_utc),
+                          "observed  "+EEA_SymbolPanelReadableUtc(ctx.reconciliation.observed_at_utc)+
+                          "   valid until  "+EEA_SymbolPanelClockUtc(ctx.reconciliation.valid_until_utc),
                           EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Watermark",EEA_PANEL_CONTENT_X,e+44,
                           "Deal watermark:  "+IntegerToString(ctx.reconciliation.deal_watermark)+EEA_SymbolPanelSep()+
