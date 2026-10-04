@@ -20,6 +20,7 @@
 #include "../Risk/RiskLimitsProfile.mqh"
 #include "../Storage/RiskLedgerStore.mqh"
 #include "../Runtime/PendingOrderRuntime.mqh"
+#include "../Runtime/LiveSessionAuthorization.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -723,6 +724,18 @@ bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &conf
    return true;
   }
 
+// The session caps risk per trade on top of O-04; it can only lower the plan's risk.
+bool EEA_ControlledLiveApplySessionCap(const bool session_mode,const EEA_LiveSessionRuntime &session,
+                                       const EEA_RiskLedger &ledger,EEA_ControlledLiveTradePlan &plan,string &reason)
+  {
+   if(!session_mode) return true;
+   const double cap=session.session.max_risk_per_trade_fraction;
+   if(cap<=0.0) { reason="LIVE_SESSION_LIMITS_INVALID"; return false; }
+   plan.base_risk_fraction=MathMin(plan.base_risk_fraction,cap);
+   plan.per_trade_cap_money=MathMin(plan.per_trade_cap_money,cap*ledger.initial_capital);
+   return true;
+  }
+
 bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ControlledLiveConfig &config,
                                const EEA_StrategyCandidateRuntime &strategy,
@@ -731,7 +744,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const bool controller_allows_market,
                                CAuditLog &audit,
                                const EEA_RiskLedger &ledger,
-                               EEA_PendingRuntime &pending)
+                               EEA_PendingRuntime &pending,
+                               EEA_LiveSessionRuntime &session)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -781,12 +795,29 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       EEA_LiveAuthorizationContext auth_context; EEA_LiveAuthorizationDecision authorization;
       string authorization_path=config.authorization_path;
       if(authorization_path=="") authorization_path=observer.root+"/current/live_authorization.json";
-      if(!EEA_LiveAuthorizationStoreLoad(authorization_path,
-            observer.config_version,observer.account.account_fingerprint,observer.account.broker_server,
-            observer.broker_symbols[row],auth_context,authorization,reason))
-        { state.last_reason=reason; continue; }
-      if(auth_context.candidate_id!=candidate_id)
-        { state.last_reason="LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"; continue; }
+      // A signed session (control center) authorizes each candidate inside its limits;
+      // without a session file the per-intent document remains the only path.
+      const long day_reset=EEA_PragueDailyResetUtc((long)TimeGMT());
+      const bool session_mode=session.present;
+      if(session_mode)
+        {
+         const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
+         if(!EEA_LiveSessionAuthorize(session,observer.config_version,observer.account.account_fingerprint,
+               observer.account.broker_server,observer.account.account_margin_mode,policy.committed_policy,
+               observer.broker_symbols[row],candidate_id,real_account,(long)TimeGMT(),day_reset,
+               ledger.initial_capital,ledger.last_reset_balance,observer.account.equity,authorization,reason))
+           { state.last_reason=reason; session.reason=reason; continue; }
+         authorization_path=EEA_LiveSessionPath(observer.root);
+        }
+      else
+        {
+         if(!EEA_LiveAuthorizationStoreLoad(authorization_path,
+               observer.config_version,observer.account.account_fingerprint,observer.account.broker_server,
+               observer.broker_symbols[row],auth_context,authorization,reason))
+           { state.last_reason=reason; continue; }
+         if(auth_context.candidate_id!=candidate_id)
+           { state.last_reason="LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"; continue; }
+        }
       EEA_DryRunContext current; EEA_DryRunEvidence evidence[]; EEA_RuntimeTradeQuote quote;
       // S02 v1 derives the whole plan (structure, costs, O-04, ledger); the prototype
       // keeps its explicit inputs. Both pass the same Risk Kernel checks afterwards.
@@ -797,6 +828,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         {
          context_ready=EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,
                                                        ledger,entry_mode,plan,reason) &&
+                       EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);
@@ -875,6 +907,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
             state.last_reason="EXECUTION_RESULT_PERSISTENCE_FAILED";
             return false;
            }
+         if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset))
+            session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
          state.recovery_result=result;
          state.recovery_blocked=result.confirmation_state=="EXECUTION_UNKNOWN";
          state.last_candidate_id[i]=candidate_id;

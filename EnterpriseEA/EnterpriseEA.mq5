@@ -50,6 +50,9 @@ input int    InpS02MaxBarsToRetest      = 0;
 input int    InpS02MaxBarsForReaction   = 0;
 input int    InpS02CandidateTtlBars     = 0;
 input string InpLiveAuthorizationPath  = "";
+input int    InpSessionMaxEntriesPerDay = 6;      // session authorization: entries per Prague day
+input bool   InpSessionAllowRealAccount = false;  // a session on a REAL account needs this set explicitly
+input string InpOperatorId              = "operator"; // recorded on session and controller documents
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -109,6 +112,7 @@ void EEA_LoadDurableControllerState()
 
 EEA_RiskLedger g_risk_ledger;
 EEA_PendingRuntime g_pending_runtime;
+EEA_LiveSessionRuntime g_live_session;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -160,6 +164,171 @@ void EEA_MaintainDurableState()
       EEA_RiskLedgerWrite(root,g_risk_ledger);
   }
 
+// ---------------------------------------------------------------------------
+// Session authorization (control center). Signing writes one time-boxed session and
+// releases the controller kill switch for the same window; revoking does the reverse.
+// Each step is re-checked against live account, policy, ledger and broker state.
+// ---------------------------------------------------------------------------
+void EEA_LiveSessionReload()
+  {
+   bool present=false;
+   EEA_LiveSessionRuntime fresh; EEA_LiveSessionRuntimeDefaults(fresh);
+   fresh.last_action=g_live_session.last_action;
+   if(!EEA_LiveSessionLoad(g_config.data_root,fresh.session,present))
+     { fresh.present=true; fresh.session.status="INVALID"; fresh.reason="LIVE_SESSION_FILE_INVALID"; }
+   else
+      fresh.present=present;
+   if(!EEA_LiveSessionUsageLoad(g_config.data_root,fresh.usage))
+     { fresh.usage_failed=true; fresh.reason="LIVE_SESSION_USAGE_FILE_INVALID"; }
+   fresh.loaded=true;
+   g_live_session=fresh;
+  }
+
+string EEA_LiveSessionStateText(string &reason)
+  {
+   reason="";
+   if(!g_live_session.present) return "NONE";
+   if(EEA_LiveSessionActive(g_live_session.session,(long)TimeGMT(),reason))
+      return g_live_session.usage_failed ? "INVALID" : "ACTIVE";
+   if(reason=="LIVE_SESSION_REVOKED") return "REVOKED";
+   if(reason=="LIVE_SESSION_EXPIRED") return "EXPIRED";
+   return "INVALID";
+  }
+
+bool EEA_LiveSessionAudit(const string event_type,const string reason)
+  {
+   EEAEvent event;
+   EEAEvent_Init(event,event_type,TimeGMT(),"","","","",reason);
+   event.config_version=g_config.config_version;
+   event.details_json="{\"session_id\":\""+EEA_JsonEscape(g_live_session.session.session_id)+
+      "\",\"operator_id\":\""+EEA_JsonEscape(g_live_session.session.operator_id)+
+      "\",\"valid_until_utc\":"+IntegerToString(g_live_session.session.valid_until_utc)+
+      ",\"allowed_symbols\":\""+EEA_JsonEscape(g_live_session.session.allowed_symbols)+
+      "\",\"risk_policy_id\":\""+EEA_JsonEscape(g_live_session.session.risk_policy_id)+"\"}";
+   return g_audit.Append(event,"EA_OPERATOR");
+  }
+
+bool EEA_LiveSessionWriteController(const bool kill_active,const long valid_until,const string reference,string &reason)
+  {
+   string path=g_config.data_root+"/current/execution_controller_state.json";
+   EEA_ExecutionControllerState existing; bool exists=false;
+   if(!EEA_ControllerStateStoreReadExisting(path,g_config.config_version,g_runtime.account.account_fingerprint,
+                                            g_runtime.account.broker_server,existing,exists))
+     { reason="CONTROLLER_STATE_UNREADABLE"; return false; }
+   EEA_ExecutionControllerState next;
+   EEA_ExecutionControllerStateDefaults(next);
+   next.kill_active=kill_active;
+   next.revision=(exists ? existing.revision : 0)+1;
+   next.config_version=g_config.config_version;
+   next.account_fingerprint=g_runtime.account.account_fingerprint;
+   next.broker_server=g_runtime.account.broker_server;
+   next.operator_id=InpOperatorId;
+   next.reference=reference;
+   next.valid_from_utc=TimeGMT();
+   next.valid_until_utc=(datetime)valid_until;
+   next.operation_scope=EEA_LIVE_SESSION_SCOPE;
+   if(!EEA_ControllerStateStoreWrite(path,next,g_config.config_version,g_runtime.account.account_fingerprint,
+                                     g_runtime.account.broker_server,TimeGMT()))
+     { reason="CONTROLLER_STATE_WRITE_FAILED"; return false; }
+   return true;
+  }
+
+bool EEA_LiveSessionSign(const long seconds,string &reason)
+  {
+   long now=(long)TimeGMT();
+   if(!g_runtime.initialized || g_runtime.status.runtime_state!="OBSERVING" ||
+      g_runtime.account.account_fingerprint=="" || g_runtime.account.broker_server=="")
+     { reason="SESSION_RUNTIME_NOT_OBSERVING"; return false; }
+   if(seconds<=0 || seconds>EEA_LIVE_SESSION_MAX_SECONDS) { reason="SESSION_DURATION_INVALID"; return false; }
+   if(!EEA_ExecutionControllerOpaqueIdentifierValid(InpOperatorId)) { reason="SESSION_OPERATOR_ID_INVALID"; return false; }
+   bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
+   if(real_account && !InpSessionAllowRealAccount) { reason="SESSION_REAL_ACCOUNT_NOT_ALLOWED"; return false; }
+   if(InpSessionMaxEntriesPerDay<1 || InpSessionMaxEntriesPerDay>50) { reason="SESSION_ENTRY_LIMIT_INVALID"; return false; }
+   if(g_live_runtime.recovery_blocked) { reason="EXECUTION_UNKNOWN_RECOVERY_REQUIRED"; return false; }
+   if(g_pending_runtime.entries_blocked) { reason=g_pending_runtime.reason; return false; }
+   EEA_PolicySettings policy;
+   if(!EEA_ControlledLiveResolvePolicy(g_config.data_root,g_config.config_version,g_runtime.account,policy,reason))
+      return false;
+   EEA_RiskLimits limits;
+   if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)) return false;
+   if(g_risk_ledger.initial_capital<=0.0) { reason="LIVE_INITIAL_CAPITAL_UNKNOWN"; return false; }
+   string symbols="";
+   for(int i=0;i<g_runtime.symbol_count;i++)
+      if(g_runtime.broker_symbols[i]!="") symbols+=(symbols=="" ? "" : ",")+g_runtime.broker_symbols[i];
+   if(symbols=="") { reason="SESSION_NO_RESOLVED_SYMBOLS"; return false; }
+
+   EEA_LiveSession session; EEA_LiveSessionDefaults(session);
+   MqlDateTime t; TimeToStruct((datetime)now,t);
+   session.session_id=StringFormat("session-%04d%02d%02dT%02d%02d%02dZ",t.year,t.mon,t.day,t.hour,t.min,t.sec);
+   session.status="ACTIVE";
+   session.operator_id=InpOperatorId;
+   session.config_version=g_config.config_version;
+   session.account_fingerprint=g_runtime.account.account_fingerprint;
+   session.broker_server=g_runtime.account.broker_server;
+   session.account_mode=g_runtime.account.account_margin_mode;
+   session.risk_policy_id=policy.committed_policy;
+   session.build_hash="build-"+IntegerToString((long)__DATETIME__);
+   session.allowed_symbols=symbols;
+   session.scope=EEA_LIVE_SESSION_SCOPE;
+   session.signed_at_utc=now; session.valid_from_utc=now; session.valid_until_utc=now+seconds;
+   session.max_risk_per_trade_fraction=limits.per_trade_fraction;
+   session.max_daily_loss_fraction=limits.internal_daily_fraction;
+   session.max_entries_per_day=InpSessionMaxEntriesPerDay;
+   session.real_account=real_account;
+   if(!EEA_LiveSessionActive(session,now,reason)) return false;
+   if(!EEA_LiveSessionWrite(g_config.data_root,session)) { reason="SESSION_PERSISTENCE_FAILED"; return false; }
+   if(!EEA_LiveSessionWriteController(false,session.valid_until_utc,session.session_id,reason))
+     {
+      // Never leave an active session without its controller window.
+      session.status="REVOKED"; session.revoked_at_utc=now;
+      EEA_LiveSessionWrite(g_config.data_root,session);
+      EEA_LiveSessionReload();
+      return false;
+     }
+   EEA_LiveSessionReload();
+   EEA_LoadDurableControllerState();
+   if(!EEA_LiveSessionAudit("LIVE_SESSION_SIGNED","OK")) { reason="SESSION_AUDIT_FAILED"; return false; }
+   reason="SESSION_SIGNED";
+   return true;
+  }
+
+bool EEA_LiveSessionRevoke(string &reason)
+  {
+   long now=(long)TimeGMT();
+   if(g_runtime.account.account_fingerprint=="" || g_runtime.account.broker_server=="")
+     { reason="SESSION_ACCOUNT_UNKNOWN"; return false; }
+   bool ok=true;
+   if(g_live_session.present && g_live_session.session.session_id!="")
+     {
+      EEA_LiveSession session=g_live_session.session;
+      session.status="REVOKED"; session.revoked_at_utc=now;
+      if(!EEA_LiveSessionWrite(g_config.data_root,session)) { ok=false; reason="SESSION_PERSISTENCE_FAILED"; }
+     }
+   string controller_reason;
+   if(!EEA_LiveSessionWriteController(true,now+86400,"revoke-"+IntegerToString(now),controller_reason))
+     { ok=false; reason=controller_reason; }
+   EEA_LiveSessionReload();
+   EEA_LoadDurableControllerState();
+   g_pending_runtime.entry_permission_revoked=true;
+   EEA_LiveSessionAudit("LIVE_SESSION_REVOKED",ok ? "OK" : reason);
+   if(ok) reason="SESSION_REVOKED";
+   return ok;
+  }
+
+void EEA_LiveSessionHandlePanelRequest()
+  {
+   string request=g_panel_state.session_request;
+   if(request=="") return;
+   g_panel_state.session_request="";
+   string reason="";
+   bool ok=false;
+   if(request=="SIGN_24H") ok=EEA_LiveSessionSign(86400,reason);
+   else if(request=="SIGN_7D") ok=EEA_LiveSessionSign(EEA_LIVE_SESSION_MAX_SECONDS,reason);
+   else if(request=="REVOKE") ok=EEA_LiveSessionRevoke(reason);
+   g_live_session.last_action=(ok ? "" : "FAILED  ")+reason;
+   EEA_SymbolPanelToast(ok ? reason : "FAILED: "+reason,ok ? EEA_PANEL_OK_COLOR : EEA_PANEL_DANGER_COLOR);
+  }
+
 string EEA_PanelControllerStatusText(const EEA_ControllerStateLoadStatus status)
   {
    switch(status)
@@ -190,6 +359,19 @@ void EEA_PublishPanelEngineView()
    view.live_reason=g_live_runtime.last_reason;
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
+   string session_reason;
+   view.session_state=EEA_LiveSessionStateText(session_reason);
+   view.session_reason=(g_live_session.usage_failed ? g_live_session.reason : session_reason);
+   view.session_id=g_live_session.session.session_id;
+   view.session_until_utc=g_live_session.session.valid_until_utc;
+   view.session_symbols=g_live_session.session.allowed_symbols;
+   view.session_risk_fraction=g_live_session.session.max_risk_per_trade_fraction;
+   view.session_daily_loss_fraction=g_live_session.session.max_daily_loss_fraction;
+   view.session_max_entries=g_live_session.session.max_entries_per_day;
+   view.session_entries_today=EEA_LiveSessionEntriesToday(g_live_session,EEA_PragueDailyResetUtc((long)TimeGMT()));
+   view.session_message=g_live_session.last_action!="" ? g_live_session.last_action :
+                        (view.session_state=="ACTIVE" && g_live_session.reason!="LIVE_SESSION_NONE" ? g_live_session.reason : "");
+   view.session_real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
    if(g_strategy_runtime.enabled)
       for(int i=0;i<g_strategy_runtime.symbol_count;i++)
         {
@@ -366,6 +548,7 @@ int OnInit()
      }
    EEA_LoadDurableControllerState();
    EEA_MaintainDurableState();
+   EEA_LiveSessionReload();
    string recovery_reason="";
    if(!EEA_ControlledLiveLoadRecovery(g_live_runtime,g_config.data_root,recovery_reason))
       Print("Execution recovery is fail-closed: ",recovery_reason);
@@ -457,12 +640,18 @@ void OnTimer()
           // timer, before any new entry is considered and even when entries are blocked.
           if(!g_pending_runtime.loaded)
              EEA_PendingRuntimeLoad(g_pending_runtime,g_config.data_root,g_runtime.account.account_fingerprint);
+          // A revoked or expired session withdraws entry permission: working EA pending
+          // orders are cancelled on their next closed bar (cancel only removes exposure).
+          if(!g_live_session.loaded) EEA_LiveSessionReload();
+          string session_reason;
+          g_pending_runtime.entry_permission_revoked=g_live_session.present &&
+             EEA_LiveSessionStateText(session_reason)!="ACTIVE";
           EEA_PendingRuntimeUpdate(g_pending_runtime,g_audit,g_config.data_root,g_strategy_runtime,g_runtime,
                                    g_live_config.enabled && g_live_config.armed);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
-                                       g_pending_runtime);
+                                       g_pending_runtime,g_live_session);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
@@ -489,6 +678,13 @@ void OnChartEvent(const int id,
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
+      if(g_panel_state.session_request!="")
+        {
+         EEA_LiveSessionHandlePanelRequest();
+         EEA_PublishPanelEngineView();
+         EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
+         ChartRedraw(0);
+        }
      }
   }
 

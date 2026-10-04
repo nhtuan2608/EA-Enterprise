@@ -7,6 +7,7 @@
 #include "ExecutionAdapter.mqh"
 #include "ObserverRuntime.mqh"
 #include "StrategyCandidateRuntime.mqh"
+#include "LiveSessionAuthorization.mqh"
 
 // REQ-021 runtime: tracks every LIMIT/STOP order the EA placed, reconciles it with the
 // broker on each timer (fills, partial fills, cancellations, expiries), observes each
@@ -36,13 +37,14 @@ struct EEA_PendingRuntime
    int count;
    bool loaded;
    bool entries_blocked;
+   bool entry_permission_revoked;  // session revoked/expired: working orders are cancelled on the next bar
    string reason;
    EEA_PendingTracked items[EEA_PENDING_MAX_TRACKED];
   };
 
 void EEA_PendingRuntimeDefaults(EEA_PendingRuntime &rt)
   {
-   rt.count=0; rt.loaded=false; rt.entries_blocked=false; rt.reason="PENDING_RUNTIME_IDLE";
+   rt.count=0; rt.loaded=false; rt.entries_blocked=false; rt.entry_permission_revoked=false; rt.reason="PENDING_RUNTIME_IDLE";
    for(int i=0;i<EEA_PENDING_MAX_TRACKED;i++) rt.items[i].active=false;
   }
 
@@ -342,7 +344,7 @@ void EEA_PendingReconcileBroker(EEA_PendingTracked &t)
 // Feeds each newly closed setup bar to the lifecycle: bar limit, setup validity,
 // entry permission, quote premise and instrument spec.
 void EEA_PendingObserveBars(EEA_PendingTracked &t,const EEA_StrategyCandidateRuntime &strategy,
-                            const EEA_ObserverRuntimeContext &observer)
+                            const EEA_ObserverRuntimeContext &observer,const bool entry_permission_revoked=false)
   {
    if(t.state.status!="WORKING" && t.state.status!="PARTIAL" && t.state.status!="CANCEL_REQUIRED") return;
    ENUM_TIMEFRAMES tf=EEA_PendingTimeframe(t.timeframe);
@@ -382,7 +384,7 @@ void EEA_PendingObserveBars(EEA_PendingTracked &t,const EEA_StrategyCandidateRun
       o.closed_at_utc=(datetime)closed_utc;
       o.bar_closed_confirmed=true;
       o.setup_valid=setup_valid; o.session_open=true;
-      o.risk_entry_allowed=(observer.status.runtime_state=="OBSERVING");
+      o.risk_entry_allowed=(observer.status.runtime_state=="OBSERVING" && !entry_permission_revoked);
       o.news_entry_allowed=true;                  // O-16: no News Center, accepted
       o.quote_premise_valid=quote_ok;
       o.config_spec_unchanged=spec_unchanged;
@@ -404,8 +406,14 @@ void EEA_PendingRequestCancel(EEA_PendingTracked &t,CAuditLog &audit,const strin
    for(int k=0;k<observer.symbol_count;k++) if(observer.broker_symbols[k]==t.broker_symbol) { row=k; break; }
    if(row<0) { t.state.reason_code="PENDING_CANCEL_SYMBOL_UNAVAILABLE"; return; }
    EEA_LiveAuthorizationContext context; EEA_LiveAuthorizationDecision authorization; string reason;
-   EEA_LiveAuthorizationStoreLoad(t.authorization_path,t.state.config_version,t.state.account_fingerprint,
-                                  t.state.broker_server,t.broker_symbol,context,authorization,reason);
+   if(StringFind(t.authorization_path,"live_session.json")>=0)
+      EEA_LiveSessionCancelAuthorization(t.authorization_path,t.intent.intent_id,t.intent.candidate_id,
+                                         t.state.config_version,t.state.account_fingerprint,t.state.broker_server,
+                                         observer.account.account_margin_mode,t.broker_symbol,
+                                         t.intent.risk_policy_id,authorization,reason);
+   else
+      EEA_LiveAuthorizationStoreLoad(t.authorization_path,t.state.config_version,t.state.account_fingerprint,
+                                     t.state.broker_server,t.broker_symbol,context,authorization,reason);
    EEA_ExecutionIntent cancel=t.intent;
    t.cancel_attempts++;
    cancel.action=EEA_EXEC_ACTION_CANCEL_PENDING;
@@ -434,7 +442,7 @@ bool EEA_PendingRuntimeUpdate(EEA_PendingRuntime &rt,CAuditLog &audit,const stri
       string before=t.state.status+"|"+IntegerToString(t.state.last_event_sequence)+"|"+
                     IntegerToString(t.state.bars_waited)+"|"+IntegerToString(t.cancel_attempts);
       EEA_PendingReconcileBroker(t);
-      EEA_PendingObserveBars(t,strategy,observer);
+      EEA_PendingObserveBars(t,strategy,observer,rt.entry_permission_revoked);
       EEA_PendingCheckDeadline(t.state,TimeGMT());
       EEA_PendingRequestCancel(t,audit,root,observer,execution_enabled);
       string status=t.state.status;

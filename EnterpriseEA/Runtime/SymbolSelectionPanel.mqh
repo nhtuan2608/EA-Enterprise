@@ -82,7 +82,9 @@ enum EEA_SymbolPanelButtonVariant
    EEA_PANEL_BUTTON_DISABLED=5,
    EEA_PANEL_BUTTON_TAB=6,
    EEA_PANEL_BUTTON_TAB_ACTIVE=7,
-   EEA_PANEL_BUTTON_GHOST=8
+   EEA_PANEL_BUTTON_GHOST=8,
+   EEA_PANEL_BUTTON_DANGER=9,
+   EEA_PANEL_BUTTON_WARNING=10
   };
 
 struct EEA_SymbolPanelRow
@@ -135,6 +137,9 @@ struct EEA_SymbolPanelState
    color toast_color;
    datetime toast_until;
    string edit_rendered_value;
+   string session_request;        // consumed by the EA shell: SIGN_24H | SIGN_7D | REVOKE
+   string session_confirm_action; // the first click arms a confirmation for 10 seconds
+   uint session_confirm_tick;
   };
 
 static EEA_SymbolPanelState g_panel_state;
@@ -160,6 +165,17 @@ struct EEA_SymbolPanelEngineView
    string setup_detail[EEA_PANEL_MAX_ROWS];
    int universe_count;
    string universe[EEA_PANEL_MAX_ROWS];
+   string session_state;          // NONE | ACTIVE | EXPIRED | REVOKED | INVALID
+   string session_id;
+   long session_until_utc;
+   string session_symbols;
+   double session_risk_fraction;
+   double session_daily_loss_fraction;
+   int session_entries_today;
+   int session_max_entries;
+   string session_reason;
+   string session_message;
+   bool session_real_account;
   };
 
 static EEA_SymbolPanelEngineView g_panel_engine;
@@ -192,6 +208,9 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.strategy_reason="";
    view.setup_count=0;
    view.universe_count=0;
+   view.session_state="NONE"; view.session_id=""; view.session_until_utc=0; view.session_symbols="";
+   view.session_risk_fraction=0.0; view.session_daily_loss_fraction=0.0; view.session_entries_today=0;
+   view.session_max_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
   }
@@ -497,6 +516,10 @@ void EEA_SymbolPanelButtonColors(const EEA_SymbolPanelButtonVariant variant,colo
      { background=EEA_PANEL_SURFACE_COLOR; border=EEA_PANEL_ACCENT_FILL_COLOR; }
    else if(variant==EEA_PANEL_BUTTON_GHOST)
      { background=EEA_PANEL_SURFACE_COLOR; border=EEA_PANEL_BORDER_COLOR; text_color=EEA_PANEL_MUTED_COLOR; }
+   else if(variant==EEA_PANEL_BUTTON_DANGER)
+     { background=EEA_PANEL_DANGER_FILL_COLOR; border=EEA_PANEL_DANGER_COLOR; }
+   else if(variant==EEA_PANEL_BUTTON_WARNING)
+     { background=EEA_PANEL_WARNING_FILL_COLOR; border=EEA_PANEL_WARNING_COLOR; }
   }
 
 void EEA_SymbolPanelSetButtonEx(const long chart_id,const string name,const int x,const int y,
@@ -833,7 +856,8 @@ void EEA_SymbolPanelRenderMainView(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelSetPill(chart_id,EEA_PANEL_MAIN_PREFIX+"Pill",EEA_PANEL_MAIN_WIDTH-178,13,128,
                           ctx.status.runtime_state,pill_fill,pill_text);
    string execution=g_panel_engine.execution_enabled ? "Execution ENABLED" : "EXECUTION_DISABLED";
-   string live=(g_panel_engine.execution_enabled && g_panel_engine.live_armed) ? "Live ARMED (gated)" : "Live NOT_AUTHORIZED";
+   string live=(g_panel_engine.execution_enabled && g_panel_engine.live_armed) ?
+      (g_panel_engine.session_state=="ACTIVE" ? "Live SESSION ACTIVE" : "Live ARMED, no session") : "Live NOT_AUTHORIZED";
    string entries=ctx.status.new_entries_blocked ? "Entries BLOCKED" : "Entries REVIEW";
    string subheader=g_panel_state.collapsed ?
       "Equity "+EEA_SymbolPanelFormatNumber(ctx.account.equity,2)+" "+ctx.account.account_currency+
@@ -1294,11 +1318,85 @@ void EEA_SymbolPanelSettingsSymbols(const long chart_id,EEA_ObserverRuntimeConte
    EEA_SymbolPanelRenderSettingsRows(chart_id);
   }
 
+string EEA_SymbolPanelPercent(const double fraction) { return DoubleToString(fraction*100.0,2)+"%"; }
+
+string EEA_SymbolPanelDurationText(const long seconds)
+  {
+   if(seconds<=0) return "0m";
+   long d=seconds/86400, h=(seconds%86400)/3600, m=(seconds%3600)/60;
+   if(d>0) return IntegerToString(d)+"d "+IntegerToString(h)+"h";
+   if(h>0) return IntegerToString(h)+"h "+IntegerToString(m)+"m";
+   return IntegerToString(m)+"m";
+  }
+
+bool EEA_SymbolPanelSessionConfirming(const string action)
+  {
+   return g_panel_state.session_confirm_action==action &&
+          GetTickCount()-g_panel_state.session_confirm_tick<10000;
+  }
+
+// Session authorization: one signed, time-boxed permission for automatic entries.
+// The panel only raises a request; the EA shell validates, writes and audits it.
+void EEA_SymbolPanelSettingsSession(const long chart_id,const int y)
+  {
+   string state=g_panel_engine.session_state;
+   bool active=(state=="ACTIVE");
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"SessionSurface",EEA_PANEL_INNER_X,y,
+                             EEA_PANEL_INNER_WIDTH,192,EEA_PANEL_SURFACE_COLOR,
+                             active ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_BORDER_COLOR);
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Session",EEA_PANEL_CONTENT_X,y+10,
+                             "SESSION AUTHORIZATION"+EEA_SymbolPanelSep()+"AUTOMATIC ENTRIES");
+   color fill=EEA_PANEL_SURFACE_ALT_COLOR, text_color=EEA_PANEL_MUTED_COLOR;
+   if(active) { fill=EEA_PANEL_WARNING_FILL_COLOR; text_color=EEA_PANEL_WARNING_COLOR; }
+   else if(state=="INVALID") { fill=EEA_PANEL_DANGER_FILL_COLOR; text_color=EEA_PANEL_DANGER_COLOR; }
+   EEA_SymbolPanelSetPill(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Pill_Session",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-112,y+6,
+                          112,state,fill,text_color);
+   long now=(long)TimeGMT();
+   string status_line=active ?
+      "Active until "+EEA_SymbolPanelReadableUtc(g_panel_engine.session_until_utc)+"  ("+
+      EEA_SymbolPanelDurationText(g_panel_engine.session_until_utc-now)+" left)" :
+      (state=="NONE" ? "No session. The EA observes and never sends an order." :
+       "Session "+state+(g_panel_engine.session_reason=="" ? "" : "  ("+g_panel_engine.session_reason+")"));
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionStatus",EEA_PANEL_CONTENT_X,y+34,status_line,
+                          active ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_BODY_FONT_SIZE);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionSymbols",EEA_PANEL_CONTENT_X,y+54,
+                          "Symbols  "+(g_panel_engine.session_symbols=="" ? "--" : g_panel_engine.session_symbols),
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+   string limits=g_panel_engine.session_max_entries>0 ?
+      "Limits  "+EEA_SymbolPanelPercent(g_panel_engine.session_risk_fraction)+" per trade"+EEA_SymbolPanelSep()+
+      EEA_SymbolPanelPercent(g_panel_engine.session_daily_loss_fraction)+" daily loss"+EEA_SymbolPanelSep()+
+      IntegerToString(g_panel_engine.session_entries_today)+"/"+IntegerToString(g_panel_engine.session_max_entries)+
+      " entries today" : "Limits  taken from the committed risk policy (O-04) when you authorize";
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionLimits",EEA_PANEL_CONTENT_X,y+70,limits,
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+   string layers="Inputs "+((g_panel_engine.execution_enabled && g_panel_engine.live_armed) ? "ARMED" : "NOT ARMED (F7)")+
+      EEA_SymbolPanelSep()+"Kill switch "+(g_panel_engine.controller_kill_active ? "ON" : "OFF")+
+      EEA_SymbolPanelSep()+(g_panel_engine.session_real_account ? "REAL account" : "Demo account");
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionLayers",EEA_PANEL_CONTENT_X,y+86,layers,
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+   bool c24=EEA_SymbolPanelSessionConfirming("SIGN_24H"), c7=EEA_SymbolPanelSessionConfirming("SIGN_7D");
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Session24h",EEA_PANEL_CONTENT_X,y+108,128,30,
+                              c24 ? "Confirm 24h" : "Authorize 24h",c24 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_PRIMARY);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Session7d",EEA_PANEL_CONTENT_X+136,y+108,136,30,
+                              c7 ? "Confirm 7 days" : "Authorize 7 days",c7 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_SECONDARY);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionRevoke",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-120,
+                              y+108,120,30,"Revoke now",
+                              (active || !g_panel_engine.controller_kill_active) ? EEA_PANEL_BUTTON_DANGER : EEA_PANEL_BUTTON_DISABLED);
+   string message=(c24 || c7) ? "Click again within 10 s to sign. Every candidate passing all risk checks may then be traded." :
+                  g_panel_engine.session_message;
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionMessage",EEA_PANEL_CONTENT_X,y+146,
+                          message=="" ? "Signing re-checks account, policy, ledger and broker state first." : message,
+                          (c24 || c7) ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionNote",EEA_PANEL_CONTENT_X,y+166,
+                          "Revoke stops new entries at once and cancels EA pending orders on the next closed bar.",
+                          EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE);
+  }
+
 void EEA_SymbolPanelSettingsAuthorization(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    int y=EEA_PANEL_CONTENT_Y;
    EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"AuthorizationSurface",EEA_PANEL_INNER_X,y,
-                             EEA_PANEL_INNER_WIDTH,180,EEA_PANEL_SURFACE_COLOR);
+                             EEA_PANEL_INNER_WIDTH,120,EEA_PANEL_SURFACE_COLOR);
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Time",EEA_PANEL_CONTENT_X,y+10,
                              "AUTHORIZATION WINDOW"+EEA_SymbolPanelSep()+"GMT+7");
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_TimeHelp",EEA_PANEL_CONTENT_X,y+26,
@@ -1318,11 +1416,9 @@ void EEA_SymbolPanelSettingsAuthorization(const long chart_id,EEA_ObserverRuntim
      { hint="Invalid time. Use YYYY-MM-DD HH:MM, for example 2026-10-03 14:30."; hint_color=EEA_PANEL_DANGER_COLOR; }
    else if(g_panel_state.authorization_utc>0)
      { hint=EEA_SymbolPanelGlyph(0x2713)+"  Validated and stored as a proposal."; hint_color=EEA_PANEL_OK_COLOR; }
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_TimeHint",EEA_PANEL_CONTENT_X,y+110,hint,hint_color,
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_TimeHint",EEA_PANEL_CONTENT_X,y+100,hint,hint_color,
                           EEA_PANEL_META_FONT_SIZE);
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_TimeNote",EEA_PANEL_CONTENT_X,y+140,
-                          "This time feeds the live authorization document as a proposal; it never authorizes execution.",
-                          EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE);
+   EEA_SymbolPanelSettingsSession(chart_id,y+128);
   }
 
 void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContext &ctx)
@@ -1512,7 +1608,8 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
    bool live_gated=g_panel_engine.execution_enabled && g_panel_engine.live_armed &&
                    g_panel_engine.controller_allows_market && !g_panel_engine.recovery_blocked;
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Live",left,s+92,"Live authorization",
-                           live_gated ? "GATED (per-intent check)" : "NOT_AUTHORIZED",
+                           live_gated ? (g_panel_engine.session_state=="ACTIVE" ? "SESSION ACTIVE" : "NO SESSION") :
+                           "NOT_AUTHORIZED",
                            live_gated ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_DANGER_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Kill",right,s+92,"Kill switch / controller",
                            (g_panel_engine.controller_kill_active ? "ACTIVE" : "RELEASED")+
@@ -2303,6 +2400,20 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       if(!EEA_SymbolPanelPersistPolicy(ctx,audit,false))
          { g_panel_state.authorization_input_gmt7=old_authorization_input_gmt7; g_panel_state.authorization_utc=old_authorization_utc; g_panel_state.status_message=old_status_message; g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED"; }
        EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Session24h" || sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Session7d")
+     {
+      string action=(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Session24h") ? "SIGN_24H" : "SIGN_7D";
+      if(EEA_SymbolPanelSessionConfirming(action))
+        { g_panel_state.session_request=action; g_panel_state.session_confirm_action=""; }
+      else
+        { g_panel_state.session_confirm_action=action; g_panel_state.session_confirm_tick=GetTickCount(); }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionRevoke")
+     {
+      g_panel_state.session_request="REVOKE"; g_panel_state.session_confirm_action="";
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply")
      {
