@@ -157,10 +157,11 @@ bool EEA_LiveSessionUsageLoad(const string root,EEA_LiveSessionUsage &u)
    return u.entries>=0;
   }
 
-// Entries counted for this session on the current Prague day; another day or session counts zero.
+// Entries sent on the current Prague day across all sessions: re-signing a session
+// must not reset the daily cap. Another day counts zero.
 int EEA_LiveSessionEntriesToday(const EEA_LiveSessionRuntime &r,const long day_reset_utc)
   {
-   if(r.usage.session_id!=r.session.session_id || r.usage.day_reset_utc!=day_reset_utc) return 0;
+   if(r.usage.day_reset_utc!=day_reset_utc) return 0;
    return r.usage.entries;
   }
 
@@ -270,8 +271,8 @@ bool EEA_LiveSessionCancelAuthorization(const string path,const string intent_id
 // Counts one sent entry; persisted so the daily cap survives EA removal and re-attach.
 bool EEA_LiveSessionRecordEntry(EEA_LiveSessionRuntime &r,const string root,const long day_reset_utc)
   {
-   if(r.usage.session_id!=r.session.session_id || r.usage.day_reset_utc!=day_reset_utc)
-     { r.usage.session_id=r.session.session_id; r.usage.day_reset_utc=day_reset_utc; r.usage.entries=0; }
+   if(r.usage.day_reset_utc!=day_reset_utc) { r.usage.day_reset_utc=day_reset_utc; r.usage.entries=0; }
+   r.usage.session_id=r.session.session_id;
    r.usage.entries++;
    if(!EEA_LiveSessionUsageWrite(root,r.usage)) { r.usage_failed=true; return false; }
    return true;

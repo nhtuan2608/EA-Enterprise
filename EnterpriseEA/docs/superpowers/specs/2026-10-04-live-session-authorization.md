@@ -41,7 +41,7 @@ Ngày 04/10/2026. Trạng thái: IMPLEMENTED, chưa deploy. Thay cho việc ph�
   - lỗ trong ngày (balance lúc reset − equity) chạm giới hạn;
   - không ghi được bộ đếm lệnh.
 - Rủi ro của phiên chỉ có thể giảm rủi ro của plan, không bao giờ tăng.
-- Bộ đếm lệnh lưu ở `current/live_session_usage.json` nên vẫn còn sau khi gỡ EA ra rồi gắn lại.
+- Bộ đếm lệnh tính theo ngày Prague cho mọi phiên: ký lại phiên không reset số lệnh đã vào trong ngày. Bộ đếm lưu ở `current/live_session_usage.json` nên vẫn còn sau khi gỡ EA ra rồi gắn lại.
 
 ## 4. Thu hồi và hết hạn
 

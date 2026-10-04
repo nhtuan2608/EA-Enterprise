@@ -42,6 +42,10 @@ class LiveSessionGateTests(unittest.TestCase):
         record = section(self.module, "bool EEA_LiveSessionRecordEntry")
         self.assertIn("EEA_LiveSessionUsageWrite(root,r.usage)", record)
         self.assertIn("r.usage_failed=true", record)
+        # Re-signing a session must not reset the daily entry cap.
+        today = section(self.module, "int EEA_LiveSessionEntriesToday")
+        self.assertNotIn("session_id", today)
+        self.assertNotIn("r.usage.session_id!=", record)
 
     def test_cancel_is_owned_by_the_placing_session(self):
         cancel = section(self.module, "bool EEA_LiveSessionCancelAuthorization")
