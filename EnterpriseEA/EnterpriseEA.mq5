@@ -113,6 +113,7 @@ void EEA_LoadDurableControllerState()
 EEA_RiskLedger g_risk_ledger;
 EEA_PendingRuntime g_pending_runtime;
 EEA_LiveSessionRuntime g_live_session;
+EEA_TradeManagerRuntime g_trade_manager;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -359,6 +360,7 @@ void EEA_PublishPanelEngineView()
    view.live_reason=g_live_runtime.last_reason;
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
+   view.trade_manager_reason=g_trade_manager.reason;
    string session_reason;
    view.session_state=EEA_LiveSessionStateText(session_reason);
    view.session_reason=(g_live_session.usage_failed ? g_live_session.reason : session_reason);
@@ -655,10 +657,16 @@ void OnTimer()
              EEA_LiveSessionStateText(session_reason)!="ACTIVE";
           EEA_PendingRuntimeUpdate(g_pending_runtime,g_audit,g_config.data_root,g_strategy_runtime,g_runtime,
                                    g_live_config.enabled && g_live_config.armed);
+          // REQ-005: manage every EA position (also when entries are blocked). After a
+          // revoked or expired session only a profitable position is moved to break-even.
+          if(!g_trade_manager.loaded) EEA_TradeManagerLoad(g_trade_manager,g_config.data_root);
+          EEA_TradeManagerUpdate(g_trade_manager,g_audit,g_config.data_root,g_runtime,
+                                 g_live_config.enabled && g_live_config.armed,
+                                 !g_pending_runtime.entry_permission_revoked);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
-                                       g_pending_runtime,g_live_session);
+                                       g_pending_runtime,g_live_session,g_trade_manager);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

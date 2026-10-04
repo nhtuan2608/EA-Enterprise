@@ -19,6 +19,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
             "EEA_ExecutionSubmit(",
             "EEA_ExecutionModifyProtective(",
             "EEA_ExecutionCancelPending(",
+            "EEA_ExecutionClosePosition(",
         ):
             self.assertNotIn(symbol, shell)
 
@@ -37,6 +38,7 @@ class ExecutionIntegrationBoundaryTests(unittest.TestCase):
             "EEA_ExecutionSubmit",
             "EEA_ExecutionModifyProtective",
             "EEA_ExecutionCancelPending",
+            "EEA_ExecutionClosePosition",
         ):
             start = adapter.index("bool " + function_name)
             end = adapter.find("\nbool ", start + 1)

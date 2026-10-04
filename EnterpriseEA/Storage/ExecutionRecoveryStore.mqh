@@ -63,10 +63,19 @@ bool EEA_ExecutionRecoveryLoad(const string root,EEA_ExecutionResult &result,boo
    return result.intent_id!="" && result.idempotency_key!="" && result.confirmation_state!="";
   }
 
+// Only an entry whose outcome is unknown blocks new entries. A pending cancel or a
+// Trade Manager action (modify/close) targets an order or position that may be gone
+// once it succeeded, so it is reconciled by its own runtime and never by this gate.
+bool EEA_ExecutionRecoveryIsEntryKey(const string idempotency_key)
+  {
+   return StringFind(idempotency_key,"-cancel-")<0 && StringFind(idempotency_key,"manage-")!=0;
+  }
+
 bool EEA_ExecutionRecoveryNeedsReconciliation(const EEA_ExecutionResult &result)
   {
    return result.request_sent && result.confirmation_state=="EXECUTION_UNKNOWN" &&
-          result.request_ticket>0 && result.request_ticket_kind!="";
+          result.request_ticket>0 && result.request_ticket_kind!="" &&
+          EEA_ExecutionRecoveryIsEntryKey(result.idempotency_key);
   }
 
 #endif

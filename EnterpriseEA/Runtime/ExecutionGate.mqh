@@ -222,7 +222,7 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
      }
 
    if(intent.action<EEA_EXEC_ACTION_SUBMIT_MARKET ||
-      intent.action>EEA_EXEC_ACTION_CANCEL_PENDING || intent.order_type<0 ||
+      intent.action>EEA_EXEC_ACTION_CLOSE_POSITION || intent.order_type<0 ||
       intent.order_type>7 || !EEA_IsFiniteDouble(intent.volume) ||
       !EEA_IsFiniteDouble(intent.price) || !EEA_IsFiniteDouble(intent.sl) ||
       !EEA_IsFiniteDouble(intent.tp))
@@ -251,6 +251,13 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
         { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_UNSUPPORTED"); return false; }
       if(intent.expiration<=TimeGMT())
         { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_INVALID"); return false; }
+     }
+   // A close only reduces an existing EA position: it needs the position and a BUY/SELL deal.
+   if(intent.action==EEA_EXEC_ACTION_CLOSE_POSITION &&
+      (intent.position_ticket<=0 || intent.order_type>1 || intent.volume<=0.0))
+     {
+      EEA_ExecutionResultReject(result,"CLOSE_POSITION_INVALID");
+      return false;
      }
    if(intent.action==EEA_EXEC_ACTION_CANCEL_PENDING && intent.ticket<=0)
      {

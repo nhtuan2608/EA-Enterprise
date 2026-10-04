@@ -176,6 +176,7 @@ struct EEA_SymbolPanelEngineView
    string session_reason;
    string session_message;
    bool session_real_account;
+   string trade_manager_reason;
    bool active_risk_valid;
    double active_risk_money;      // loss at SL of open positions and EA/broker pending orders
    double active_risk_capital;    // initial capital the percentage is measured against
@@ -214,6 +215,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_state="NONE"; view.session_id=""; view.session_until_utc=0; view.session_symbols="";
    view.session_risk_fraction=0.0; view.session_daily_loss_fraction=0.0; view.session_entries_today=0;
    view.session_max_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
+   view.trade_manager_reason="";
    view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
@@ -1645,8 +1647,10 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                            (g_panel_engine.recovery_blocked ? "  RECOVERY BLOCKED" : ""),
                            g_panel_engine.controller_kill_active || g_panel_engine.recovery_blocked ?
                            EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR,40);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02",
-                           g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02 / trade manager",
+                           (g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED")+
+                           (g_panel_engine.trade_manager_reason=="" ? "" :
+                            "  "+StringSubstr(g_panel_engine.trade_manager_reason,StringLen("TRADE_MANAGER_"))),
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_External",right,s+124,"Live engine - last decision",
                            g_panel_engine.live_reason=="" ? "--" : g_panel_engine.live_reason,

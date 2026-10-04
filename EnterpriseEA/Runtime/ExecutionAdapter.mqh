@@ -77,6 +77,8 @@ bool EEA_ExecutionRetcodeAcknowledged(const uint retcode,const int action)
              retcode==TRADE_RETCODE_NO_CHANGES;
    if(action==EEA_EXEC_ACTION_CANCEL_PENDING)
       return retcode==TRADE_RETCODE_DONE;
+   if(action==EEA_EXEC_ACTION_CLOSE_POSITION)
+      return retcode==TRADE_RETCODE_DONE || retcode==TRADE_RETCODE_DONE_PARTIAL;
    return false;
 }
 
@@ -438,6 +440,102 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
       return false;
      }
 
+   result.confirmation_state = "EXECUTION_UNKNOWN";
+   result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
+   if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))
+      return false;
+   return true;
+}
+
+// Trade Manager close (REQ-005): full or partial close of one EA position by an opposite
+// deal bound to that position. Same authorization, idempotency, gate and persistence
+// path as every other send; it never opens or adds exposure.
+bool EEA_ExecutionClosePosition(CAuditLog &audit,
+                                const string data_root,
+                                const EEA_ExecutionIntent &intent,
+                                const EEA_RuntimeAccountSnapshot &account,
+                                const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                const EEA_RuntimeSymbolSpec &symbol,
+                                const EEA_RuntimeStatus &status,
+                                const bool execution_enabled,
+                                const EEA_LiveAuthorizationDecision &authorization,
+                                EEA_ExecutionResult &result)
+{
+   string root = EEA_ExecutionResolveRoot(data_root);
+   EEA_ExecutionResultDefaults(result);
+   result.intent_id = intent.intent_id;
+   result.correlation_id = intent.correlation_id;
+   result.idempotency_key = intent.idempotency_key;
+   EEA_ExecutionBindIntentLineage(result,intent);
+   EEA_ExecutionBindAuthorization(result,authorization);
+   if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
+     {
+      EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.action!=EEA_EXEC_ACTION_CLOSE_POSITION)
+     {
+      EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
+   if(EEA_ExecutionIsDuplicateIdempotency(root, intent.idempotency_key))
+     {
+      result.confirmation_state = "REJECTED";
+      result.reason_code = "DUPLICATE_IDEMPOTENCY_KEY";
+      result.request_sent = false;
+      EEA_ExecutionStoreWriteIntent(root, intent);
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
+   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
+     {
+      result.request_sent = false;
+      EEA_ExecutionStoreWriteIntent(root, intent);
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
+   if(!EEA_ExecutionPersistBeforeSend(audit, root, intent,
+      "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"position\":" + IntegerToString(intent.position_ticket) +
+      ",\"close_volume\":" + DoubleToString(intent.volume, 8) + "}"))
+     {
+      EEA_ExecutionRecordPersistenceFailure(audit, root, intent, result);
+      return false;
+     }
+
+   MqlTradeRequest request;
+   MqlTradeResult trade_result;
+   ZeroMemory(request);
+   ZeroMemory(trade_result);
+   MqlTick tick;
+   ZeroMemory(tick);
+   SymbolInfoTick(intent.broker_symbol, tick);
+   request.action = TRADE_ACTION_DEAL;
+   request.position = (ulong)intent.position_ticket;
+   request.symbol = intent.broker_symbol;
+   request.volume = intent.volume;
+   request.type = (ENUM_ORDER_TYPE)intent.order_type;
+   request.price = (intent.order_type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
+   request.type_filling = (ENUM_ORDER_TYPE_FILLING)intent.filling_mode;
+   request.deviation = intent.deviation;
+   request.magic = intent.magic;
+
+   bool sent = OrderSend(request, trade_result);
+   bool broker_acknowledged = EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action);
+   result.request_sent = sent || broker_acknowledged;
+   result.request_retcode = IntegerToString(trade_result.retcode);
+   result.request_ticket_kind = "POSITION";
+   result.request_ticket = intent.position_ticket;
+   result.observed_at_utc = TimeCurrent();
+   if(!broker_acknowledged)
+     {
+      result.confirmation_state = "REJECTED";
+      result.reason_code = "CLOSE_FAILED_" + result.request_retcode;
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
    result.confirmation_state = "EXECUTION_UNKNOWN";
    result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
    if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))

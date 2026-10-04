@@ -21,6 +21,7 @@
 #include "../Storage/RiskLedgerStore.mqh"
 #include "../Runtime/PendingOrderRuntime.mqh"
 #include "../Runtime/LiveSessionAuthorization.mqh"
+#include "../Runtime/TradeManagerRuntime.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -780,7 +781,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                CAuditLog &audit,
                                const EEA_RiskLedger &ledger,
                                EEA_PendingRuntime &pending,
-                               EEA_LiveSessionRuntime &session)
+                               EEA_LiveSessionRuntime &session,
+                               EEA_TradeManagerRuntime &trades)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -810,7 +812,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(!limit_ready && (!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED)) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id=="" || candidate_id==state.last_candidate_id[i]) continue;
-      if(EEA_PendingRuntimeHasCandidate(pending,candidate_id) ||
+      if(EEA_TradeManagerHasCandidate(trades,candidate_id) ||
+         EEA_PendingRuntimeHasCandidate(pending,candidate_id) ||
          EEA_PendingRuntimeHasEngine(pending,strategy.engines[i].canonical_symbol,strategy.engines[i].timeframe))
          continue;
       int entry_mode=EEA_S02_ENTRY_MARKET;
@@ -944,6 +947,13 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
             state.last_reason="EXECUTION_RESULT_PERSISTENCE_FAILED";
             return false;
            }
+         // REQ-005: the Trade Manager takes over the position from the entry acknowledgement.
+         string manage_reason;
+         if(strategy.zone_mode)
+            EEA_TradeManagerRegister(trades,observer.root,intent,result.request_ticket,
+                                     pending_order ? "ORDER" : result.request_ticket_kind,strategy.profile[i],
+                                     strategy.engines[i].timeframe,strategy.engines[i].zone_low,
+                                     strategy.engines[i].zone_high,authorization_path,manage_reason);
          if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset))
             session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
          state.recovery_result=result;
