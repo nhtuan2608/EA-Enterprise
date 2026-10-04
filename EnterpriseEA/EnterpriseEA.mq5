@@ -371,7 +371,7 @@ string g_recovery_message="";
 void EEA_RecoveryHandlePanelRequest()
   {
    string request=g_panel_state.recovery_request;
-   if(request=="") return;
+   if(StringLen(request)==0) return;   // NULL-safe: an unset string is not ""
    g_panel_state.recovery_request="";
    string reason="";
    if(request=="RECHECK")
@@ -397,7 +397,7 @@ void EEA_RecoveryHandlePanelRequest()
 void EEA_LiveSessionHandlePanelRequest()
   {
    string request=g_panel_state.session_request;
-   if(request=="") return;
+   if(StringLen(request)==0) return;   // NULL-safe: an unset string is not ""
    g_panel_state.session_request="";
    string reason="";
    bool ok=false;
@@ -674,7 +674,7 @@ void EEA_AiTimer()
 void EEA_AiHandlePanelRequest()
   {
    string request=g_panel_state.ai_request;
-   if(request=="") return;
+   if(StringLen(request)==0) return;   // NULL-safe: an unset string is not ""
    g_panel_state.ai_request="";
    string reason;
    EEA_AiEnqueueReport(request=="REVIEW" ? "NEWS_DATA_REVIEW" : "ASK_AI",reason);
@@ -716,7 +716,7 @@ void EEA_CommandProcessNow()
 
 void EEA_CommandHandlePanelRequest()
   {
-   if(g_panel_state.cmd_request_action=="") return;
+   if(StringLen(g_panel_state.cmd_request_action)==0) return;
    EEA_Command c; EEA_CommandDefaults(c);
    const long now=(long)TimeGMT();
    c.id="cmd-"+IntegerToString(now)+"-"+IntegerToString(MathRand());
@@ -1234,8 +1234,9 @@ void OnChartEvent(const int id,
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
-      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="" || g_panel_state.ai_request!="" ||
-         g_panel_state.cmd_request_action!="")
+      // StringLen, not !="": an unset (NULL) string compares unequal to "" in MQL5.
+      if(StringLen(g_panel_state.session_request)>0 || StringLen(g_panel_state.recovery_request)>0 ||
+         StringLen(g_panel_state.ai_request)>0 || StringLen(g_panel_state.cmd_request_action)>0)
         {
          EEA_CommandHandlePanelRequest();
          EEA_AiHandlePanelRequest();

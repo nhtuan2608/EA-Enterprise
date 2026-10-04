@@ -129,5 +129,17 @@ class CommandQueueSourceTests(unittest.TestCase):
         self.assertNotIn("OPEN", " ".join(schema["properties"]["action"]["enum"]))
 
 
+class PanelRequestNullSafetyTests(unittest.TestCase):
+    def test_requests_are_initialised_and_checked_by_length(self):
+        panel = read("Runtime/SymbolSelectionPanel.mqh")
+        init = section(panel, "bool EEA_SymbolPanelInit")
+        for field in ("session_request", "recovery_request", "ai_request", "cmd_request_action"):
+            self.assertIn("g_panel_state." + field + '=""', init)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("StringLen(g_panel_state.cmd_request_action)>0", shell)
+        self.assertNotIn('g_panel_state.cmd_request_action!=""', shell)
+        self.assertNotIn('   if(request=="") return;', shell)
+
+
 if __name__ == "__main__":
     unittest.main()

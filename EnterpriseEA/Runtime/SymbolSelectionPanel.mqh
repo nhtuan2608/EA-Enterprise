@@ -987,6 +987,16 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
   {
    g_panel_state.row_count=0;
    g_panel_state.row_offset=0;
+   // Requests to the EA shell start empty (an unset string is NULL, which is not "").
+   g_panel_state.session_request=""; g_panel_state.session_confirm_action=""; g_panel_state.session_confirm_tick=0;
+   g_panel_state.recovery_request=""; g_panel_state.recovery_confirm_tick=0;
+   g_panel_state.ai_request=""; g_panel_state.ai_request_tick=0;
+   g_panel_state.cmd_request_action=""; g_panel_state.cmd_request_kind=""; g_panel_state.cmd_request_ticket=0;
+   g_panel_state.cmd_request_volume=0.0; g_panel_state.cmd_request_sl=0.0; g_panel_state.cmd_request_fraction=0.0;
+   g_panel_state.trade_selected_kind=""; g_panel_state.trade_selected_ticket=0; g_panel_state.trade_selected_volume=0.0;
+   g_panel_state.trade_selected_sl=0.0; g_panel_state.trade_pending_action=""; g_panel_state.trade_confirm_tick=0;
+   g_panel_state.trade_partial_fraction=0.5; g_panel_state.trade_closeall_stage=0; g_panel_state.trade_closeall_tick=0;
+   g_panel_state.trade_row_count=0;
    g_panel_state.status_message="Ready";
    g_panel_state.apply_reason="";
    g_panel_state.committed_policy="UNSELECTED";
