@@ -51,6 +51,7 @@ input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, 
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
+input datetime InpResearchExportFrom    = D'2023.01.01 00:00'; // G10: H1/H4 export start (SWING research on long history)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;
@@ -1108,7 +1109,8 @@ int OnInit()
    EEA_AiClientInit(g_ai,g_config.data_root,InpAiEnabled,InpAiMaxCallsPerDay);
    EEA_SetupReplayInit(g_setup_replay,g_config.data_root,InpSetupReplayEnabled && InpStrategyRuntimeEnabled &&
                        !InpS02UsePrototype,(long)InpSetupReplayFrom);
-   EEA_BarExportInit(g_bar_export,g_config.data_root,InpResearchExportBars,(long)InpSetupReplayFrom);
+   EEA_BarExportInit(g_bar_export,g_config.data_root,InpResearchExportBars,(long)InpSetupReplayFrom,
+                     (long)InpResearchExportFrom);
    if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
