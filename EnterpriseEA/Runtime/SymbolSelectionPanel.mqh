@@ -141,6 +141,24 @@ struct EEA_SymbolPanelState
    string session_request;        // consumed by the EA shell: SIGN_24H | SIGN_7D | REVOKE
    string recovery_request;       // consumed by the EA shell: RECHECK | RESOLVE
    string ai_request;             // consumed by the EA shell: ASK | REVIEW
+   string trade_selected_kind;    // Trades tab (G8): POSITION | ORDER | ""
+   long trade_selected_ticket;
+   double trade_selected_volume;
+   double trade_selected_sl;
+   string trade_pending_action;   // action waiting for Confirm (15 seconds)
+   uint trade_confirm_tick;
+   double trade_partial_fraction;
+   int trade_closeall_stage;      // 0 none, 1 first confirm, 2 second click (10 seconds)
+   uint trade_closeall_tick;
+   int trade_row_count;
+   string trade_row_kind[12];
+   long trade_row_ticket[12];
+   string cmd_request_action;     // consumed by the EA shell
+   string cmd_request_kind;
+   long cmd_request_ticket;
+   double cmd_request_volume;
+   double cmd_request_sl;
+   double cmd_request_fraction;
    uint ai_request_tick;          // one AI request per minute from the panel
    uint recovery_confirm_tick;    // RESOLVE needs a second click within 10 seconds
    string session_confirm_action; // the first click arms a confirmation for 10 seconds
@@ -184,6 +202,13 @@ struct EEA_SymbolPanelEngineView
    string session_message;
    bool session_real_account;
    string trade_manager_reason;
+   bool cmd_armed;                // manual actions need an armed EA (C3)
+   string cmd_last;
+   int ea_position_count;
+   long ea_position_ticket[32];
+   string ea_position_profile[32];
+   int ea_order_count;
+   long ea_order_ticket[16];
    string ai_status;              // AI Bridge: ONLINE | BRIDGE OFFLINE | CIRCUIT OPEN | DISABLED
    string ai_status_line;
    string ai_title[4];
@@ -261,6 +286,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_max_entries=0; view.session_swing_entries_today=0; view.session_max_swing_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
    view.recovery_detail=""; view.recovery_message="";
+   view.cmd_armed=false; view.cmd_last=""; view.ea_position_count=0; view.ea_order_count=0;
    view.ai_status="DISABLED"; view.ai_status_line="";
    for(int i=0;i<4;i++) { view.ai_title[i]=""; view.ai_line_count[i]=0; }
    for(int i=0;i<32;i++) view.ai_lines[i]="";
@@ -1917,26 +1943,40 @@ void EEA_SymbolPanelDashTrades(const long chart_id,EEA_ObserverRuntimeContext &c
    int y=EEA_PANEL_CONTENT_Y;
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_TradesTitle",EEA_PANEL_CONTENT_X,y,
                              "OPEN POSITIONS  ("+IntegerToString(ctx.reconciliation.position_count)+")"+
-                             EEA_SymbolPanelSep()+"PENDING ORDERS  ("+IntegerToString(ctx.reconciliation.order_count)+")");
+                             EEA_SymbolPanelSep()+"PENDING ORDERS  ("+IntegerToString(ctx.reconciliation.order_count)+")"+
+                             EEA_SymbolPanelSep()+"click an EA symbol to act");
    string labels[8]={"Symbol","Side","Volume","Open","Current","SL","TP","P/L"};
    int xs[8]={24,112,206,284,360,424,486,540};
    bool right[8]={false,false,true,true,true,true,true,true};
    EEA_SymbolPanelTableHeader(chart_id,y+20,labels,xs,right,8);
    EEA_SymbolPanelClearDashboardRows(chart_id);
+   EEA_SymbolPanelPruneHits(EEA_PANEL_OVERLAY_PREFIX+"Tr_Sel");
+   for(int k=0;k<20;k++) ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tr_Sel_"+IntegerToString(k));
    double floating=0.0;
    int shown=0;
+   bool selection_alive=false;
    for(int i=0;i<ctx.reconciliation.position_count && i<EEA_RUNTIME_MAX_POSITIONS;i++)
      {
       double pnl=ctx.reconciliation.positions[i].profit+ctx.reconciliation.positions[i].swap;
       floating+=pnl;
-      if(shown>=11) continue;
+      if(shown>=9) continue;
       int ry=y+46+shown*EEA_PANEL_TABLE_ROW_HEIGHT;
       string n=EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(shown);
       int digits=EEA_SymbolPanelDigitsForBroker(ctx,ctx.reconciliation.positions[i].symbol);
       bool buy=ctx.reconciliation.positions[i].type=="0";
+      long ticket=ctx.reconciliation.positions[i].ticket;
+      string profile=EEA_SymbolPanelEaProfile(ticket);
+      bool selected=(g_panel_state.trade_selected_kind=="POSITION" && g_panel_state.trade_selected_ticket==ticket);
+      if(selected) selection_alive=true;
       EEA_SymbolPanelTableRowBase(chart_id,shown,ry);
-      EEA_SymbolPanelSetText(chart_id,n,24,ry+6,ctx.reconciliation.positions[i].symbol,EEA_PANEL_TEXT_COLOR,
-                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,13);
+      if(profile!="")
+         EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tr_Sel_"+IntegerToString(shown),16,ry+3,90,20,
+                                    ctx.reconciliation.positions[i].symbol,
+                                    selected ? EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_GHOST,EEA_PANEL_META_FONT_SIZE);
+      else
+         EEA_SymbolPanelSetText(chart_id,n,24,ry+6,ctx.reconciliation.positions[i].symbol+"  ext",EEA_PANEL_MUTED_COLOR,
+                                EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,13);
+      g_panel_state.trade_row_kind[shown]="POSITION"; g_panel_state.trade_row_ticket[shown]=ticket;
       EEA_SymbolPanelSetText(chart_id,n+"_side",112,ry+6,buy ? "BUY" : "SELL",
                              buy ? EEA_PANEL_OK_COLOR : EEA_PANEL_DANGER_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
       EEA_SymbolPanelSetText(chart_id,n+"_vol",206,ry+6,DoubleToString(ctx.reconciliation.positions[i].volume,2),
@@ -1955,28 +1995,168 @@ void EEA_SymbolPanelDashTrades(const long chart_id,EEA_ObserverRuntimeContext &c
                              EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER);
       shown++;
      }
+   // EA pending orders (REQ-021) below the positions.
+   for(int i=0;i<ctx.reconciliation.order_count && shown<11;i++)
+     {
+      long ticket=ctx.reconciliation.orders[i].ticket;
+      if(!EEA_SymbolPanelIsEaOrder(ticket)) continue;
+      int ry=y+46+shown*EEA_PANEL_TABLE_ROW_HEIGHT;
+      string n=EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(shown);
+      int digits=EEA_SymbolPanelDigitsForBroker(ctx,ctx.reconciliation.orders[i].symbol);
+      int type=(int)StringToInteger(ctx.reconciliation.orders[i].type);
+      string type_name=type==ORDER_TYPE_BUY_LIMIT ? "BUY LMT" : type==ORDER_TYPE_SELL_LIMIT ? "SELL LMT" :
+                       type==ORDER_TYPE_BUY_STOP ? "BUY STP" : type==ORDER_TYPE_SELL_STOP ? "SELL STP" : "ORDER";
+      bool selected=(g_panel_state.trade_selected_kind=="ORDER" && g_panel_state.trade_selected_ticket==ticket);
+      if(selected) selection_alive=true;
+      EEA_SymbolPanelTableRowBase(chart_id,shown,ry);
+      EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tr_Sel_"+IntegerToString(shown),16,ry+3,90,20,
+                                 ctx.reconciliation.orders[i].symbol,
+                                 selected ? EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_GHOST,EEA_PANEL_META_FONT_SIZE);
+      g_panel_state.trade_row_kind[shown]="ORDER"; g_panel_state.trade_row_ticket[shown]=ticket;
+      EEA_SymbolPanelSetText(chart_id,n+"_side",112,ry+6,type_name,EEA_PANEL_ACCENT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
+      EEA_SymbolPanelSetText(chart_id,n+"_vol",206,ry+6,DoubleToString(ctx.reconciliation.orders[i].volume,2),
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER);
+      EEA_SymbolPanelSetText(chart_id,n+"_open",284,ry+6,DoubleToString(ctx.reconciliation.orders[i].price,digits),
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER);
+      EEA_SymbolPanelSetText(chart_id,n+"_sl",424,ry+6,DoubleToString(ctx.reconciliation.orders[i].sl,digits),
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER);
+      EEA_SymbolPanelSetText(chart_id,n+"_tp",486,ry+6,DoubleToString(ctx.reconciliation.orders[i].tp,digits),
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER);
+      EEA_SymbolPanelSetText(chart_id,n+"_pnl",540,ry+6,"pending",EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT,ANCHOR_RIGHT_UPPER);
+      shown++;
+     }
+   g_panel_state.trade_row_count=shown;
+   if(!selection_alive) { g_panel_state.trade_selected_kind=""; g_panel_state.trade_selected_ticket=0; }
    int after=y+46+(shown>0 ? shown : 1)*EEA_PANEL_TABLE_ROW_HEIGHT+8;
    if(shown==0)
       EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_Empty",EEA_PANEL_CONTENT_X,y+52,
                              "No open positions on this account.",EEA_PANEL_MUTED_COLOR,EEA_PANEL_BODY_FONT_SIZE);
    else
       EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_Total",540,after,
-                             "Floating (profit + swap)  "+EEA_SymbolPanelSigned(floating,2)+" "+ctx.account.account_currency+
-                             (ctx.reconciliation.position_count>shown ? "   "+EEA_SymbolPanelGlyph(0x00B7)+"   +"+
-                             IntegerToString(ctx.reconciliation.position_count-shown)+" more" : ""),
+                             "Floating (profit + swap)  "+EEA_SymbolPanelSigned(floating,2)+" "+ctx.account.account_currency,
                              EEA_SymbolPanelPnlColor(floating),EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_RIGHT_UPPER);
-   int note=EEA_PANEL_STATUSBAR_Y-74;
-   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"ActionsSurface",EEA_PANEL_INNER_X,note,
-                             EEA_PANEL_INNER_WIDTH,64,EEA_PANEL_SURFACE_COLOR,EEA_PANEL_WARNING_FILL_COLOR);
-   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ActionsTitle",EEA_PANEL_CONTENT_X,note+10,
-                             "MANUAL ACTIONS  "+EEA_SymbolPanelGlyph(0x00B7)+"  CLOSE / PARTIAL / BE / TRAIL");
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ActionsText",EEA_PANEL_CONTENT_X,note+28,
-                          "Spec 9.2 requires confirm "+EEA_SymbolPanelGlyph(0x2192)+" command queue "+EEA_SymbolPanelGlyph(0x2192)+
-                          " engine validation "+EEA_SymbolPanelGlyph(0x2192)+" broker result for every action.",
-                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ActionsText2",EEA_PANEL_CONTENT_X,note+44,
-                          "That queue is not built yet, so this view is read-only by design.",
-                          EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE);
+   EEA_SymbolPanelTradeActions(chart_id,ctx);
+  }
+
+string EEA_SymbolPanelEaProfile(const long position_ticket)
+  {
+   for(int i=0;i<g_panel_engine.ea_position_count;i++)
+      if(g_panel_engine.ea_position_ticket[i]==position_ticket) return g_panel_engine.ea_position_profile[i];
+   return "";
+  }
+
+bool EEA_SymbolPanelIsEaOrder(const long ticket)
+  {
+   for(int i=0;i<g_panel_engine.ea_order_count;i++) if(g_panel_engine.ea_order_ticket[i]==ticket) return true;
+   return false;
+  }
+
+bool EEA_SymbolPanelTradeConfirming()
+  {
+   return g_panel_state.trade_pending_action!="" && GetTickCount()-g_panel_state.trade_confirm_tick<15000;   // C5
+  }
+
+// Manual actions through the command queue (spec 9.2, G8): select, act, confirm.
+void EEA_SymbolPanelTradeActions(const long chart_id,EEA_ObserverRuntimeContext &ctx)
+  {
+   string p=EEA_PANEL_OVERLAY_PREFIX+"Tr_";
+   int bar=EEA_PANEL_STATUSBAR_Y-84;
+   if(!EEA_SymbolPanelTradeConfirming()) { g_panel_state.trade_pending_action=""; }
+   if(g_panel_state.trade_closeall_stage>0 && GetTickCount()-g_panel_state.trade_closeall_tick>=10000)
+      g_panel_state.trade_closeall_stage=0;
+   string objects[11]={"Close","Partial","Be","Trail","Cancel","Confirm","Abort","CloseAll","Line1","Line2","Last"};
+   for(int i=0;i<11;i++) ObjectDelete(chart_id,p+objects[i]);
+   EEA_SymbolPanelPruneHits(p);
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"ActionsSurface",EEA_PANEL_INNER_X,bar,
+                             EEA_PANEL_INNER_WIDTH,74,EEA_PANEL_SURFACE_COLOR,
+                             g_panel_state.trade_pending_action!="" || g_panel_state.trade_closeall_stage>0 ?
+                             EEA_PANEL_WARNING_COLOR : EEA_PANEL_BORDER_COLOR);
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_ActionsTitle",EEA_PANEL_CONTENT_X,bar+8,
+                             "MANUAL ACTIONS"+EEA_SymbolPanelSep()+"command queue"+EEA_SymbolPanelSep()+
+                             "close / partial / BE / trail / cancel");
+   EEA_SymbolPanelSetText(chart_id,p+"Last",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X,bar+8,
+                          g_panel_engine.cmd_last=="" ? "" : "Last: "+g_panel_engine.cmd_last,EEA_PANEL_MUTED_COLOR,7,
+                          EEA_PANEL_FONT,ANCHOR_RIGHT_UPPER,52);
+   if(!g_panel_engine.cmd_armed)
+     {
+      EEA_SymbolPanelSetText(chart_id,p+"Line1",EEA_PANEL_CONTENT_X,bar+30,
+                             "EA not armed: manual actions are locked. Use MT5 directly.",EEA_PANEL_WARNING_COLOR,
+                             EEA_PANEL_META_FONT_SIZE);
+      return;
+     }
+   int ea_items=g_panel_engine.ea_position_count+g_panel_engine.ea_order_count;
+   if(g_panel_state.trade_closeall_stage>0)
+     {
+      EEA_SymbolPanelSetText(chart_id,p+"Line1",EEA_PANEL_CONTENT_X,bar+26,
+                             "Close ALL EA positions ("+IntegerToString(g_panel_engine.ea_position_count)+") and cancel EA pending orders ("+
+                             IntegerToString(g_panel_engine.ea_order_count)+")?",EEA_PANEL_WARNING_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT_BOLD);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Confirm",EEA_PANEL_CONTENT_X,bar+44,220,24,
+                                 g_panel_state.trade_closeall_stage==1 ? "Confirm close all" :
+                                 "Click again: close all ("+IntegerToString(ea_items)+")",
+                                 g_panel_state.trade_closeall_stage==1 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_DANGER);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Abort",EEA_PANEL_CONTENT_X+228,bar+44,90,24,"Cancel",EEA_PANEL_BUTTON_SECONDARY);
+      return;
+     }
+   if(ea_items>0)
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"CloseAll",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-110,bar+44,110,24,"Close all EA",
+                                 EEA_PANEL_BUTTON_DANGER);
+   if(g_panel_state.trade_selected_kind=="")
+     {
+      EEA_SymbolPanelSetText(chart_id,p+"Line1",EEA_PANEL_CONTENT_X,bar+30,
+                             ea_items>0 ? "Click the symbol of an EA position or pending order to act on it." :
+                             "No EA position or pending order. Positions marked 'ext' are managed outside the EA.",
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+      return;
+     }
+   // Selected row summary.
+   string summary="";
+   double volume=0.0, sl=0.0;
+   for(int i=0;i<ctx.reconciliation.position_count;i++)
+      if(g_panel_state.trade_selected_kind=="POSITION" && ctx.reconciliation.positions[i].ticket==g_panel_state.trade_selected_ticket)
+        {
+         volume=ctx.reconciliation.positions[i].volume; sl=ctx.reconciliation.positions[i].sl;
+         summary=ctx.reconciliation.positions[i].symbol+" #"+IntegerToString(g_panel_state.trade_selected_ticket)+"  "+
+                 (ctx.reconciliation.positions[i].type=="0" ? "BUY" : "SELL")+" "+DoubleToString(volume,2)+" lot  P/L "+
+                 EEA_SymbolPanelSigned(ctx.reconciliation.positions[i].profit+ctx.reconciliation.positions[i].swap,2)+
+                 "  SL "+(sl>0.0 ? DoubleToString(sl,EEA_SymbolPanelDigitsForBroker(ctx,ctx.reconciliation.positions[i].symbol)) : "none")+
+                 "  "+EEA_SymbolPanelEaProfile(g_panel_state.trade_selected_ticket);
+        }
+   for(int i=0;i<ctx.reconciliation.order_count;i++)
+      if(g_panel_state.trade_selected_kind=="ORDER" && ctx.reconciliation.orders[i].ticket==g_panel_state.trade_selected_ticket)
+        {
+         volume=ctx.reconciliation.orders[i].volume;
+         summary=ctx.reconciliation.orders[i].symbol+" #"+IntegerToString(g_panel_state.trade_selected_ticket)+"  pending "+
+                 DoubleToString(volume,2)+" lot";
+        }
+   g_panel_state.trade_selected_volume=volume; g_panel_state.trade_selected_sl=sl;
+   if(g_panel_state.trade_pending_action!="")
+     {
+      string act=g_panel_state.trade_pending_action;
+      string label=act=="PARTIAL" ? "Close "+DoubleToString(g_panel_state.trade_partial_fraction*100.0,0)+"% of" :
+                   act=="BE" ? "Move SL to break-even on" : act=="TRAIL" ? "Start trailing on" :
+                   act=="CANCEL" ? "Cancel pending order" : "Close";
+      EEA_SymbolPanelSetText(chart_id,p+"Line1",EEA_PANEL_CONTENT_X,bar+26,label+"  "+summary,EEA_PANEL_WARNING_COLOR,
+                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,92);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Confirm",EEA_PANEL_CONTENT_X,bar+44,110,24,"Confirm",EEA_PANEL_BUTTON_WARNING);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Abort",EEA_PANEL_CONTENT_X+118,bar+44,80,24,"Cancel",EEA_PANEL_BUTTON_SECONDARY);
+      if(act=="PARTIAL")
+         EEA_SymbolPanelSetButtonEx(chart_id,p+"Partial",EEA_PANEL_CONTENT_X+206,bar+44,90,24,
+                                    "Size "+DoubleToString(g_panel_state.trade_partial_fraction*100.0,0)+"%",EEA_PANEL_BUTTON_GHOST);
+      return;
+     }
+   EEA_SymbolPanelSetText(chart_id,p+"Line1",EEA_PANEL_CONTENT_X,bar+26,summary,EEA_PANEL_TEXT_COLOR,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,92);
+   if(g_panel_state.trade_selected_kind=="ORDER")
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Cancel",EEA_PANEL_CONTENT_X,bar+44,100,24,"Cancel order",EEA_PANEL_BUTTON_SECONDARY);
+   else
+     {
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Close",EEA_PANEL_CONTENT_X,bar+44,70,24,"Close",EEA_PANEL_BUTTON_SECONDARY);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Partial",EEA_PANEL_CONTENT_X+76,bar+44,50,24,"½",EEA_PANEL_BUTTON_SECONDARY);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Be",EEA_PANEL_CONTENT_X+132,bar+44,50,24,"BE",EEA_PANEL_BUTTON_SECONDARY);
+      EEA_SymbolPanelSetButtonEx(chart_id,p+"Trail",EEA_PANEL_CONTENT_X+188,bar+44,60,24,"Trail",EEA_PANEL_BUTTON_SECONDARY);
+     }
   }
 
 void EEA_SymbolPanelDashRisk(const long chart_id,EEA_ObserverRuntimeContext &ctx)
@@ -2440,6 +2620,65 @@ void EEA_SymbolPanelResetStaged(EEA_ObserverRuntimeContext &ctx)
    g_panel_state.apply_reason="NONE";
   }
 
+// Trades tab clicks: select a row, choose an action, confirm (C2, C4, C5).
+void EEA_SymbolPanelHandleTradeClick(const string sparam)
+  {
+   string p=EEA_PANEL_OVERLAY_PREFIX+"Tr_";
+   if(StringFind(sparam,p+"Sel_")==0)
+     {
+      int row=(int)StringToInteger(StringSubstr(sparam,StringLen(p+"Sel_")));
+      if(row<0 || row>=g_panel_state.trade_row_count) return;
+      g_panel_state.trade_selected_kind=g_panel_state.trade_row_kind[row];
+      g_panel_state.trade_selected_ticket=g_panel_state.trade_row_ticket[row];
+      g_panel_state.trade_pending_action=""; g_panel_state.trade_closeall_stage=0;
+      return;
+     }
+   if(sparam==p+"Abort") { g_panel_state.trade_pending_action=""; g_panel_state.trade_closeall_stage=0; return; }
+   if(sparam==p+"CloseAll")
+     { g_panel_state.trade_closeall_stage=1; g_panel_state.trade_closeall_tick=GetTickCount(); g_panel_state.trade_pending_action=""; return; }
+   if(sparam==p+"Confirm" && g_panel_state.trade_closeall_stage==1)
+     { g_panel_state.trade_closeall_stage=2; g_panel_state.trade_closeall_tick=GetTickCount(); return; }
+   if(sparam==p+"Confirm" && g_panel_state.trade_closeall_stage==2)
+     {
+      g_panel_state.cmd_request_action="CLOSE_ALL_EA"; g_panel_state.cmd_request_kind="ALL"; g_panel_state.cmd_request_ticket=0;
+      g_panel_state.cmd_request_volume=0.0; g_panel_state.cmd_request_sl=0.0; g_panel_state.cmd_request_fraction=0.0;
+      g_panel_state.trade_closeall_stage=0;
+      return;
+     }
+   if(sparam==p+"Confirm" && EEA_SymbolPanelTradeConfirming())
+     {
+      g_panel_state.cmd_request_action=g_panel_state.trade_pending_action;
+      g_panel_state.cmd_request_kind=g_panel_state.trade_selected_kind;
+      g_panel_state.cmd_request_ticket=g_panel_state.trade_selected_ticket;
+      g_panel_state.cmd_request_volume=g_panel_state.trade_selected_volume;
+      g_panel_state.cmd_request_sl=g_panel_state.trade_selected_sl;
+      g_panel_state.cmd_request_fraction=g_panel_state.trade_partial_fraction;
+      g_panel_state.trade_pending_action="";
+      return;
+     }
+   string action="";
+   if(sparam==p+"Close") action="CLOSE";
+   else if(sparam==p+"Be") action="BE";
+   else if(sparam==p+"Trail") action="TRAIL";
+   else if(sparam==p+"Cancel") action="CANCEL";
+   else if(sparam==p+"Partial")
+     {
+      // C4: 50% first; while confirming, each click cycles 25% -> 50% -> 75%.
+      if(g_panel_state.trade_pending_action=="PARTIAL" && EEA_SymbolPanelTradeConfirming())
+        {
+         double f=g_panel_state.trade_partial_fraction;
+         g_panel_state.trade_partial_fraction=(f<0.3 ? 0.5 : (f<0.6 ? 0.75 : 0.25));
+         g_panel_state.trade_confirm_tick=GetTickCount();
+         return;
+        }
+      action="PARTIAL";
+      g_panel_state.trade_partial_fraction=0.5;
+     }
+   if(action=="" || g_panel_state.trade_selected_kind=="") return;
+   g_panel_state.trade_pending_action=action;
+   g_panel_state.trade_confirm_tick=GetTickCount();
+  }
+
 void EEA_SymbolPanelApplyStaged(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit)
   {
    string selected[];
@@ -2721,6 +2960,12 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       else
         { g_panel_state.session_confirm_action=action; g_panel_state.session_confirm_tick=GetTickCount(); }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Tr_")==0)
+     {
+      EEA_SymbolPanelHandleTradeClick(sparam);
+      EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx);
+      return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnAsk" || sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnReview")
      {

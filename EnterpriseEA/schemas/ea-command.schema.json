@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnterpriseEA command queue v1 (manual trade actions, spec 9.2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command_id", "source", "action", "ticket_kind", "ticket", "expected_volume",
+               "expected_sl", "partial_fraction", "issued_at_utc", "expires_at_utc", "account_fingerprint",
+               "config_version", "operator_id"],
+  "properties": {
+    "schema_version": {"const": "ea-command-v1.0.0"},
+    "command_id": {"type": "string", "minLength": 1, "maxLength": 64},
+    "source": {"enum": ["PANEL"]},
+    "action": {"enum": ["CLOSE", "PARTIAL", "BE", "TRAIL", "CANCEL", "CLOSE_ALL_EA"]},
+    "ticket_kind": {"enum": ["POSITION", "ORDER", "ALL"]},
+    "ticket": {"type": "integer", "minimum": 0},
+    "expected_volume": {"type": "number", "minimum": 0},
+    "expected_sl": {"type": "number", "minimum": 0},
+    "partial_fraction": {"type": "number", "minimum": 0, "maximum": 0.9},
+    "issued_at_utc": {"type": "integer", "minimum": 1},
+    "expires_at_utc": {"type": "integer", "minimum": 1},
+    "account_fingerprint": {"type": "string", "minLength": 1},
+    "config_version": {"type": "string", "minLength": 1},
+    "operator_id": {"type": "string"}
+  }
+}

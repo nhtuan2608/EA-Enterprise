@@ -1359,10 +1359,12 @@ class ControlCenterInteractionTests(unittest.TestCase):
         for tab in ("RISK", "SYMBOLS", "AUTHORIZATION", "SYSTEM"):
             self.assertIn('"' + tab + '"', settings)
 
-    def test_trade_view_is_read_only_until_command_queue_exists(self):
+    def test_trade_view_acts_only_through_the_command_queue(self):
         trades = self.panel.split("void EEA_SymbolPanelDashTrades", 1)[1].split("void EEA_SymbolPanelDashRisk", 1)[0]
         self.assertIn("command queue", trades)
-        self.assertNotIn("Btn_", trades)
+        for forbidden in ("OrderSend", "EEA_Execution", "TRADE_ACTION"):
+            self.assertNotIn(forbidden, trades)
+        self.assertIn("g_panel_state.cmd_request_action", self.panel)
 
     def test_calendar_excludes_cash_flows_from_trading_pnl(self):
         calendar = self.panel.split("void EEA_SymbolPanelDashCalendar", 1)[1].split("void EEA_SymbolPanelRenderActiveView", 1)[0]

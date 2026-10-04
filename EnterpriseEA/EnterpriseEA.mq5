@@ -28,6 +28,7 @@
 #include "Storage/RiskLedgerStore.mqh"
 #include "News/NewsReactionRecorder.mqh"
 #include "Runtime/AiBridgeClient.mqh"
+#include "Runtime/CommandQueue.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -700,6 +701,66 @@ void EEA_PublishAiView(EEA_SymbolPanelEngineView &view)
      }
   }
 
+// ---------------------------------------------------------------------------
+// Command queue (G8): panel confirmations become commands; the queue is processed
+// immediately and on every timer through the same gates as automatic actions.
+// ---------------------------------------------------------------------------
+string g_command_last="";
+
+void EEA_CommandProcessNow()
+  {
+   if(!g_runtime.initialized || !g_trade_manager.loaded) return;
+   EEA_CommandProcessQueue(g_trade_manager,g_pending_runtime,g_audit,g_config.data_root,g_runtime,
+                           g_live_config.enabled && g_live_config.armed,g_command_last);
+  }
+
+void EEA_CommandHandlePanelRequest()
+  {
+   if(g_panel_state.cmd_request_action=="") return;
+   EEA_Command c; EEA_CommandDefaults(c);
+   const long now=(long)TimeGMT();
+   c.id="cmd-"+IntegerToString(now)+"-"+IntegerToString(MathRand());
+   c.source="PANEL"; c.action=g_panel_state.cmd_request_action; c.ticket_kind=g_panel_state.cmd_request_kind;
+   c.ticket=g_panel_state.cmd_request_ticket; c.expected_volume=g_panel_state.cmd_request_volume;
+   c.expected_sl=g_panel_state.cmd_request_sl; c.partial_fraction=g_panel_state.cmd_request_fraction;
+   c.issued_at_utc=now; c.expires_at_utc=now+EEA_CMD_TTL_SECONDS;
+   c.account_fingerprint=g_runtime.account.account_fingerprint; c.config_version=g_config.config_version;
+   c.operator_id=InpOperatorId;
+   g_panel_state.cmd_request_action="";
+   if(!EEA_WriteAtomicText(EEA_CommandDir(g_config.data_root)+"/"+c.id+".json",EEA_CommandToJson(c)))
+     { g_command_last=c.action+" FAILED: COMMAND_QUEUE_WRITE_FAILED"; EEA_SymbolPanelToast(g_command_last,EEA_PANEL_DANGER_COLOR); return; }
+   EEAEvent event;
+   EEAEvent_Init(event,"COMMAND_QUEUED",TimeGMT(),"",c.id,"","QUEUED","OK");
+   event.config_version=g_config.config_version;
+   event.details_json="{\"action\":\""+c.action+"\",\"ticket\":"+IntegerToString(c.ticket)+",\"source\":\"PANEL\"}";
+   g_audit.Append(event,"EA_COMMAND");
+   EEA_CommandProcessNow();
+   EEA_SymbolPanelToast(g_command_last,StringFind(g_command_last,"APPLIED")>=0 ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+  }
+
+// Which positions and pending orders the EA owns (C1), for the Trades tab.
+void EEA_PublishCommandView(EEA_SymbolPanelEngineView &view)
+  {
+   view.cmd_armed=g_live_config.enabled && g_live_config.armed;
+   view.cmd_last=g_command_last;
+   view.ea_position_count=0;
+   for(int i=0;i<g_trade_manager.count && view.ea_position_count<32;i++)
+      if(g_trade_manager.items[i].active && g_trade_manager.items[i].position_ticket>0)
+        {
+         view.ea_position_ticket[view.ea_position_count]=g_trade_manager.items[i].position_ticket;
+         view.ea_position_profile[view.ea_position_count]=g_trade_manager.items[i].profile;
+         view.ea_position_count++;
+        }
+   view.ea_order_count=0;
+   for(int i=0;i<g_pending_runtime.count && view.ea_order_count<16;i++)
+      if(g_pending_runtime.items[i].active &&
+         (g_pending_runtime.items[i].state.status=="WORKING" || g_pending_runtime.items[i].state.status=="PARTIAL"))
+        {
+         view.ea_order_ticket[view.ea_order_count]=StringToInteger(g_pending_runtime.items[i].state.order_ticket);
+         view.ea_order_count++;
+        }
+  }
+
 // News Guard facts for the dashboard News tab.
 void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
   {
@@ -805,6 +866,7 @@ void EEA_PublishPanelEngineView()
    EEA_PublishNewsView(view);
    EEA_PublishSentimentView(view);
    EEA_PublishAiView(view);
+   EEA_PublishCommandView(view);
    view.recovery_message=g_recovery_message;
    if(g_live_runtime.recovery_blocked)
       view.recovery_detail="intent "+g_live_runtime.recovery_result.intent_id+"  ticket "+
@@ -1138,6 +1200,7 @@ void OnTimer()
           EEA_TradeManagerUpdate(g_trade_manager,g_audit,g_config.data_root,g_runtime,
                                  g_live_config.enabled && g_live_config.armed,
                                  !g_pending_runtime.entry_permission_revoked,g_news);
+          EEA_CommandProcessNow();
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
@@ -1171,8 +1234,10 @@ void OnChartEvent(const int id,
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
-      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="" || g_panel_state.ai_request!="")
+      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="" || g_panel_state.ai_request!="" ||
+         g_panel_state.cmd_request_action!="")
         {
+         EEA_CommandHandlePanelRequest();
          EEA_AiHandlePanelRequest();
          EEA_LiveSessionHandlePanelRequest();
          EEA_RecoveryHandlePanelRequest();

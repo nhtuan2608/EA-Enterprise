@@ -1,6 +1,10 @@
 # Command queue và thao tác tay trên lệnh (G8, đặc tả 9.2)
 
-Ngày 04/10/2026. Trạng thái: **DESIGN — chưa sửa source**. Chờ người dùng chốt các quyết định ở mục 11.
+Ngày 04/10/2026. Trạng thái: **IMPLEMENTED (G8)**. Người dùng chốt C1–C6 theo đề xuất.
+
+Mã nguồn: `Runtime/CommandQueue.mqh`, `schemas/ea-command.schema.json`, tab Trades trong `Runtime/SymbolSelectionPanel.mqh`, test `Tests/command_queue_tests.py`.
+
+Cách thao tác trên tab Trades: bấm vào tên symbol của lệnh EA để chọn dòng → thanh "Manual actions" hiện các nút → bấm Confirm trong 15 giây.
 
 Nguồn: master specification v1.4 mục 9.1 (tab TRADES: "Action qua Command Queue và confirm"), 9.2 (CLOSE / PARTIAL / BE / TRAIL), REQ-005, REQ-006, REQ-011; `TELEGRAM_CONTROL_SPEC.md` (REQ-018–020, `schemas/remote-command.schema.json`, `Integration/RemoteModeGate.mqh`); Trade Manager v1; REQ-021.
 
