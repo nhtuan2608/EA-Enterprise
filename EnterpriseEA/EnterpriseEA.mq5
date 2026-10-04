@@ -37,8 +37,8 @@ input int    InpHistoryLookbackDays    = 7;
 input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD,BTCUSD,USDJPY";
 input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
-input bool   InpStrategyRuntimeEnabled=false;
-input bool   InpS02UsePrototype        = false; // false: S02 v1 confluence zones (SCALP M5 + SWING H1)
+input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
+input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;

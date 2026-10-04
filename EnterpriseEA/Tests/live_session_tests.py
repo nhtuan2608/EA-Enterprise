@@ -64,6 +64,7 @@ class LiveSessionIntegrationTests(unittest.TestCase):
         self.assertIn('"LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"', on_timer)
         self.assertIn("EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason)", on_timer)
         self.assertIn("EEA_LiveSessionRecordEntry(session,observer.root,day_reset)", on_timer)
+        self.assertIn('params.idempotency_key="entry-"+candidate_id;', on_timer)
         cap = section(live, "bool EEA_ControlledLiveApplySessionCap")
         self.assertIn("MathMin(plan.base_risk_fraction,cap)", cap)
 
@@ -97,6 +98,28 @@ class LiveSessionIntegrationTests(unittest.TestCase):
         self.assertIn('g_panel_state.session_request="REVOKE"', handler)
         # The panel never writes session files itself.
         self.assertNotIn("EEA_LiveSessionWrite", panel)
+
+
+class InternalLossLimitTests(unittest.TestCase):
+    def test_daily_and_weekly_internal_limits_cap_the_plan(self):
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        room = section(live, "bool EEA_ControlledLiveInternalLossRoom")
+        for token in ('"INTERNAL_DAILY_LOSS_LIMIT_REACHED"', '"INTERNAL_WEEKLY_BASIS_UNKNOWN"',
+                      '"INTERNAL_WEEKLY_LOSS_LIMIT_REACHED"', "limits.internal_daily_fraction",
+                      "limits.internal_weekly_fraction", "EEA_BalanceAtUtc(observer.reconciliation"):
+            self.assertIn(token, room)
+        plan = section(live, "bool EEA_ControlledLiveResolveV1Plan")
+        self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,limits,loss_room,reason)", plan)
+        self.assertIn("MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room)", plan)
+
+    def test_prague_week_starts_on_monday(self):
+        # Mirror of EEA_PragueWeekResetUtc's weekday arithmetic (1970-01-01 was a Thursday).
+        def weekday(day_index):
+            return (day_index + 4) % 7
+        monday = 1791158400 // 86400  # 2026-10-05
+        self.assertEqual(weekday(monday), 1)
+        self.assertEqual((weekday(monday) + 6) % 7, 0)
+        self.assertEqual((weekday(monday + 6) + 6) % 7, 6)
 
 
 if __name__ == "__main__":

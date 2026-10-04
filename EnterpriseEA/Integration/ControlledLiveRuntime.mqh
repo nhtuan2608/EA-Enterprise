@@ -368,6 +368,39 @@ bool EEA_ControlledLiveExposure(const EEA_ObserverRuntimeContext &observer,EEA_C
    return true;
   }
 
+// O-04 internal loss limits: realized plus floating loss since the Prague daily reset
+// and since the Prague Monday reset. Returns the money still allowed to be lost; a
+// new trade's risk is capped by it. Fails closed when the week basis is unknown.
+long EEA_PragueWeekResetUtc(const long now_utc)
+  {
+   long day_reset=EEA_PragueDailyResetUtc(now_utc);
+   long local_day=(day_reset+EEA_PragueOffsetSeconds(day_reset+3*3600))/86400;
+   long weekday=(local_day+4)%7;                 // 0 = Sunday
+   long days_since_monday=(weekday+6)%7;
+   if(days_since_monday==0) return day_reset;
+   // The +3h keeps the probe inside the target Prague day across a DST change.
+   return EEA_PragueDailyResetUtc(day_reset-days_since_monday*86400+3*3600);
+  }
+
+bool EEA_ControlledLiveInternalLossRoom(const EEA_ObserverRuntimeContext &observer,const EEA_RiskLedger &ledger,
+                                        const EEA_RiskLimits &limits,double &room_money,string &reason)
+  {
+   room_money=0.0;
+   const double equity=observer.account.equity;
+   const double daily_loss=ledger.last_reset_balance-equity;
+   const double daily_room=limits.internal_daily_fraction*ledger.initial_capital-daily_loss;
+   if(daily_room<=0.0) { reason="INTERNAL_DAILY_LOSS_LIMIT_REACHED"; return false; }
+   const long week_start=EEA_PragueWeekResetUtc((long)TimeGMT());
+   double week_balance=0.0;
+   if(!EEA_BalanceAtUtc(observer.reconciliation,observer.account.balance,week_start,week_balance,reason))
+     { reason="INTERNAL_WEEKLY_BASIS_UNKNOWN"; return false; }
+   const double weekly_room=limits.internal_weekly_fraction*ledger.initial_capital-(week_balance-equity);
+   if(weekly_room<=0.0) { reason="INTERNAL_WEEKLY_LOSS_LIMIT_REACHED"; return false; }
+   room_money=MathMin(daily_room,weekly_room);
+   reason="INTERNAL_LOSS_ROOM_AVAILABLE";
+   return true;
+  }
+
 // S02 v1 plan (design sections 8, 9, 11): structural SL beyond the retest extreme,
 // nearest structural target at least 1R away, relative spread guard, broker-derived
 // costs, O-04 limits scaled by the HTF modifier, FTMO facts from the risk ledger.
@@ -452,6 +485,8 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
       if(!known) learned=false;
      }
    double htf=MathMax(0.0,MathMin(1.0,strategy.htf_risk_modifier[index]));
+   double loss_room=0.0;
+   if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,limits,loss_room,reason)) return false;
 
    p.setup_version=engine.config_version;
    p.initial_capital=ledger.initial_capital;
@@ -460,7 +495,7 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
    p.base_risk_fraction=limits.per_trade_fraction*htf;
-   p.per_trade_cap_money=limits.per_trade_fraction*ledger.initial_capital;
+   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room);
    p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
    p.portfolio_cap_includes_existing=true;
    p.invalidation_price=invalidation;
@@ -857,7 +892,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       params.canonical_symbol=current.canonical_symbol; params.setup_version=current.setup_config_version;
       params.risk_policy_snapshot_id="policy-"+IntegerToString(policy.revision);
       params.intent_id=authorization.intent_id; params.correlation_id=authorization.authorization_id;
-      params.idempotency_key=authorization.intent_id+"-"+candidate_id;
+      // One entry per candidate, whatever authorization or session releases it: a
+      // re-signed session or a restart must never send the same candidate twice.
+      params.idempotency_key="entry-"+candidate_id;
       params.entry_reference=decision.entry_reference; params.price=quote.entry_price;
       params.stop_loss=decision.stop_loss; params.take_profit=decision.take_profit;
       params.order_type=decision.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
