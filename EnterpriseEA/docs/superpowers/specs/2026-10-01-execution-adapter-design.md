@@ -67,10 +67,21 @@ If any gate is missing or stale, paperless controlled-live remains `NOT_AUTHORIZ
 - `schema_version`, `intent_id`, `correlation_id`, `idempotency_key`;
 - `config_version`, `account_fingerprint`, `broker_server`;
 - `canonical_symbol`, `broker_symbol`, `symbol_fingerprint`;
+- released risk-decision lineage (`candidate_id`, `risk_decision_id`, policy,
+  quote, portfolio, reconciliation, volume, and projected loss);
 - `action` = `SUBMIT_MARKET`, `SUBMIT_PENDING`, `MODIFY_PROTECTIVE`, `CANCEL_PENDING`;
 - order type, direction, requested volume, entry, SL, TP, expiration;
 - `reconciliation_snapshot_id`, `reconciliation_observed_at_utc`, `intent_created_at_utc`;
 - preflight gate result and reason code.
+
+The released-submit boundary also receives the immutable `EEA_RiskDecision`.
+Before the ordinary execution gate runs, it must validate that the decision is
+`RISK_APPROVED`/`RELEASED`, current, and bound to the intent lineage. A matching
+`risk_decision_status` string alone is not authorization evidence.
+
+`Runtime/ExecutionIntentBuilder.mqh` is the only approved construction path for
+a market intent: it rejects review-only/expired decisions, pending actions,
+identity mismatches, invalid geometry, and incomplete idempotency fields.
 
 ### Result
 

@@ -10,13 +10,54 @@ The Paper ledger is permanently excluded. No paper, simulated, virtual, or shado
 
 Paperless controlled-live is not live readiness by default. It is an operating mode that may be entered only after every applicable gate below is closed with retained, reviewable evidence. Offline tests, source inspection, a successful compile, a demo result, or the existence of an adapter alone never authorizes live trading.
 
+The Settings and Dashboard surfaces are live-terminal-only controls. They must not
+be created in Strategy Tester or optimization contexts, even if the panel input
+is enabled. In a live terminal they are refreshed by the bounded runtime timer;
+there is no manual Refresh control or manual refresh event path.
+
 ## Runtime identity and symbols
 
 Account/server identity is discovered from the terminal at attachment and refresh time; operators do not type a login or broker server. Canonical symbols come from `InpCanonicalSymbols` and the chart selection panel; each selected canonical symbol is re-resolved against current broker symbols and material specifications. Identity, mapping, or specification change invalidates authorization and requires fresh reconciliation.
 
 ## Risk policy selector
 
+Risk release is two-pass. A dry-run result is review-only; the release builder
+must rerun the complete candidate/economics/headroom/portfolio/volume gates on
+fresh evidence and require independent runtime, account, quote, policy,
+portfolio, and symbol rechecks before emitting `RISK_APPROVED/RELEASED` with
+bounded expiry and complete lineage. The release also carries direction,
+entry, stop, target, risk budget, and reward/risk so the later market intent
+cannot substitute prices or sizing. Missing recheck evidence remains blocked.
+
 Risk policy is selected only from versioned, pre-defined profiles. The terminal panel may display a compact selector and Apply control; Telegram/AI may submit a proposal, but neither may edit thresholds or activate a policy without explicit confirmation, fresh reconciliation, and an audit record.
+
+The controlled-live runtime path is isolated from the observer presentation layer.
+`Integration/ControlledLiveRuntime.mqh` may run only when the explicit live profile
+is armed (`InpObserverOnly=false`, `InpExecutionEnabled=true`, and
+`InpLiveTradeArmed=true`). It binds the candidate ID to the authorization record,
+calculates stress loss for every currently open protected position and working
+order, persists the released risk decision before the intent, and passes a local
+execution status to the adapter only after the observer evidence, controller,
+authorization, and release checks have passed. The observer snapshot itself stays
+entry-blocked; a valid runtime snapshot is not authorization. Missing protection
+or unsupported exposure is a hard block.
+
+Authorization lineage is recorded only after the released decision has produced a
+valid execution intent. The audit record must bind the authorization, candidate,
+risk-decision ID, intent ID and broker symbol to that concrete intent; a failed
+intent build must not emit a successful authorization-binding event. Any mismatch
+between strategy and observer symbol context is fail-closed.
+
+Every successful observer refresh must also recompute and persist an opaque
+selected-symbols fingerprint from the ordered canonical-to-broker mapping. An
+empty fingerprint is invalid evidence for a live authorization review.
+
+An `EXECUTION_UNKNOWN` result is a restart barrier. The runtime restores the
+durable result checkpoint, attempts reconciliation against the next fresh
+positions/orders/deals snapshot, persists `CONFIRMED` only when broker evidence
+proves the request, and keeps new dispatch blocked on timeout, missing history,
+identity change, or any other unresolved state. It never silently retries the
+same candidate.
 
 The initial selector profiles are:
 
@@ -31,6 +72,19 @@ No profile is silently selected. Until a profile is explicitly selected, risk is
 Each selected profile may define both a daily and overall profit target. The operator can set `continue_after_daily_profit_target` and `continue_after_overall_profit_target` from the terminal selector; the default for both is `true` as requested. Telegram/AI may propose these boolean overrides but cannot activate them without the same confirmation/reconciliation/audit flow.
 
 The override only prevents a profit-target stop. It never overrides daily/overall loss floors, FTMO headroom, maximum risk, margin, exposure, stale reconciliation, symbol mismatch, kill switch, authorization expiry, or `EXECUTION_UNKNOWN`. A target override applies only to new intents after its revision is committed; it never mutates an existing intent or pending order.
+
+## Observer panel presentation contract
+
+The terminal chart panel is a read-only presentation layer for runtime evidence and staged policy proposals. Presentation changes must not change authorization, risk, audit, persistence, selection, or execution behavior.
+
+- Main, Settings, and Dashboard views use bounded opaque surfaces with explicit pixel geometry, shared spacing, font, z-order, cleanup prefix, and chart corner. The readability profile uses a 540px panel, 10px body/control text, 9px metadata text, 30px controls, and 29px symbol rows so the evidence remains legible on the target chart. Text is clipped to a bounded label length and long status/account/telemetry strings are split into labeled rows.
+- The palette is neutral and low-saturation: dark blue-gray background/surfaces, off-white primary text, cool-gray secondary text, muted blue accent, muted green for healthy/reconciled state, amber for degraded/pending state, and muted red only for blocked/error state. Color never represents authorization by itself.
+- State-bearing controls have a deterministic semantic fill: muted light green (`EEA_PANEL_ON_COLOR`) for ON/selected/confirmed and near-black (`EEA_PANEL_OFF_COLOR`) for OFF/unselected; navigation and action controls remain neutral. This is a readability cue only and never represents authorization by itself.
+- The main view keeps `EXECUTION_DISABLED`, `NOT_AUTHORIZED`, and blocked-entry state visible. Settings keeps proposal-only, confirmation, GMT+7-to-UTC, durable persistence, and audit copy visible. Dashboard remains read-only and displays financial, reconciliation, watermark, freshness, symbol, and live-blocking evidence.
+- At most `EEA_PANEL_VISIBLE_ROWS` symbol rows are rendered per bounded card. Settings provides Prev/Next viewport controls and a visible/total summary so every stored symbol row remains operator-addressable; paging is presentation-only and does not change stored selection or runtime symbol indices.
+- UI lifecycle must remove stale objects on initialization, overlay transitions, and destruction. Same-view overlay renders reuse existing surfaces/controls; Settings and Dashboard dynamic rows are explicitly cleared before rebinding so reduced data cannot leave stale labels. The panel must not use `Comment()` or introduce broker mutation APIs, Paper behavior, or any path that could imply live authorization.
+
+The visual contract is accepted only after static tests and exact-target MetaEditor compilation pass. A compile result does not substitute for a target-terminal screenshot/runtime check.
 
 ## Full operation scope and staged authorization
 

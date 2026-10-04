@@ -25,6 +25,39 @@ FORBIDDEN_RUNTIME_CORE_TOKENS = (
 
 
 class RuntimeEvidenceContractTests(unittest.TestCase):
+    def test_panel_is_live_only_and_refresh_is_timer_owned(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.assertIn("MQL_TESTER", shell)
+        self.assertIn("MQL_OPTIMIZATION", shell)
+        self.assertIn("EEA_LivePanelAllowed", shell)
+        self.assertIn("if(EEA_LivePanelAllowed() && InpShowSymbolPanel)", shell)
+        self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", shell)
+        self.assertIn("AUTO_REFRESH", panel)
+        self.assertNotIn('"Btn_Refresh"', panel)
+        self.assertNotIn('sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Refresh"', panel)
+
+    def test_settings_and_dashboard_clicks_render_immediately(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        settings = 'if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Settings")'
+        dashboard = 'if(sparam==EEA_PANEL_MAIN_PREFIX+"Btn_Dashboard")'
+        for branch in (settings, dashboard):
+            self.assertIn(branch, panel)
+            start = panel.index(branch)
+            end = panel.index("return;", start)
+            self.assertIn("EEA_SymbolPanelRender", panel[start:end])
+            self.assertIn("ChartRedraw", panel[start:end])
+
+    def test_panel_toggle_buttons_use_semantic_on_off_colors(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in ("EEA_PANEL_ON_COLOR", "EEA_PANEL_OFF_COLOR",
+                      "EEA_SymbolPanelSetButtonState", "OBJPROP_BGCOLOR"):
+            self.assertIn(token, panel)
+        self.assertIn("g_panel_state.rows[row_index].checked", panel)
+        self.assertIn('g_panel_state.staged_daily_continuation ? "Daily target  ON"', panel)
+        self.assertIn('g_panel_state.staged_overall_continuation ? "Overall target  ON"', panel)
+        self.assertIn('g_panel_state.policy_confirmed ? "Confirmed"', panel)
+
     def test_complete_empty_account_is_observing(self):
         status = evaluate(FIXTURE["base_snapshot"], now_utc=FIXTURE["base_snapshot"]["observed_at_utc"])
         self.assertEqual(status["runtime_state"], "OBSERVING")
@@ -360,7 +393,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_task2_panel_has_main_view_overlays_and_safe_routing(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        for token in ("Btn_Settings", "Btn_Dashboard", "Btn_Close", "Btn_Refresh",
+        for token in ("Btn_Settings", "Btn_Dashboard", "Btn_Collapse", "AUTO_REFRESH",
                       "Btn_Apply", "Btn_ResetStaged", "EnterpriseEA — OBSERVER ONLY",
                       "EXECUTION_DISABLED", "NOT_AUTHORIZED", "new_entries_blocked",
                       "POSITIONS", "ORDERS", "DEALS", "CONTEXT ONLY",
@@ -421,7 +454,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("EEA_SymbolPanelRefreshOpenOverlay", timer)
         self.assertIn("EEA_SymbolPanelRenderDashboard", panel)
-        self.assertIn("if(InpShowSymbolPanel)", timer)
+        self.assertIn("EEA_LivePanelAllowed() && InpShowSymbolPanel", timer)
 
     def test_overlay_timer_guard_prevents_disabled_or_uninitialized_access(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -429,7 +462,7 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         refresh_open = panel.split("void EEA_SymbolPanelRefreshOpenOverlay", 1)[1].split("void EEA_SymbolPanelLoadPolicy", 1)[0]
         self.assertIn("if(!g_panel_state.overlay_open) return;", refresh_open)
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
-        self.assertLess(timer.index("if(InpShowSymbolPanel)"), timer.index("EEA_SymbolPanelRefreshOpenOverlay"))
+        self.assertLess(timer.index("EEA_LivePanelAllowed() && InpShowSymbolPanel"), timer.index("EEA_SymbolPanelRefreshOpenOverlay"))
 
     def test_policy_is_explicitly_proposal_only(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -610,14 +643,29 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
     def test_gmt7_controls_do_not_overlap_status_or_symbol_rows(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
-        self.assertIn("SetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",10,316", settings)
-        self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,22)", panel)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",10,350", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_PersistenceStatus\",10,374", settings)
-        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",10,398", settings)
-        self.assertNotEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 2)
+        auth = panel.split("void EEA_SymbolPanelSettingsAuthorization", 1)[1].split("void EEA_SymbolPanelSettingsSystem", 1)[0]
+        footer = panel.split("void EEA_SymbolPanelSettingsFooter", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
+        # The GMT+7 field lives on its own Authorization sub-tab, the apply status in the
+        # shared footer below every sub-tab, and the safety line below the footer.
+        self.assertIn("EEA_SymbolPanelSetEdit(chart_id,EEA_PANEL_OVERLAY_PREFIX+\"Edit_AuthorizationGmt7\",EEA_PANEL_CONTENT_X,y+70,220", auth)
+        self.assertIn("ObjectSetInteger(chart_id,name,OBJPROP_YSIZE,EEA_PANEL_CONTROL_HEIGHT)", panel)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_ApplyStatus\",EEA_PANEL_CONTENT_X,y+64", footer)
+        self.assertIn("int y=EEA_PANEL_FOOTER_Y;", footer)
+        self.assertIn("EEA_PANEL_OVERLAY_PREFIX+\"Lbl_Safety\",EEA_PANEL_CONTENT_X,EEA_PANEL_SETTINGS_SAFETY_Y", settings)
+        self.assertEqual(settings.count('EEA_PANEL_OVERLAY_PREFIX+"Lbl_ApplyStatus"'), 1)
+        self.assertIn("EEA_SymbolPanelSettingsFooter(chart_id,ctx);", settings)
         rows = panel.split("void EEA_SymbolPanelRenderSettingsRows", 1)[1].split("void EEA_SymbolPanelRefresh", 1)[0]
-        self.assertIn("426+i*24", rows)
+        self.assertIn("EEA_PANEL_SETTINGS_ROWS_Y+i*EEA_PANEL_ROW_HEIGHT", rows)
+        defines = {}
+        for line in panel.splitlines():
+            parts = line.split()
+            if len(parts) == 3 and parts[0] == "#define" and parts[2].isdigit():
+                defines[parts[1]] = int(parts[2])
+        last_row_bottom = defines["EEA_PANEL_SETTINGS_ROWS_Y"] + defines["EEA_PANEL_VISIBLE_ROWS"] * defines["EEA_PANEL_ROW_HEIGHT"]
+        self.assertLessEqual(last_row_bottom, defines["EEA_PANEL_SETTINGS_SUMMARY_Y"])
+        self.assertLess(defines["EEA_PANEL_SETTINGS_SUMMARY_Y"] + 14, defines["EEA_PANEL_FOOTER_Y"])
+        self.assertLessEqual(defines["EEA_PANEL_FOOTER_Y"] + 86, defines["EEA_PANEL_SETTINGS_SAFETY_Y"])
+        self.assertLess(defines["EEA_PANEL_SETTINGS_SAFETY_Y"] + 12, defines["EEA_PANEL_STATUSBAR_Y"])
 
     def test_policy_verification_failure_checks_runtime_and_policy_rollback_results(self):
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
@@ -849,6 +897,83 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
         self.assertIn("if(InpRuntimeEvidenceEnabled)", timer)
 
+    def test_panel_presentation_uses_neutral_palette_and_explicit_object_style(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_PANEL_BG_COLOR", "EEA_PANEL_SURFACE_COLOR", "EEA_PANEL_TEXT_COLOR",
+            "EEA_PANEL_MUTED_COLOR", "EEA_PANEL_OK_COLOR", "EEA_PANEL_WARNING_COLOR",
+            "EEA_PANEL_DANGER_COLOR", "EEA_SymbolPanelSetSurface",
+            "OBJPROP_BGCOLOR", "OBJPROP_BORDER_COLOR", "OBJPROP_FONTSIZE",
+            "OBJPROP_ZORDER", "OBJPROP_HIDDEN", "OBJPROP_SELECTABLE",
+        ):
+            self.assertIn(token, panel)
+        self.assertNotIn("ObjectSetInteger(chart_id,name,OBJPROP_COLOR,clrRed)", panel)
+
+    def test_panel_presentation_has_bounded_cards_and_cleans_old_objects(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_PANEL_MAIN_WIDTH", "EEA_PANEL_MAIN_HEIGHT", "EEA_PANEL_SETTINGS_HEIGHT",
+            "EEA_PANEL_DASHBOARD_HEIGHT", "EEA_PANEL_VISIBLE_ROWS",
+            "EEA_PANEL_MAIN_PREFIX+\"Surface\"",
+            "EEA_PANEL_OVERLAY_PREFIX+\"Surface\"",
+            "ObjectsDeleteAll(chart_id,EEA_PANEL_PREFIX,g_panel_state.sub_window)",
+            "ObjectsDeleteAll(chart_id,EEA_PANEL_OVERLAY_PREFIX,g_panel_state.sub_window)",
+        ):
+            self.assertIn(token, panel)
+
+    def test_panel_presentation_scales_for_readability_and_spacing(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "#define EEA_PANEL_MAIN_WIDTH 560",
+            "#define EEA_PANEL_ROW_HEIGHT 29",
+            "#define EEA_PANEL_CONTROL_HEIGHT 30",
+            "#define EEA_PANEL_BODY_FONT_SIZE 9",
+            "#define EEA_PANEL_META_FONT_SIZE 8",
+            "#define EEA_PANEL_TITLE_FONT_SIZE 12",
+            "#define EEA_PANEL_INNER_WIDTH 536",
+            '#define EEA_PANEL_FONT "Segoe UI"',
+        ):
+            self.assertIn(token, panel)
+
+    def test_panel_reuses_same_overlay_and_clears_dynamic_rows_before_rebinding(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_SymbolPanelBeginOverlay",
+            "EEA_SymbolPanelClearSettingsRows",
+            "EEA_SymbolPanelClearDashboardRows",
+            'ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Spec_"+IntegerToString(i))',
+            'ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Row_"+IntegerToString(i)+"_Chk")',
+        ):
+            self.assertIn(token, panel)
+        settings = panel.split("void EEA_SymbolPanelRenderSettings", 1)[1].split(
+            "void EEA_SymbolPanelRenderDashboard", 1
+        )[0]
+        dashboard = panel.split("void EEA_SymbolPanelRenderDashboard", 1)[1].split(
+            "void EEA_SymbolPanelResetStaged", 1
+        )[0]
+        self.assertIn("EEA_SymbolPanelBeginOverlay", settings)
+        self.assertIn("EEA_SymbolPanelBeginOverlay", dashboard)
+        self.assertNotIn("EEA_SymbolPanelClearOverlay(chart_id);", settings)
+        self.assertNotIn("EEA_SymbolPanelClearOverlay(chart_id);", dashboard)
+
+    def test_panel_status_uses_semantic_color_without_changing_fail_closed_copy(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "EEA_SymbolPanelStatusColor", "ctx.status.runtime_state",
+            "ctx.status.reason_code", "EXECUTION_DISABLED", "NOT_AUTHORIZED",
+            "new_entries_blocked",
+        ):
+            self.assertIn(token, panel)
+        self.assertIn("EEA_PANEL_DANGER_COLOR", panel)
+
+    def test_settings_symbol_rows_are_paged_without_changing_stored_row_indices(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        for token in (
+            "row_offset", "Btn_PreviousRows", "Btn_NextRows",
+            "EEA_PANEL_VISIBLE_ROWS", "row_index", "g_panel_state.row_offset",
+        ):
+            self.assertIn(token, panel)
+
     def test_selection_rollback_repersists_previous_committed_evidence(self):
         obs = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
         for token in ("EEA_RuntimeStatus old_status", "old_reconciliation",
@@ -892,6 +1017,12 @@ class RuntimeEvidenceIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_RuntimeStoreLoadSymbolSelectionRevision", runtime)
         self.assertIn("ctx.status.selection_revision=", runtime)
         self.assertNotIn("ctx.status.selection_revision = 1;", runtime)
+
+    def test_selected_symbol_fingerprint_is_recomputed_on_refresh(self):
+        evidence = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
+        runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.assertIn("EEA_RuntimeSelectedSymbolsFingerprint", evidence)
+        self.assertIn("ctx.status.selected_symbols_fingerprint=EEA_RuntimeSelectedSymbolsFingerprint", runtime)
 
     def test_audit_failures_are_checked_and_blocked_status_is_persisted(self):
         runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
@@ -1161,6 +1292,169 @@ class RetainedRuntimeLifecycleWiringTests(unittest.TestCase):
         
         self.assertGreater(write_status_pos, duration_pos, "Status serialization must occur after duration assignment")
         self.assertGreater(write_status_pos, refresh_false_pos, "Status serialization must occur after refresh_in_progress = false")
+
+
+
+class ControlCenterInteractionTests(unittest.TestCase):
+    """UX contract for the redesigned control center (spec 9.1/9.2)."""
+
+    def setUp(self):
+        self.panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        self.handler = self.panel.split("void EEA_SymbolPanelHandleChartEvent", 1)[1]
+
+    def test_clicks_release_latched_buttons_and_ignore_double_click_repeat(self):
+        release = self.panel.split("void EEA_SymbolPanelReleaseButton", 1)[1].split("bool EEA_SymbolPanelIsRepeatClick", 1)[0]
+        self.assertIn("OBJPROP_STATE,false", release)
+        repeat = self.panel.split("bool EEA_SymbolPanelIsRepeatClick", 1)[1].split("void EEA_SymbolPanelOnMouseMove", 1)[0]
+        self.assertIn("EEA_PANEL_CLICK_DEBOUNCE_MS", repeat)
+        self.assertIn("GetTickCount()", repeat)
+        click = self.handler.split("if(id==CHARTEVENT_OBJECT_CLICK)", 1)[1].split("Btn_Collapse", 1)[0]
+        self.assertLess(click.index("EEA_SymbolPanelReleaseButton"), click.index("EEA_SymbolPanelIsRepeatClick"))
+        button = self.panel.split("void EEA_SymbolPanelSetButtonEx", 1)[1].split("void EEA_SymbolPanelSetButton(", 1)[0]
+        self.assertIn("OBJPROP_STATE,false", button)
+
+    def test_panel_objects_are_never_selectable_or_draggable(self):
+        style = self.panel.split("void EEA_SymbolPanelStyleObject", 1)[1].split("void EEA_SymbolPanelSetSurface", 1)[0]
+        self.assertIn("OBJPROP_SELECTABLE,false", style)
+        self.assertNotIn("OBJPROP_SELECTABLE,true", self.panel)
+        self.assertNotIn("OBJPROP_SELECTABLE,selectable", self.panel)
+
+    def test_only_one_view_exists_and_subtab_switch_rebuilds_it(self):
+        begin = self.panel.split("bool EEA_SymbolPanelBeginOverlay", 1)[1].split("void EEA_SymbolPanelClearSettingsRows", 1)[0]
+        self.assertIn("if(!reuse) EEA_SymbolPanelClearOverlay(chart_id);", begin)
+        tab = self.handler.split('StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Tab_")==0', 1)[1].split("return;", 1)[0]
+        self.assertIn("EEA_SymbolPanelClearOverlay(g_panel_state.chart_id);", tab)
+        self.assertIn("EEA_SymbolPanelRenderActiveView", tab)
+        clear = self.panel.split("void EEA_SymbolPanelClearOverlay", 1)[1].split("bool EEA_SymbolPanelBeginOverlay", 1)[0]
+        self.assertIn("EEA_SymbolPanelPruneHits(EEA_PANEL_OVERLAY_PREFIX)", clear)
+
+    def test_render_functions_redraw_immediately(self):
+        settings = self.panel.split("void EEA_SymbolPanelRenderSettings(", 1)[1].split("void EEA_SymbolPanelSettingsRisk", 1)[0]
+        dashboard = self.panel.split("void EEA_SymbolPanelRenderDashboard(", 1)[1].split("double EEA_SymbolPanelRealizedForDay", 1)[0]
+        self.assertIn("ChartRedraw(chart_id);", settings)
+        self.assertIn("ChartRedraw(chart_id);", dashboard)
+
+    def test_timer_refresh_does_not_overwrite_text_being_typed(self):
+        edit = self.panel.split("void EEA_SymbolPanelSetEdit", 1)[1].split("void EEA_SymbolPanelSetField", 1)[0]
+        self.assertIn("if(created || text!=g_panel_state.edit_rendered_value)", edit)
+
+    def test_collapse_and_chart_mouse_state_are_restored(self):
+        self.assertIn("Btn_Collapse", self.handler)
+        destroy = self.panel.split("void EEA_SymbolPanelDestroy", 1)[1]
+        self.assertIn("EEA_SymbolPanelCaptureChartMouse(false);", destroy)
+        self.assertIn("CHART_EVENT_MOUSE_MOVE,g_panel_state.chart_mouse_move_original", destroy)
+        capture = self.panel.split("void EEA_SymbolPanelCaptureChartMouse", 1)[1].split("void EEA_SymbolPanelSetCollapsed", 1)[0]
+        self.assertIn("CHART_MOUSE_SCROLL,g_panel_state.chart_scroll_original", capture)
+
+    def test_dashboard_tabs_follow_spec_and_unbuilt_modules_are_labelled(self):
+        dashboard = self.panel.split("void EEA_SymbolPanelRenderDashboard(", 1)[1].split("double EEA_SymbolPanelRealizedForDay", 1)[0]
+        for tab in ("OVERVIEW", "MARKET", "TRADES", "RISK", "NEWS", "AI", "CALENDAR"):
+            self.assertIn('"' + tab + '"', dashboard)
+        # News Guard: an unreadable calendar is shown as NEWS_UNKNOWN, never NORMAL.
+        self.assertIn("EEA_SymbolPanelDashNews(chart_id,ctx)", dashboard)
+        news = self.panel.split("void EEA_SymbolPanelDashNews", 1)[1].split("void EEA_SymbolPanelDashPlaceholder", 1)[0]
+        self.assertIn("NEWS_UNKNOWN", news)
+        self.assertIn("Not built yet", dashboard)
+        settings = self.panel.split("void EEA_SymbolPanelRenderSettings(", 1)[1].split("void EEA_SymbolPanelSettingsRisk", 1)[0]
+        for tab in ("RISK", "SYMBOLS", "AUTHORIZATION", "SYSTEM"):
+            self.assertIn('"' + tab + '"', settings)
+
+    def test_trade_view_is_read_only_until_command_queue_exists(self):
+        trades = self.panel.split("void EEA_SymbolPanelDashTrades", 1)[1].split("void EEA_SymbolPanelDashRisk", 1)[0]
+        self.assertIn("command queue", trades)
+        self.assertNotIn("Btn_", trades)
+
+    def test_calendar_excludes_cash_flows_from_trading_pnl(self):
+        calendar = self.panel.split("void EEA_SymbolPanelDashCalendar", 1)[1].split("void EEA_SymbolPanelRenderActiveView", 1)[0]
+        self.assertIn('deals[i].type!="0" && ctx.reconciliation.deals[i].type!="1"', calendar)
+        realized = self.panel.split("double EEA_SymbolPanelRealizedForDay", 1)[1].split("void EEA_SymbolPanelDashOverview", 1)[0]
+        self.assertIn('deals[i].type!="0" && ctx.reconciliation.deals[i].type!="1"', realized)
+
+    def test_apply_is_disabled_until_changes_are_staged_and_confirmed(self):
+        footer = self.panel.split("void EEA_SymbolPanelSettingsFooter", 1)[1].split("void EEA_SymbolPanelRenderDashboard", 1)[0]
+        self.assertIn("bool ready=(pending>0 && selected>0 && !needs_confirmation);", footer)
+        self.assertIn("ready ? EEA_PANEL_BUTTON_PRIMARY : EEA_PANEL_BUTTON_DISABLED", footer)
+        apply = self.handler.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Apply"', 1)[1].split("return;", 1)[0]
+        self.assertIn("if(has_changes) EEA_SymbolPanelApplyStaged(ctx,audit);", apply)
+
+    def test_shell_publishes_engine_view_before_panel_refresh(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        init = shell.split("int OnInit()", 1)[1].split("void OnDeinit(", 1)[0]
+        timer = shell.split("void OnTimer()", 1)[1].split("void OnTradeTransaction", 1)[0]
+        for body in (init, timer):
+            self.assertIn("EEA_PublishPanelEngineView();", body)
+            self.assertLess(body.index("EEA_PublishPanelEngineView();"), body.index("EEA_SymbolPanelRefresh("))
+        publish = shell.split("void EEA_PublishPanelEngineView()", 1)[1].split("int OnInit()", 1)[0]
+        self.assertNotIn("OrderSend", publish)
+        self.assertIn("EEA_SymbolPanelSetEngineView", publish)
+
+    def test_calendar_uses_operator_local_day_not_ftmo_prague_day(self):
+        calendar = self.panel.split("void EEA_SymbolPanelDashCalendar", 1)[1].split("void EEA_SymbolPanelRenderActiveView", 1)[0]
+        realized = self.panel.split("double EEA_SymbolPanelRealizedForDay", 1)[1].split("void EEA_SymbolPanelDashOverview", 1)[0]
+        offset = self.panel.split("long EEA_SymbolPanelLocalOffsetSeconds", 1)[1].split("string EEA_SymbolPanelLocalZoneLabel", 1)[0]
+        self.assertIn("TimeLocal()-TimeGMT()", offset)
+        self.assertIn("EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc)", calendar)
+        self.assertIn("EEA_SymbolPanelLocalDayIndex(ctx.reconciliation.deals[i].time_utc)", realized)
+        self.assertNotIn("time_utc/86400", self.panel)
+        self.assertNotIn("Prague", realized)
+
+
+class PerSymbolResolutionTests(unittest.TestCase):
+    """SYM-02: an unresolved or spec-less symbol is blocked alone."""
+
+    def setUp(self):
+        self.runtime = (ROOT / "Runtime/ObserverRuntime.mqh").read_text(encoding="utf-8")
+        self.discover = self.runtime.split("bool EEA_ObserverRuntimeAutoDiscover", 1)[1].split("int EEA_ObserverRuntimeIndexOf", 1)[0]
+        self.refresh = self.runtime.split("bool EEA_ObserverRuntimeRefresh", 1)[1].split("// Records a change in the set of blocked symbols", 1)[0]
+
+    def test_discovery_blocks_symbols_individually_and_fails_only_when_none_resolve(self):
+        unresolved = self.discover.split("if(!results[i].resolved)", 1)[1].split("brokers[i] = results[i].broker_symbol;", 1)[0]
+        self.assertIn("continue;", unresolved)
+        self.assertNotIn("return false", unresolved)
+        self.assertIn("reasons[i]=", unresolved)
+        spec = self.discover.split("EEA_ReadRuntimeSymbolSpec", 1)[1].split("resolved++;", 1)[0]
+        self.assertIn('brokers[i]="";', spec)
+        self.assertNotIn("return false", spec)
+        self.assertIn("if(tradable>0 && resolved==0)", self.discover)
+        self.assertIn('"SYMBOL_RESOLUTION_FAILED"', self.discover)
+        self.assertIn('"SYMBOL_RESOLUTION_PARTIAL"', self.discover)
+
+    def test_refresh_blocks_spec_failures_per_symbol_and_excludes_them_from_validation(self):
+        spec_failure = self.refresh.split("if(!EEA_ReadRuntimeSymbolSpec", 1)[1].split("resolved_count++;", 1)[0]
+        self.assertIn("ctx.symbol_block_reason[i]=", spec_failure)
+        self.assertIn('ctx.broker_symbols[i]="";', spec_failure)
+        self.assertNotIn("return false", spec_failure)
+        self.assertIn("if(tradable_count>0 && resolved_count==0)", self.refresh)
+        rows = self.refresh.split("int spec_count=0;", 1)[1].split("ctx.reconciliation.symbol_count=spec_count;", 1)[0]
+        self.assertIn('ctx.broker_symbols[i]!=""', rows)
+        self.assertIn("!EEA_ObserverRuntimeIsContextOnly", rows)
+
+    def test_blocked_symbol_set_changes_are_audited_fail_closed(self):
+        helper = self.runtime.split("bool EEA_ObserverRuntimeAuditSymbolResolution", 1)[1].split("bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &audit,\r\n                                     const string event_type,const EEA_RuntimeStatus &status)\r\n  {", 1)[0]
+        for token in ("SYMBOL_RESOLUTION_PARTIAL", "SYMBOL_RESOLUTION_RESTORED", "blocked_symbols",
+                      'ctx.status.reason_code="AUDIT_PERSISTENCE_FAILED"', "ctx.status.new_entries_blocked=true"):
+            self.assertIn(token, helper)
+        self.assertIn("if(!EEA_ObserverRuntimeAuditSymbolResolution(ctx,audit)) return false;", self.runtime)
+
+    def test_strategy_and_live_runtime_bind_symbols_by_name_not_row_index(self):
+        strategy = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
+        on_timer = strategy.split("bool EEA_StrategyRuntimeOnTimer", 1)[1]
+        self.assertIn("canonical[k]==runtime.engines[e].canonical_symbol", on_timer)
+        self.assertIn('if(row<0 || broker[row]=="") continue;', on_timer)
+        self.assertNotIn("count!=runtime.symbol_count", on_timer)
+        live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
+        loop = live.split("bool EEA_ControlledLiveOnTimer", 1)[1]
+        self.assertIn("EEA_ObserverRuntimeIndexOf(observer,strategy.engines[i].canonical_symbol)", loop)
+        self.assertIn("LIVE_SYMBOL_UNRESOLVED", loop)
+        self.assertNotIn("observer.broker_symbols[i]", loop)
+        self.assertNotIn("observer.symbol_specs[i]", loop)
+
+    def test_panel_shows_per_symbol_status_and_reason(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        status = panel.split("string EEA_SymbolPanelSymbolStatus", 1)[1].split("string EEA_SymbolPanelBlockReason", 1)[0]
+        for token in ('"RESOLVED"', '"BLOCKED"', '"UNRESOLVED"', "ctx.symbol_block_reason[index]"):
+            self.assertIn(token, status)
+        self.assertIn("g_panel_state.rows[count].description=EEA_SymbolPanelBlockReason(ctx,i);", panel)
 
 
 if __name__ == "__main__":

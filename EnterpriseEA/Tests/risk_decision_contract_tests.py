@@ -37,6 +37,10 @@ class RiskDecisionContractTests(unittest.TestCase):
             "string quote_id",
             "string portfolio_snapshot_id",
             "double final_volume",
+            "int direction",
+            "double entry_reference",
+            "double stop_loss",
+            "double take_profit",
             "double projected_loss",
             "double available_headroom",
             "datetime decided_at_utc",
@@ -103,6 +107,15 @@ class RiskDecisionContractTests(unittest.TestCase):
             "decision.expires_at_utc<=now_utc",
         ):
             self.assertIn(required_check, validation)
+
+    def test_release_carries_budget_and_reward_risk_for_intent_binding(self):
+        self.assertIn("double risk_budget", self.source)
+        self.assertIn("double net_reward_risk", self.source)
+        validation = self._section("bool EEA_RiskDecisionValidForRelease")
+        self.assertIn("decision.risk_budget", validation)
+        self.assertIn("decision.net_reward_risk", validation)
+        for field in ("decision.direction", "decision.entry_reference", "decision.stop_loss", "decision.take_profit"):
+            self.assertIn(field, validation)
 
     def test_contract_has_no_broker_io_or_shell_dependencies(self):
         forbidden = (

@@ -4,7 +4,9 @@
 #include "ExecutionContracts.mqh"
 #include "ExecutionGate.mqh"
 #include "ExecutionReconciliation.mqh"
+#include "ExecutionControllerState.mqh"
 #include "LiveAuthorizationGate.mqh"
+#include "..\Risk\RiskDecision.mqh"
 #include "../Storage/AuditLog.mqh"
 #include "../Storage/RuntimeEvidenceStore.mqh"
 
@@ -16,12 +18,23 @@ string EEA_ExecutionResolveRoot(const string data_root)
 bool EEA_ExecutionIsDuplicateIdempotency(const string root, const string idempotency_key)
 {
    if(idempotency_key == "") return false;
+   // Marker index first: O(1) and unaffected by the audit log size. Until the one-time
+   // migration of older keys succeeded, fail closed.
+   if(!EEA_IdempotencyIndexReady(root)) return true;
+   if(FileIsExist(EEA_IdempotencyMarkerPath(root, idempotency_key), 0)) return true;
+   return EEA_ExecutionIsDuplicateIdempotencyInLog(root, idempotency_key);
+}
+
+// Legacy scan of the audit log. Above 1MB the marker index (complete after the migration)
+// is authoritative, so a large log no longer blocks every request.
+bool EEA_ExecutionIsDuplicateIdempotencyInLog(const string root, const string idempotency_key)
+{
    string path = root + "/logs/execution_audit.jsonl";
    if(!FileIsExist(path, 0)) return false;
    int h = FileOpen(path, FILE_READ|FILE_BIN|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(h == INVALID_HANDLE) return true; // Fail closed on unreadable log
    ulong size = FileSize(h);
-   if(size > 1048576) { FileClose(h); return true; } // Fail closed on oversized log (>1MB)
+   if(size > 1048576) { FileClose(h); return false; } // Marker index is authoritative (>1MB)
    if(size == 0) { FileClose(h); return false; }
    uchar bytes[];
    if(ArrayResize(bytes, (int)size) != (int)size) { FileClose(h); return true; }
@@ -64,6 +77,8 @@ bool EEA_ExecutionRetcodeAcknowledged(const uint retcode,const int action)
              retcode==TRADE_RETCODE_NO_CHANGES;
    if(action==EEA_EXEC_ACTION_CANCEL_PENDING)
       return retcode==TRADE_RETCODE_DONE;
+   if(action==EEA_EXEC_ACTION_CLOSE_POSITION)
+      return retcode==TRADE_RETCODE_DONE || retcode==TRADE_RETCODE_DONE_PARTIAL;
    return false;
 }
 
@@ -76,6 +91,7 @@ bool EEA_ExecutionAuthorizationBinds(const EEA_LiveAuthorizationDecision &author
       authorization.authorization_valid_until_utc>TimeGMT() &&
       authorization.account_fingerprint==account.account_fingerprint &&
       authorization.account_fingerprint==intent.account_fingerprint &&
+      authorization.candidate_id==intent.candidate_id &&
       authorization.intent_id==intent.intent_id &&
       authorization.config_version==intent.config_version &&
       authorization.broker_server==intent.broker_server &&
@@ -173,6 +189,9 @@ bool EEA_ExecutionPreflight(const EEA_ExecutionIntent &intent,
 bool EEA_ExecutionSubmit(CAuditLog &audit,
                          const string data_root,
                          const EEA_ExecutionIntent &intent,
+                         const EEA_RiskDecision &decision,
+                         const EEA_ExecutionControllerState &controller,
+                         const string requested_scope,
                          const EEA_RuntimeAccountSnapshot &account,
                          const EEA_RuntimeReconciliationSnapshot &reconciliation,
                          const EEA_RuntimeSymbolSpec &symbol,
@@ -188,9 +207,11 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
    result.idempotency_key = intent.idempotency_key;
    EEA_ExecutionBindIntentLineage(result,intent);
 
-   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+   // REQ-021 pending entries need the pending controller scope in addition to the
+   // same authorization, risk release and gate checks as a market entry.
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING && requested_scope!="PENDING_ENTRY")
      {
-      EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      EEA_ExecutionResultReject(result,"CONTROLLER_SCOPE_REJECTED");
       return false;
      }
    EEA_ExecutionBindAuthorization(result,authorization);
@@ -199,9 +220,16 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
       return false;
      }
-   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET)
+   if(intent.action!=EEA_EXEC_ACTION_SUBMIT_MARKET && intent.action!=EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
       EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
+   if(!EEA_ExecutionControllerIdentityMatches(controller,intent.config_version,
+                                              account.account_fingerprint,account.broker_server) ||
+      !EEA_ExecutionControllerAllowsNewRequest(controller,requested_scope,TimeGMT()))
+     {
+      EEA_ExecutionResultReject(result,"CONTROLLER_SCOPE_REJECTED");
       return false;
      }
 
@@ -216,7 +244,7 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
       return false;
      }
 
-   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
+   if(!EEA_ExecutionGateCheckReleased(intent, decision, account, reconciliation, symbol, status, execution_enabled, result))
      {
       result.request_sent = false;
       EEA_ExecutionStoreWriteIntent(root, intent);
@@ -250,8 +278,30 @@ bool EEA_ExecutionSubmit(CAuditLog &audit,
 
    if(intent.action == EEA_EXEC_ACTION_SUBMIT_PENDING)
      {
-      request.type_time = (intent.expiration > 0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
-      request.expiration = intent.expiration;
+      // Broker-enforced expiry only; a GTC order is never used for a strategy deadline.
+      // The broker compares the expiration in server time.
+      long server_offset=(long)TimeTradeServer()-(long)TimeGMT();
+      request.type_time = ORDER_TIME_SPECIFIED;
+      request.expiration = (datetime)((long)intent.expiration+server_offset);
+      request.type_filling = ORDER_FILLING_RETURN;
+      MqlTick tick;
+      ZeroMemory(tick);
+      double point=SymbolInfoDouble(intent.broker_symbol,SYMBOL_POINT);
+      double min_distance=(double)SymbolInfoInteger(intent.broker_symbol,SYMBOL_TRADE_STOPS_LEVEL)*point;
+      bool geometry_ok=SymbolInfoTick(intent.broker_symbol,tick) && tick.bid>0.0 && tick.ask>0.0;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_BUY_LIMIT)  geometry_ok=intent.price<=tick.ask-min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_SELL_LIMIT) geometry_ok=intent.price>=tick.bid+min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_BUY_STOP)   geometry_ok=intent.price>=tick.ask+min_distance;
+      if(geometry_ok && intent.order_type==ORDER_TYPE_SELL_STOP)  geometry_ok=intent.price<=tick.bid-min_distance;
+      if(!geometry_ok)
+        {
+         result.confirmation_state = "REJECTED";
+         result.reason_code = "PENDING_PRICE_GEOMETRY_INVALID";
+         result.request_sent = false;
+         EEA_ExecutionStoreWriteResult(root, result);
+         EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+         return false;
+        }
      }
 
    bool sent = OrderSend(request, trade_result);
@@ -397,6 +447,102 @@ bool EEA_ExecutionModifyProtective(CAuditLog &audit,
    return true;
 }
 
+// Trade Manager close (REQ-005): full or partial close of one EA position by an opposite
+// deal bound to that position. Same authorization, idempotency, gate and persistence
+// path as every other send; it never opens or adds exposure.
+bool EEA_ExecutionClosePosition(CAuditLog &audit,
+                                const string data_root,
+                                const EEA_ExecutionIntent &intent,
+                                const EEA_RuntimeAccountSnapshot &account,
+                                const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                const EEA_RuntimeSymbolSpec &symbol,
+                                const EEA_RuntimeStatus &status,
+                                const bool execution_enabled,
+                                const EEA_LiveAuthorizationDecision &authorization,
+                                EEA_ExecutionResult &result)
+{
+   string root = EEA_ExecutionResolveRoot(data_root);
+   EEA_ExecutionResultDefaults(result);
+   result.intent_id = intent.intent_id;
+   result.correlation_id = intent.correlation_id;
+   result.idempotency_key = intent.idempotency_key;
+   EEA_ExecutionBindIntentLineage(result,intent);
+   EEA_ExecutionBindAuthorization(result,authorization);
+   if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
+     {
+      EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.action!=EEA_EXEC_ACTION_CLOSE_POSITION)
+     {
+      EEA_ExecutionResultReject(result,"EXECUTION_ACTION_MISMATCH");
+      return false;
+     }
+   if(EEA_ExecutionIsDuplicateIdempotency(root, intent.idempotency_key))
+     {
+      result.confirmation_state = "REJECTED";
+      result.reason_code = "DUPLICATE_IDEMPOTENCY_KEY";
+      result.request_sent = false;
+      EEA_ExecutionStoreWriteIntent(root, intent);
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
+   if(!EEA_ExecutionGateCheck(intent, account, reconciliation, symbol, status, execution_enabled, result))
+     {
+      result.request_sent = false;
+      EEA_ExecutionStoreWriteIntent(root, intent);
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
+   if(!EEA_ExecutionPersistBeforeSend(audit, root, intent,
+      "{\"intent_id\":\"" + EEA_JsonEscape(intent.intent_id) + "\",\"position\":" + IntegerToString(intent.position_ticket) +
+      ",\"close_volume\":" + DoubleToString(intent.volume, 8) + "}"))
+     {
+      EEA_ExecutionRecordPersistenceFailure(audit, root, intent, result);
+      return false;
+     }
+
+   MqlTradeRequest request;
+   MqlTradeResult trade_result;
+   ZeroMemory(request);
+   ZeroMemory(trade_result);
+   MqlTick tick;
+   ZeroMemory(tick);
+   SymbolInfoTick(intent.broker_symbol, tick);
+   request.action = TRADE_ACTION_DEAL;
+   request.position = (ulong)intent.position_ticket;
+   request.symbol = intent.broker_symbol;
+   request.volume = intent.volume;
+   request.type = (ENUM_ORDER_TYPE)intent.order_type;
+   request.price = (intent.order_type == ORDER_TYPE_BUY) ? tick.ask : tick.bid;
+   request.type_filling = (ENUM_ORDER_TYPE_FILLING)intent.filling_mode;
+   request.deviation = intent.deviation;
+   request.magic = intent.magic;
+
+   bool sent = OrderSend(request, trade_result);
+   bool broker_acknowledged = EEA_ExecutionRetcodeAcknowledged(trade_result.retcode,intent.action);
+   result.request_sent = sent || broker_acknowledged;
+   result.request_retcode = IntegerToString(trade_result.retcode);
+   result.request_ticket_kind = "POSITION";
+   result.request_ticket = intent.position_ticket;
+   result.observed_at_utc = TimeCurrent();
+   if(!broker_acknowledged)
+     {
+      result.confirmation_state = "REJECTED";
+      result.reason_code = "CLOSE_FAILED_" + result.request_retcode;
+      EEA_ExecutionStoreWriteResult(root, result);
+      EEA_AuditExecutionFailure(audit, intent.intent_id, result.reason_code);
+      return false;
+     }
+   result.confirmation_state = "EXECUTION_UNKNOWN";
+   result.reason_code = "REQUEST_ACKNOWLEDGED_RECONCILIATION_REQUIRED";
+   if(!EEA_ExecutionPersistAfterSend(audit, root, result, intent.intent_id))
+      return false;
+   return true;
+}
+
 bool EEA_ExecutionCancelPending(CAuditLog &audit,
                                 const string data_root,
                                 const EEA_ExecutionIntent &intent,
@@ -415,13 +561,19 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
    result.idempotency_key = intent.idempotency_key;
    EEA_ExecutionBindIntentLineage(result,intent);
 
-   EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
-   return false;
-
+   // Every send path, cancellation included, stays bound to the live authorization.
+   // When that authorization has lapsed, the broker-enforced expiration (mandatory for
+   // REQ-021 orders) still removes the order at its deadline.
    EEA_ExecutionBindAuthorization(result,authorization);
    if(!EEA_ExecutionAuthorizationBinds(authorization,intent,account,symbol))
      {
       EEA_ExecutionResultReject(result,"LIVE_AUTHORIZATION_REQUIRED");
+      return false;
+     }
+   if(intent.ticket>0 && (!OrderSelect((ulong)intent.ticket) ||
+      OrderGetInteger(ORDER_MAGIC)!=intent.magic || OrderGetString(ORDER_SYMBOL)!=intent.broker_symbol))
+     {
+      EEA_ExecutionResultReject(result,"PENDING_ORDER_NOT_ACTIVE_OR_NOT_OWNED");
       return false;
      }
    if(intent.action!=EEA_EXEC_ACTION_CANCEL_PENDING)

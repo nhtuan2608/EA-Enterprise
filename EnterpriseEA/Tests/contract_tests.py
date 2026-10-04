@@ -191,7 +191,7 @@ class Phase1Contracts(unittest.TestCase):
         main = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
         state = (ROOT / "Core/State.mqh").read_text(encoding="utf-8")
         writer = (ROOT / "Storage/AtomicWriter.mqh").read_text(encoding="utf-8")
-        self.assertIn("if(InpObserverOnly==false)", main)
+        self.assertIn("if(InpObserverOnly==false && (!InpExecutionEnabled || !InpLiveTradeArmed))", main)
         self.assertIn("return false;", state)
         self.assertIn("EEA_StateCheckCheckpoint", main)
         self.assertIn("EEA_StateSave", main)

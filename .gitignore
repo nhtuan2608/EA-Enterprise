@@ -1,1 +1,4 @@
 .worktrees/
+EnterpriseEA/*.ex5
+EnterpriseEA/EnterpriseEA.log
+EnterpriseEA/Tests/__pycache__/

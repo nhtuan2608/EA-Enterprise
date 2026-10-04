@@ -84,6 +84,15 @@ bool EEA_ExecutionControllerStateValid(const EEA_ExecutionControllerState &state
    return true;
   }
 
+// MARKET_AND_PENDING_ENTRY covers both entry scopes (REQ-021).
+bool EEA_ExecutionControllerScopeCovers(const string granted_scope,const string requested_scope)
+  {
+   if(requested_scope=="") return false;
+   if(granted_scope==requested_scope) return true;
+   return granted_scope=="MARKET_AND_PENDING_ENTRY" &&
+          (requested_scope=="MARKET_ENTRY" || requested_scope=="PENDING_ENTRY");
+  }
+
 bool EEA_ExecutionControllerAllowsNewRequest(const EEA_ExecutionControllerState &state,
                                               const string requested_scope,
                                               const datetime now_utc)
@@ -92,7 +101,10 @@ bool EEA_ExecutionControllerAllowsNewRequest(const EEA_ExecutionControllerState 
       return false;
    if(!EEA_ExecutionControllerStateValid(state,now_utc))
       return false;
-   if(requested_scope=="" || requested_scope!=state.operation_scope)
+   if(requested_scope=="")
+      return false;
+   if(requested_scope!=state.operation_scope &&
+      !EEA_ExecutionControllerScopeCovers(state.operation_scope,requested_scope))
       return false;
    return true;
   }

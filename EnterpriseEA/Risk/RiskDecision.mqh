@@ -33,8 +33,14 @@ struct EEA_RiskDecision
    string portfolio_fingerprint;
 
    double final_volume;
+   double risk_budget;
    double projected_loss;
+   double net_reward_risk;
    double available_headroom;
+   int direction;
+   double entry_reference;
+   double stop_loss;
+   double take_profit;
 
    datetime decided_at_utc;
    datetime expires_at_utc;
@@ -73,8 +79,14 @@ void EEA_RiskDecisionDefaults(EEA_RiskDecision &decision)
    decision.portfolio_fingerprint="";
 
    decision.final_volume=0.0;
+   decision.risk_budget=0.0;
    decision.projected_loss=0.0;
+   decision.net_reward_risk=0.0;
    decision.available_headroom=0.0;
+   decision.direction=0;
+   decision.entry_reference=0.0;
+   decision.stop_loss=0.0;
+   decision.take_profit=0.0;
 
    decision.decided_at_utc=0;
    decision.expires_at_utc=0;
@@ -101,8 +113,19 @@ bool EEA_RiskDecisionValidForRelease(const EEA_RiskDecision &decision,const date
      return false;
 
    if(!MathIsValidNumber(decision.final_volume) || decision.final_volume<=0.0 ||
+      !MathIsValidNumber(decision.risk_budget) || decision.risk_budget<=0.0 ||
       !MathIsValidNumber(decision.projected_loss) || decision.projected_loss<=0.0 ||
-      !MathIsValidNumber(decision.available_headroom) || decision.available_headroom<0.0)
+      decision.projected_loss>decision.risk_budget ||
+      !MathIsValidNumber(decision.net_reward_risk) || decision.net_reward_risk<=0.0 ||
+      !MathIsValidNumber(decision.available_headroom) || decision.available_headroom<0.0 ||
+      (decision.direction!=1 && decision.direction!=-1) ||
+      !MathIsValidNumber(decision.entry_reference) || decision.entry_reference<=0.0 ||
+      !MathIsValidNumber(decision.stop_loss) || decision.stop_loss<=0.0 ||
+      !MathIsValidNumber(decision.take_profit) || decision.take_profit<=0.0 ||
+      (decision.direction==1 && !(decision.stop_loss<decision.entry_reference &&
+                                  decision.entry_reference<decision.take_profit)) ||
+      (decision.direction==-1 && !(decision.take_profit<decision.entry_reference &&
+                                   decision.entry_reference<decision.stop_loss)))
      return false;
 
    if(now_utc<=0 || decision.decided_at_utc<=0 ||

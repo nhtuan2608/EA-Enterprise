@@ -158,11 +158,22 @@ def idempotency_decision(state, key):
         return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"}
     return {"accepted": True, "reason_code": "OK"}
 
-def idempotency_decision_scan(log_content, key, max_size=1048576):
+def idempotency_decision_scan(log_content, key, max_size=1048576, markers=None, index_ready=True):
+    """Mirror of EEA_ExecutionIsDuplicateIdempotency: marker index first, then the log.
+
+    Until the one-time migration built the index, every check fails closed. Once ready,
+    the index is authoritative and a log above max_size no longer blocks requests.
+    """
     if not key:
         return {"accepted": False, "reason_code": "IDEMPOTENCY_KEY_MISSING"}
-    if log_content is None or len(log_content) > max_size:
+    if not index_ready:
         return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"} # Fail closed
+    if markers is not None and key in markers:
+        return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"}
+    if log_content is None:
+        return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"} # Fail closed
+    if len(log_content) > max_size:
+        return {"accepted": True, "reason_code": "OK"}
     for line in log_content.splitlines():
         if f'"idempotency_key":"{key}"' in line or f'"idempotency_key": "{key}"' in line:
             return {"accepted": False, "reason_code": "DUPLICATE_IDEMPOTENCY_KEY"}

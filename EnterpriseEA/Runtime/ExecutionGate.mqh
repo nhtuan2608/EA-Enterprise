@@ -3,6 +3,7 @@
 
 #include "ExecutionContracts.mqh"
 #include "RuntimeEvidence.mqh"
+#include "RiskDecisionBinding.mqh"
 #include "..\Market\SymbolRegistry.mqh"
 
 bool EEA_ExecutionAligned(const double value,const double origin,const double step)
@@ -221,7 +222,7 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
      }
 
    if(intent.action<EEA_EXEC_ACTION_SUBMIT_MARKET ||
-      intent.action>EEA_EXEC_ACTION_CANCEL_PENDING || intent.order_type<0 ||
+      intent.action>EEA_EXEC_ACTION_CLOSE_POSITION || intent.order_type<0 ||
       intent.order_type>7 || !EEA_IsFiniteDouble(intent.volume) ||
       !EEA_IsFiniteDouble(intent.price) || !EEA_IsFiniteDouble(intent.sl) ||
       !EEA_IsFiniteDouble(intent.tp))
@@ -229,11 +230,38 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
       EEA_ExecutionResultReject(result,"EXECUTION_CONTRACT_INVALID");
       return false;
      }
-   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING ||
-      intent.action==EEA_EXEC_ACTION_CANCEL_PENDING ||
-      (intent.action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE && intent.position_ticket<=0))
+   // Modifying a pending order's stops is still outside the REQ-021 runtime.
+   if(intent.action==EEA_EXEC_ACTION_MODIFY_PROTECTIVE && intent.position_ticket<=0)
      {
       EEA_ExecutionResultReject(result,"PENDING_RUNTIME_NOT_IMPLEMENTED");
+      return false;
+     }
+   // REQ-021: only LIMIT/STOP (no STOP_LIMIT), only with a broker-enforced expiration.
+   if(intent.action==EEA_EXEC_ACTION_SUBMIT_PENDING)
+     {
+      long expiration_mode=StringToInteger(symbol.expiration_mode);
+      long order_mode=StringToInteger(symbol.order_mode);
+      bool limit=(intent.order_type==ORDER_TYPE_BUY_LIMIT || intent.order_type==ORDER_TYPE_SELL_LIMIT);
+      bool stop=(intent.order_type==ORDER_TYPE_BUY_STOP || intent.order_type==ORDER_TYPE_SELL_STOP);
+      if(!limit && !stop)
+        { EEA_ExecutionResultReject(result,"PENDING_ORDER_TYPE_UNSUPPORTED"); return false; }
+      if((limit && (order_mode & SYMBOL_ORDER_LIMIT)==0) || (stop && (order_mode & SYMBOL_ORDER_STOP)==0))
+        { EEA_ExecutionResultReject(result,"SYMBOL_PENDING_TYPE_UNSUPPORTED"); return false; }
+      if((expiration_mode & SYMBOL_EXPIRATION_SPECIFIED)==0)
+        { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_UNSUPPORTED"); return false; }
+      if(intent.expiration<=TimeGMT())
+        { EEA_ExecutionResultReject(result,"PENDING_EXPIRATION_INVALID"); return false; }
+     }
+   // A close only reduces an existing EA position: it needs the position and a BUY/SELL deal.
+   if(intent.action==EEA_EXEC_ACTION_CLOSE_POSITION &&
+      (intent.position_ticket<=0 || intent.order_type>1 || intent.volume<=0.0))
+     {
+      EEA_ExecutionResultReject(result,"CLOSE_POSITION_INVALID");
+      return false;
+     }
+   if(intent.action==EEA_EXEC_ACTION_CANCEL_PENDING && intent.ticket<=0)
+     {
+      EEA_ExecutionResultReject(result,"INVALID_TICKET");
       return false;
      }
    if(intent.action==EEA_EXEC_ACTION_SUBMIT_MARKET && intent.order_type>1)
@@ -270,6 +298,27 @@ bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent &intent,
 
    EEA_ExecutionResultAccept(result);
    return true;
+  }
+
+bool EEA_ExecutionGateCheckReleased(const EEA_ExecutionIntent &intent,
+                                    const EEA_RiskDecision &decision,
+                                    const EEA_RuntimeAccountSnapshot &account,
+                                    const EEA_RuntimeReconciliationSnapshot &reconciliation,
+                                    const EEA_RuntimeSymbolSpec &symbol,
+                                    const EEA_RuntimeStatus &status,
+                                    const bool execution_enabled,
+                                    EEA_ExecutionResult &result)
+  {
+   if(!EEA_RiskDecisionBindsExecutionIntent(decision,intent,TimeGMT()))
+     {
+      EEA_ExecutionResultDefaults(result);
+      result.intent_id=intent.intent_id;
+      result.correlation_id=intent.correlation_id;
+      result.idempotency_key=intent.idempotency_key;
+      EEA_ExecutionResultReject(result,"RISK_RELEASE_BINDING_INVALID");
+      return false;
+     }
+   return EEA_ExecutionGateCheck(intent,account,reconciliation,symbol,status,execution_enabled,result);
   }
 
 #endif

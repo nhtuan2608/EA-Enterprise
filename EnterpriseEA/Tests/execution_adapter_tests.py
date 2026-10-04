@@ -179,13 +179,27 @@ class ExecutionAdapterOracleTests(unittest.TestCase):
         res_ok = idempotency_decision_scan(log_text, "idem-999")
         self.assertTrue(res_ok["accepted"])
 
-        # Unreadable (None) or oversized log (>1MB) fails closed
+        # An unreadable log or a missing index fails closed.
         res_unreadable = idempotency_decision_scan(None, "idem-001")
         self.assertFalse(res_unreadable["accepted"])
+        self.assertFalse(idempotency_decision_scan(log_text, "idem-999", index_ready=False)["accepted"])
 
+        # Above 1MB the marker index is authoritative: a large log no longer blocks trading.
         oversized = "A" * 2000000
-        res_oversized = idempotency_decision_scan(oversized, "idem-001")
-        self.assertFalse(res_oversized["accepted"])
+        self.assertTrue(idempotency_decision_scan(oversized, "idem-002", markers={"idem-001"})["accepted"])
+        self.assertFalse(idempotency_decision_scan(oversized, "idem-001", markers={"idem-001"})["accepted"])
+
+    def test_idempotency_marker_index_is_written_and_migrated(self):
+        store = (ROOT / "Storage/RuntimeEvidenceStore.mqh").read_text(encoding="utf-8")
+        adapter = (ROOT / "Runtime/ExecutionAdapter.mqh").read_text(encoding="utf-8")
+        self.assertEqual(store.count("EEA_IdempotencyMarkerWrite(root,intent.idempotency_key)"), 1)
+        self.assertEqual(store.count("EEA_IdempotencyMarkerWrite(root,result.idempotency_key)"), 1)
+        ready = store.split("bool EEA_IdempotencyIndexReady", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("FileReadString(h)", ready)
+        self.assertIn("index_ready.flag", ready)
+        check = adapter.split("bool EEA_ExecutionIsDuplicateIdempotency(", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("if(!EEA_IdempotencyIndexReady(root)) return true;", check)
+        self.assertIn("EEA_IdempotencyMarkerPath(root, idempotency_key)", check)
 
     def test_fixture_cases(self):
         if not FIXTURE_PATH.exists():

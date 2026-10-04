@@ -6,7 +6,8 @@ enum ENUM_EEA_EXECUTION_ACTION
    EEA_EXEC_ACTION_SUBMIT_MARKET=0,
    EEA_EXEC_ACTION_SUBMIT_PENDING=1,
    EEA_EXEC_ACTION_MODIFY_PROTECTIVE=2,
-   EEA_EXEC_ACTION_CANCEL_PENDING=3
+   EEA_EXEC_ACTION_CANCEL_PENDING=3,
+   EEA_EXEC_ACTION_CLOSE_POSITION=4      // Trade Manager: full or partial close of an EA position
   };
 
 enum ENUM_EEA_CONFIRMATION_STATE
@@ -18,6 +19,15 @@ enum ENUM_EEA_CONFIRMATION_STATE
    EEA_CONFIRM_REJECTED=4,
    EEA_CONFIRM_UNKNOWN=5
   };
+
+// Trade direction of an MT5 order type: +1 for BUY, BUY_LIMIT, BUY_STOP; -1 for the SELL
+// counterparts; 0 for STOP_LIMIT types, which are outside the REQ-021 scope.
+int EEA_OrderTypeDirection(const int order_type)
+  {
+   if(order_type==0 || order_type==2 || order_type==4) return 1;
+   if(order_type==1 || order_type==3 || order_type==5) return -1;
+   return 0;
+  }
 
 struct EEA_ExecutionIntent
   {
