@@ -54,7 +54,7 @@ string EEA_NrField(const string json,const string name)
   }
 
 string EEA_NrGroup(const string currency,const string event_name,const string symbol)
-  { return currency+" "+event_name+" x "+symbol; }
+  { return EEA_NewsReactionGroup(currency+" "+event_name,symbol); }
 
 bool EEA_NrKnown(const EEA_NewsReactionRuntime &rt,const string key)
   {
@@ -62,10 +62,12 @@ bool EEA_NrKnown(const EEA_NewsReactionRuntime &rt,const string key)
    return false;
   }
 
-void EEA_NrRemember(EEA_NewsReactionRuntime &rt,const string key,const EEA_ReactionSummary &summary,const string recent)
+void EEA_NrRemember(EEA_NewsReactionRuntime &rt,const string key,const EEA_ReactionSummary &summary,const string recent,
+                    const bool add_summary=true)
   {
    ArrayResize(rt.keys,rt.key_count+1,256); rt.keys[rt.key_count]=key; rt.key_count++;
-   ArrayResize(rt.summaries,rt.summary_count+1,256); rt.summaries[rt.summary_count]=summary; rt.summary_count++;
+   if(add_summary)
+     { ArrayResize(rt.summaries,rt.summary_count+1,256); rt.summaries[rt.summary_count]=summary; rt.summary_count++; }
    if(recent!="")
      {
       for(int i=EEA_NR_RECENT-1;i>0;i--) rt.recent[i]=rt.recent[i-1];
@@ -79,9 +81,10 @@ string EEA_NrLogPath(const string root) { return root+"/logs/news_reactions.json
 
 string EEA_NrRecentText(const EEA_Reaction &r)
   {
-   if(r.quality!="OK") return "";
+   if(r.quality!="OK" || !r.cluster_lead) return "";
    double atr=r.atr_ref;
-   return r.symbol+(r.impact=="INDIRECT" ? " (ind)" : "")+"  "+r.currency+" "+r.event_name+"  "+(r.surprise_side=="" ? "-" : r.surprise_side)+
+   return r.symbol+(r.impact=="INDIRECT" ? " (ind)" : "")+"  "+r.currency+" "+r.event_name+
+          (r.cluster_size>1 ? " +"+IntegerToString(r.cluster_size-1) : "")+"  "+(r.surprise_side=="" ? "-" : r.surprise_side)+
           "  5m "+DoubleToString(r.move[1]/atr,1)+"A  60m "+DoubleToString(r.move[3]/atr,1)+"A"+
           (r.spread_peak_ratio>0.0 ? "  sp x"+DoubleToString(r.spread_peak_ratio,1) : "");
   }
@@ -105,14 +108,16 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
             string key=EEA_NrField(line,"key");
             if(key=="") continue;
             EEA_ReactionSummary s;
-            s.group=EEA_NrGroup(EEA_NrField(line,"currency"),EEA_NrField(line,"event"),EEA_NrField(line,"symbol"));
+            string group=EEA_NrField(line,"group");
+            s.group=group!="" ? group : EEA_NrGroup(EEA_NrField(line,"currency"),EEA_NrField(line,"event"),EEA_NrField(line,"symbol"));
             s.ok=EEA_NrField(line,"quality")=="OK";
             s.move15_atr=StringToDouble(EEA_NrField(line,"move_15m_atr"));
             s.move60_atr=StringToDouble(EEA_NrField(line,"move_60m_atr"));
             s.spread_ratio=StringToDouble(EEA_NrField(line,"spread_peak_ratio"));
             s.recovery_min=StringToDouble(EEA_NrField(line,"recovery_min"));
             s.reversal=EEA_NrField(line,"reversal_60m")=="true";
-            EEA_NrRemember(rt,key,s,"");
+            // Only the lead record of a cluster feeds the statistics (records before clusters count alone).
+            EEA_NrRemember(rt,key,s,"",EEA_NrField(line,"cluster_lead")!="false");
            }
          FileClose(h);
         }
@@ -144,7 +149,10 @@ string EEA_NrJson(const EEA_Reaction &r)
    string json="{\"document_version\":\"news-reaction-v1.0.0\",\"key\":\""+EEA_JsonEscape(r.key)+
       "\",\"source\":\""+r.source+"\",\"symbol\":\""+r.symbol+"\",\"currency\":\""+r.currency+
       "\",\"event\":\""+EEA_JsonEscape(r.event_name)+"\",\"impact\":\""+r.impact+
-      "\",\"event_utc\":"+IntegerToString(r.event_utc)+
+      "\",\"group\":\""+EEA_JsonEscape(EEA_NewsReactionGroup(r.cluster_label,r.symbol))+
+      "\",\"cluster_events\":\""+EEA_JsonEscape(r.cluster_label)+"\",\"cluster_size\":"+IntegerToString(r.cluster_size)+
+      ",\"cluster_lead\":"+(r.cluster_lead ? "true" : "false")+
+      ",\"event_utc\":"+IntegerToString(r.event_utc)+
       EEA_NrNum("actual",r.has_actual,r.actual,4)+EEA_NrNum("forecast",r.has_forecast,r.forecast,4)+
       EEA_NrNum("previous",r.has_previous,r.previous,4)+
       EEA_NrNum("surprise_raw",r.has_actual && r.has_forecast,r.surprise_raw,4)+
@@ -212,8 +220,8 @@ double EEA_NrAtrRef(const string broker,const long T,const long offset,int &copi
 // Returns 1 recorded, 0 skipped, -1 history not ready yet (retry later).
 int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,const MqlCalendarValue &value,
                  const MqlCalendarEvent &ev,const string currency,const string canonical,const string broker,
-                 const string source,const string impact,const EEA_NewsRuntime &news,
-                 const EEA_TradeManagerRuntime &trades)
+                 const string source,const string impact,const string cluster_label,const int cluster_size,
+                 const bool cluster_lead,const EEA_NewsRuntime &news,const EEA_TradeManagerRuntime &trades)
   {
    const string key=IntegerToString((long)value.id)+"|"+canonical;
    if(EEA_NrKnown(rt,key)) return 0;
@@ -221,6 +229,8 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    EEA_Reaction r;
    EEA_ReactionDefaults(r);
    r.key=key; r.source=source; r.symbol=canonical; r.currency=currency; r.event_name=ev.name; r.impact=impact;
+   r.cluster_label=cluster_label!="" ? cluster_label : currency+" "+ev.name;
+   r.cluster_size=MathMax(1,cluster_size); r.cluster_lead=cluster_lead;
    r.event_utc=(long)value.time-offset;
    const long T=r.event_utc;
    r.has_actual=value.HasActualValue(); if(r.has_actual) r.actual=value.GetActualValue();
@@ -324,14 +334,14 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
       EEA_NrNum("spread_peak_ratio",r.spread_peak_ratio>0.0,r.spread_peak_ratio,2)+"}";
    audit.Append(event,"EA_NEWS_REACTION");
    EEA_ReactionSummary s;
-   s.group=EEA_NrGroup(currency,r.event_name,canonical);
+   s.group=EEA_NewsReactionGroup(r.cluster_label,canonical);
    s.ok=(r.quality=="OK");
    s.move15_atr=(r.move_ok[2] && r.atr_ref>0.0) ? r.move[2]/r.atr_ref : 0.0;
    s.move60_atr=(r.move_ok[3] && r.atr_ref>0.0) ? r.move[3]/r.atr_ref : 0.0;
    s.spread_ratio=r.spread_peak_ratio;
    s.recovery_min=EEA_NewsReactionRecoveryMin(r);
    s.reversal=r.reversal_60;
-   EEA_NrRemember(rt,key,s,EEA_NrRecentText(r));
+   EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);
    return 1;
   }
 
@@ -363,10 +373,26 @@ long EEA_NrProcessWindow(EEA_NewsReactionRuntime &rt,const string root,CAuditLog
          string impact=EEA_NewsAffects(news.symbols[s].currencies,country.currency) ? "DIRECT" :
                        (EEA_NewsIndirectAffects(news.symbols[s].currencies,country.currency,(int)ev.sector) ? "INDIRECT" : "");
          if(impact=="") continue;
+         // Every HIGH event released at the same time that also reaches this symbol.
+         string labels[]; int label_count=0;
+         for(int j=0;j<total;j++)
+           {
+            if(values[j].time!=values[i].time) continue;
+            MqlCalendarEvent other;
+            if(!CalendarEventById(values[j].event_id,other) || other.importance!=CALENDAR_IMPORTANCE_HIGH) continue;
+            MqlCalendarCountry other_country;
+            if(!CalendarCountryById(other.country_id,other_country) || !EEA_NewsCurrencyTracked(other_country.currency)) continue;
+            if(EEA_NewsEventIgnored(other.name,news.cfg.ignore_keywords)) continue;
+            if(!EEA_NewsAffects(news.symbols[s].currencies,other_country.currency) &&
+               !EEA_NewsIndirectAffects(news.symbols[s].currencies,other_country.currency,(int)other.sector)) continue;
+            ArrayResize(labels,label_count+1); labels[label_count++]=other_country.currency+" "+other.name;
+           }
+         string cluster=EEA_NewsClusterLabel(labels,label_count);
+         bool lead=(label_count<=1 || labels[0]==country.currency+" "+ev.name);
          if(EEA_NrKnown(rt,IntegerToString((long)values[i].id)+"|"+news.symbols[s].canonical)) continue;
          if(budget<=0) return T-1;
          int status=EEA_NrRecord(rt,root,audit,values[i],ev,country.currency,news.symbols[s].canonical,
-                                 news.symbols[s].broker,source,impact,news,trades);
+                                 news.symbols[s].broker,source,impact,cluster,label_count,lead,news,trades);
          if(status<0) return -1;
          if(status>0) budget--;
         }
@@ -413,6 +439,13 @@ bool EEA_NewsReactionStatsFor(const EEA_NewsReactionRuntime &rt,const string cur
                               const string symbol,EEA_ReactionStats &stats)
   {
    EEA_NewsReactionStats(rt.summaries,rt.summary_count,EEA_NrGroup(currency,event_name,symbol),stats);
+   return stats.n>0;
+  }
+
+bool EEA_NewsReactionStatsForCluster(const EEA_NewsReactionRuntime &rt,const string cluster_label,
+                                     const string symbol,EEA_ReactionStats &stats)
+  {
+   EEA_NewsReactionStats(rt.summaries,rt.summary_count,EEA_NewsReactionGroup(cluster_label,symbol),stats);
    return stats.n>0;
   }
 

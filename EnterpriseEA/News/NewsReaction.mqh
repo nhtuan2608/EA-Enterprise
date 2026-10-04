@@ -47,6 +47,9 @@ struct EEA_Reaction
    string currency;
    string event_name;
    string impact;           // DIRECT (red: own currency) | INDIRECT (yellow: another currency's strength)
+   string cluster_label;    // all HIGH events at the same time for this symbol, sorted, " + " joined
+   int    cluster_size;
+   bool   cluster_lead;     // the first event of the cluster carries the cluster into the statistics
    long   event_utc;
    // surprise
    bool   has_actual;
@@ -99,6 +102,7 @@ struct EEA_Reaction
 void EEA_ReactionDefaults(EEA_Reaction &r)
   {
    r.key=""; r.source=""; r.symbol=""; r.currency=""; r.event_name=""; r.impact=""; r.event_utc=0;
+   r.cluster_label=""; r.cluster_size=1; r.cluster_lead=true;
    r.has_actual=false; r.has_forecast=false; r.has_previous=false; r.actual=0.0; r.forecast=0.0; r.previous=0.0;
    r.surprise_raw=0.0; r.surprise_side=""; r.has_surprise_std=false; r.surprise_std=0.0; r.surprise_quality="";
    r.atr_ref=0.0; r.point=0.0; r.p0=0.0;
@@ -111,6 +115,32 @@ void EEA_ReactionDefaults(EEA_Reaction &r)
    r.positions_open=0; r.positions_detail=""; r.exits_in_window=0; r.be_before_news=0; r.be_would_have_hit_sl=0;
    r.entries_blocked=0; r.pending_cancelled=0; r.quality="";
   }
+
+// ---------------------------------------------------------------------------
+// Cluster: HIGH events released at the same time move the price together, so their
+// statistics are counted once per cluster. Labels are "CUR Event name"; the cluster
+// label is the sorted list joined by " + ", the lead is the first label.
+// ---------------------------------------------------------------------------
+string EEA_NewsClusterLabel(string &labels[],const int n)
+  {
+   for(int i=1;i<n;i++)
+     {
+      string key=labels[i];
+      int j=i-1;
+      while(j>=0 && StringCompare(labels[j],key)>0) { labels[j+1]=labels[j]; j--; }
+      labels[j+1]=key;
+     }
+   string out="";
+   for(int i=0;i<n;i++)
+     {
+      bool duplicate=(i>0 && labels[i]==labels[i-1]);
+      if(!duplicate) out+=(out=="" ? "" : " + ")+labels[i];
+     }
+   return out;
+  }
+
+string EEA_NewsReactionGroup(const string cluster_label,const string symbol)
+  { return cluster_label+" x "+symbol; }
 
 // ---------------------------------------------------------------------------
 // Surprise (7.3): raw delta, side, and a standardized value only with enough history.

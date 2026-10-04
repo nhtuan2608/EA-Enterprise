@@ -6,6 +6,13 @@ Ngày 04/10/2026. Trạng thái: **IMPLEMENTED** (`News/NewsReaction.mqh`, `News
 - **Mức ảnh hưởng.** Mỗi bản ghi có trường `impact`, theo yêu cầu của người dùng:
   - `DIRECT` (đỏ): tin của chính đồng tiền trong cặp.
   - `INDIRECT` (vàng): tin HIGH của một đồng tiền lớn khác thuộc nhóm lãi suất, lạm phát, việc làm hoặc GDP (sector `MONEY`, `PRICES`, `JOBS`, `GDP` của MT5). Ví dụ lãi suất ECB với XAUUSD và USDJPY. Nhờ vậy có số liệu đo được mức ảnh hưởng gián tiếp, trong đó có ảnh hưởng tới vàng.
+- **Cụm tin cùng giờ** (người dùng yêu cầu 04/10/2026). Các tin HIGH ra cùng thời điểm và cùng ảnh hưởng tới một symbol có chung một đường giá, ví dụ NFP + Unemployment Rate + Average Hourly Earnings. Mỗi tin vẫn có bản ghi riêng; ngoài ra mỗi bản ghi lưu thêm:
+  - `cluster_events`: danh sách tin trong cụm, đã sắp xếp;
+  - `cluster_size`;
+  - `cluster_lead`;
+  - `group`: tên cụm × symbol.
+
+  Thống kê, khoảng chặn gợi ý và phần "Gần đây" chỉ dùng bản ghi **dẫn đầu** của cụm, nên mỗi cụm được tính một lần. Tab News gộp các tin cùng giờ thành một dòng (`+N`) và hiện thống kê của cả cụm.
 - **Khác bản thiết kế:**
   - Tác động lên lệnh ghi số lệnh thoát trong [T, T+60] (`exits_in_window`), chưa có trượt giá chi tiết từng SL.
   - Số tín hiệu bị chặn và số lệnh chờ bị hủy chỉ được đếm khi EA chạy liên tục trong cửa sổ tin; nếu gỡ EA giữa chừng thì phần này không đầy đủ.

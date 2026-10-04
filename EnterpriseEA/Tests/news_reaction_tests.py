@@ -133,5 +133,32 @@ class RecorderStaticTests(unittest.TestCase):
         self.assertIn("t.initial_sl", record)
 
 
+class ClusterTests(unittest.TestCase):
+    def test_simultaneous_events_form_one_cluster(self):
+        pure = read("News/NewsReaction.mqh")
+        label = section(pure, "string EEA_NewsClusterLabel")
+        self.assertIn('" + "', label)
+        self.assertIn("StringCompare(", label)
+        rec = read("News/NewsReactionRecorder.mqh")
+        self.assertIn("if(values[j].time!=values[i].time) continue;", rec)
+        self.assertIn("EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);", rec)
+        self.assertIn('EEA_NrField(line,"cluster_lead")!="false"', rec)
+        self.assertNotIn('\\"x\\"', rec)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,focus,stats)", shell)
+
+    def test_cluster_label_is_order_independent(self):
+        def label(names):
+            out = []
+            for n in sorted(names):
+                if not out or out[-1] != n:
+                    out.append(n)
+            return " + ".join(out)
+        a = label(["USD Unemployment Rate", "USD Nonfarm Payrolls", "USD Average Hourly Earnings"])
+        b = label(["USD Nonfarm Payrolls", "USD Average Hourly Earnings", "USD Unemployment Rate"])
+        self.assertEqual(a, b)
+        self.assertTrue(a.startswith("USD Average Hourly Earnings + "))
+
+
 if __name__ == "__main__":
     unittest.main()

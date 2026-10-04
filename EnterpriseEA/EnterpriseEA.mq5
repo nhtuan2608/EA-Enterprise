@@ -434,18 +434,33 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
    for(int i=0;i<g_news_reaction.recent_count && i<3;i++) view.news_recent[i]=g_news_reaction.recent[i];
    view.news_reaction_reason=g_news_reaction.reason;
    view.news_event_count=0;
+   int focus_index=EEA_NewsSymbolIndex(g_news,focus);
+   string focus_currencies=focus_index>=0 ? g_news.symbols[focus_index].currencies : "";
    for(int i=0;i<g_news.count && view.news_event_count<EEA_PANEL_NEWS_ROWS;i++)
      {
       if(g_news.events[i].time_utc<now-3600) continue;
+      // Events released at the same time form one row (one cluster, one price path).
+      if(i>0 && g_news.events[i-1].time_utc==g_news.events[i].time_utc && view.news_event_count>0 &&
+         view.news_event_utc[view.news_event_count-1]==g_news.events[i].time_utc) continue;
+      int same=0;
+      string labels[]; int label_count=0;
+      for(int j=i;j<g_news.count && g_news.events[j].time_utc==g_news.events[i].time_utc;j++)
+        {
+         same++;
+         if(EEA_NewsAffects(focus_currencies,g_news.events[j].currency) ||
+            EEA_NewsIndirectAffects(focus_currencies,g_news.events[j].currency,g_news.events[j].sector))
+           { ArrayResize(labels,label_count+1); labels[label_count++]=g_news.events[j].currency+" "+g_news.events[j].name; }
+        }
+      string cluster=EEA_NewsClusterLabel(labels,label_count);
       int k=view.news_event_count;
       view.news_event_utc[k]=g_news.events[i].time_utc;
-      view.news_event_text[k]=g_news.events[i].currency+"  "+g_news.events[i].name;
+      view.news_event_text[k]=g_news.events[i].currency+"  "+g_news.events[i].name+(same>1 ? "  +"+IntegerToString(same-1) : "");
       view.news_event_values[k]="A "+(g_news.events[i].actual=="" ? "-" : g_news.events[i].actual)+
          "  F "+(g_news.events[i].forecast=="" ? "-" : g_news.events[i].forecast)+
          "  P "+(g_news.events[i].previous=="" ? "-" : g_news.events[i].previous);
       // History of this event on the focus symbol (R3: suggestions are display only).
       EEA_ReactionStats stats;
-      if(focus!="" && EEA_NewsReactionStatsFor(g_news_reaction,g_news.events[i].currency,g_news.events[i].name,focus,stats))
+      if(focus!="" && cluster!="" && EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,focus,stats))
          view.news_event_stats[k]=focus+" n="+IntegerToString(stats.n)+"  15m "+DoubleToString(stats.median_move15_atr,1)+
             "A  sp x"+DoubleToString(stats.median_spread_ratio,1)+"  ~"+DoubleToString(stats.median_recovery_min,0)+"m"+
             (stats.has_suggestion ? "  suggest post "+IntegerToString(stats.suggested_post_min)+"m, pre "+stats.suggested_pre : "");
