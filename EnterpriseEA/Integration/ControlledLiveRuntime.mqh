@@ -57,6 +57,7 @@ struct EEA_ControlledLiveRuntimeState
    string last_reason;
    string news_blocked_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string sentiment_noted_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string shadow_noted_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    bool recovery_blocked;
    EEA_ExecutionResult recovery_result;
   };
@@ -77,7 +78,7 @@ void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
    s.recovery_blocked=false;
    EEA_ExecutionResultDefaults(s.recovery_result);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; s.sentiment_noted_candidate[i]=""; }
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; s.sentiment_noted_candidate[i]=""; s.shadow_noted_candidate[i]=""; }
   }
 
 bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
@@ -324,7 +325,8 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
    const double price=(direction==1 ? tick.ask : tick.bid);
    const bool aligned=(strategy.htf_risk_modifier[index]>=1.0);
    const bool scalp=(strategy.profile[index]!="SWING");
-   if(engine.state==EEA_S02_ARMED)
+   // S04 has no LIMIT entry: its edge is the confirmed rejection, not the zone (design 4).
+   if(engine.state==EEA_S02_ARMED && strategy.setup[index]!="S04")
      {
       if(!aligned) { reason="ENTRY_AUTO_WAIT_TRIGGER_COUNTER_HTF"; return -1; }
       if(engine.zone_low<=0.0 || engine.zone_high<=engine.zone_low)
@@ -502,7 +504,14 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    if(!EEA_StrategyRuntimeCollectLevels(symbol.broker_symbol,swing,points,point_count,bars,level_count,context_atr,reason))
       return false;
    double target=0.0;
-   if(!EEA_S02V1StructuralTarget(points,point_count,direction,entry,risk_distance,target))
+   // S04 targets the other side of the zone: the target must also clear the far edge.
+   double min_target=risk_distance;
+   if(strategy.setup[index]=="S04")
+     {
+      double far_edge=(direction==1 ? engine.zone_high : engine.zone_low);
+      min_target=MathMax(risk_distance,direction*(far_edge-entry));
+     }
+   if(!EEA_S02V1StructuralTarget(points,point_count,direction,entry,min_target,target))
      { reason="NO_STRUCTURAL_TARGET"; return false; }
 
    double median_spread=EEA_MedianSpreadPoints(symbol.broker_symbol,EEA_S02_SPREAD_MEDIAN_BARS);
@@ -887,6 +896,98 @@ bool EEA_ControlledLiveApplySentiment(const EEA_SentimentRuntime &sentiment,cons
    return true;
   }
 
+// D4 (G9): never two opposite EA exposures on one symbol, whichever setup came first.
+bool EEA_ControlledLiveOppositeActive(const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,
+                                      const string canonical,const int direction)
+  {
+   for(int i=0;i<trades.count;i++)
+      if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical &&
+         trades.items[i].direction==-direction) return true;
+   for(int i=0;i<pending.count;i++)
+     {
+      if(!pending.items[i].active || pending.items[i].state.canonical_symbol!=canonical) continue;
+      int type=pending.items[i].intent.order_type;
+      int d=(type==ORDER_TYPE_BUY || type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_BUY_STOP ||
+             type==ORDER_TYPE_BUY_STOP_LIMIT) ? 1 : -1;
+      if(d==-direction) return true;
+     }
+   return false;
+  }
+
+// S04 SHADOW mode (D5): every triggered S04 candidate is recorded once with the trade the
+// live path would have planned (entry type, SL, TP, risk, volume, filters). Nothing is sent.
+void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_StrategyCandidateRuntime &strategy,
+                          const EEA_ObserverRuntimeContext &observer,const EEA_RiskLedger &ledger,
+                          const EEA_NewsRuntime &news,const EEA_SentimentRuntime &sentiment,
+                          const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,CAuditLog &audit)
+  {
+   if(strategy.s04_mode!=EEA_S04_MODE_SHADOW || !strategy.enabled) return;
+   for(int i=0;i<strategy.symbol_count;i++)
+     {
+      if(strategy.setup[i]!="S04" || !strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
+      const EEA_S02Engine engine=strategy.engines[i];
+      const string candidate_id=engine.candidate.candidate_id;
+      if(candidate_id=="" || state.shadow_noted_candidate[i]==candidate_id) continue;
+      const int row=EEA_ObserverRuntimeIndexOf(observer,engine.canonical_symbol);
+      if(row<0 || row>=ArraySize(observer.broker_symbols) || observer.broker_symbols[row]=="") continue;
+      state.shadow_noted_candidate[i]=candidate_id;
+      const string broker=observer.broker_symbols[row];
+      string entry_reason, reason="SHADOW_PLAN_READY";
+      int mode=EEA_S02SelectEntryMode(strategy,i,broker,entry_reason);
+      EEA_ControlledLiveTradePlan plan; EEA_ControlledLivePlanDefaults(plan);
+      EEA_SentAlignment alignment;
+      alignment.ok=false; alignment.verdict="UNAVAILABLE"; alignment.factor=1.0; alignment.block=false; alignment.reason="";
+      alignment.a4=0.0; alignment.a24=0.0; alignment.against4=0.0; alignment.against24=0.0;
+      bool planned=false;
+      EEA_PolicySettings policy;
+      if(mode<0) reason=entry_reason;
+      else if(EEA_ControlledLiveResolvePolicy(observer.root,observer.config_version,observer.account,policy,reason) &&
+              EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,ledger,mode,plan,reason) &&
+              EEA_ControlledLiveApplyNewsRisk(news,engine.canonical_symbol,strategy.profile[i],plan,reason) &&
+              EEA_ControlledLiveApplySentiment(sentiment,news,strategy,i,plan,alignment,reason))
+        { planned=true; reason="SHADOW_PLAN_READY"; }
+      MqlTick tick; ZeroMemory(tick);
+      SymbolInfoTick(broker,tick);
+      double entry=plan.entry_price>0.0 ? plan.entry_price : (engine.direction==1 ? tick.ask : tick.bid);
+      double stop=planned ? (engine.direction==1 ? plan.invalidation_price-plan.stop_buffer_price :
+                                                   plan.invalidation_price+plan.stop_buffer_price) : 0.0;
+      double volume=0.0, risk_money=0.0;
+      if(planned && entry>0.0 && stop>0.0)
+        {
+         risk_money=MathMin(plan.base_risk_fraction*ledger.initial_capital,plan.per_trade_cap_money);
+         double loss=0.0;
+         double step=observer.symbol_specs[row].volume_step;
+         if(OrderCalcProfit(engine.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,broker,1.0,entry,stop,loss) &&
+            loss<0.0 && step>0.0)
+            volume=MathFloor(risk_money/(-loss)/step+1e-9)*step;
+        }
+      const string news_block=EEA_NewsEntryBlockFor(news,engine.canonical_symbol,strategy.profile[i]);
+      const bool opposite=EEA_ControlledLiveOppositeActive(trades,pending,engine.canonical_symbol,engine.direction);
+      const int digits=(int)SymbolInfoInteger(broker,SYMBOL_DIGITS);
+      const string mode_name=(mode==EEA_S02_ENTRY_MARKET ? "MARKET" : mode==EEA_S02_ENTRY_STOP_ABOVE_TRIGGER ? "STOP" : "NONE");
+      string details="{\"candidate_id\":\""+EEA_JsonEscape(candidate_id)+"\",\"symbol\":\""+engine.canonical_symbol+
+         "\",\"profile\":\""+strategy.profile[i]+"\",\"direction\":"+IntegerToString(engine.direction)+
+         ",\"triggered_at\":"+IntegerToString((long)engine.candidate.triggered_at_utc)+
+         ",\"zone_low\":"+DoubleToString(engine.zone_low,digits)+",\"zone_high\":"+DoubleToString(engine.zone_high,digits)+
+         ",\"failed_extreme\":"+DoubleToString(engine.retest_extreme,digits)+
+         ",\"entry_mode\":\""+mode_name+"\",\"entry_reason\":\""+entry_reason+
+         "\",\"entry\":"+DoubleToString(entry,digits)+",\"sl\":"+DoubleToString(stop,digits)+
+         ",\"tp\":"+DoubleToString(plan.target_price,digits)+",\"risk_fraction\":"+DoubleToString(plan.base_risk_fraction,5)+
+         ",\"risk_money\":"+DoubleToString(risk_money,2)+",\"volume\":"+DoubleToString(volume,2)+
+         ",\"htf\":\""+strategy.htf_structure[i]+"\",\"htf_modifier\":"+DoubleToString(strategy.htf_risk_modifier[i],2)+
+         ",\"sentiment\":\""+alignment.verdict+"\",\"sentiment_factor\":"+DoubleToString(alignment.factor,2)+
+         ",\"news_block\":\""+news_block+"\",\"opposite_active\":"+(opposite ? "true" : "false")+
+         ",\"plan_reason\":\""+EEA_JsonEscape(reason)+"\"}";
+      EEAEvent event;
+      EEAEvent_Init(event,"S04_SHADOW_CANDIDATE",TimeGMT(),engine.canonical_symbol,candidate_id,"","SHADOW","OK");
+      event.config_version=observer.config_version;
+      EEAEvent_AddReason(event,reason);
+      event.details_json=details;
+      audit.Append(event,"EA_S04_SHADOW");
+      EEA_WriteAtomicAppendText(observer.root+"/logs/s04_shadow.jsonl",details+"\r\n");
+     }
+  }
+
 bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ControlledLiveConfig &config,
                                const EEA_StrategyCandidateRuntime &strategy,
@@ -925,7 +1026,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         { state.last_reason="LIVE_SYMBOL_CONTEXT_MISMATCH"; continue; }
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
-      bool limit_ready=(strategy.zone_mode && strategy.engines[i].state==EEA_S02_ARMED);
+      // S04 sends orders only in LIVE mode; SHADOW is recorded by EEA_S04ShadowOnTimer.
+      if(strategy.setup[i]=="S04" && strategy.s04_mode!=EEA_S04_MODE_LIVE) continue;
+      bool limit_ready=(strategy.zone_mode && strategy.setup[i]=="S02" && strategy.engines[i].state==EEA_S02_ARMED);
       if(!limit_ready && (!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED)) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id=="" || candidate_id==state.last_candidate_id[i]) continue;
@@ -933,6 +1036,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
          EEA_PendingRuntimeHasCandidate(pending,candidate_id) ||
          EEA_PendingRuntimeHasEngine(pending,strategy.engines[i].canonical_symbol,strategy.engines[i].timeframe))
          continue;
+      if(strategy.zone_mode &&
+         EEA_ControlledLiveOppositeActive(trades,pending,strategy.engines[i].canonical_symbol,strategy.engines[i].direction))
+        { state.last_reason="OPPOSITE_SETUP_ACTIVE"; continue; }
       int entry_mode=EEA_S02_ENTRY_MARKET;
       string entry_reason="ENTRY_PROTOTYPE_MARKET";
       if(strategy.zone_mode)

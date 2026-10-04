@@ -21,6 +21,7 @@
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
+#include "Runtime/SetupReplay.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
 #include "Market/ConfluenceLevels.mqh"
 #include "Risk/RiskLimitsProfile.mqh"
@@ -42,6 +43,10 @@ input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
 input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
 input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
+enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
+input EEA_S04ModeInput InpS04Mode       = S04_SHADOW; // S04 Failed Break: OFF, SHADOW (record only) or LIVE
+input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
+input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;
@@ -100,6 +105,7 @@ bool g_state_checkpoint_writable=true;
 EEA_ObserverRuntimeContext g_runtime;
 EEA_StrategyCandidateRuntime g_strategy_runtime;
 bool g_strategy_checkpoints_loaded=false;
+EEA_ReplayRuntime g_setup_replay;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
@@ -621,8 +627,9 @@ string EEA_AiContextStatus()
    json+="}},\"setups\":[";
    int w=0;
    for(int i=0;i<g_strategy_runtime.symbol_count;i++)
-      json+=(w++>0 ? "," : "")+"{\"symbol\":\""+g_strategy_runtime.engines[i].canonical_symbol+"\",\"profile\":\""+
-            g_strategy_runtime.profile[i]+"\",\"state\":\""+EEA_S02StateName(g_strategy_runtime.engines[i].state)+
+      json+=(w++>0 ? "," : "")+"{\"symbol\":\""+g_strategy_runtime.engines[i].canonical_symbol+"\",\"setup\":\""+
+            g_strategy_runtime.setup[i]+"\",\"profile\":\""+g_strategy_runtime.profile[i]+"\",\"state\":\""+
+            EEA_SetupStateName(g_strategy_runtime.setup[i],g_strategy_runtime.engines[i].state)+
             "\",\"htf\":\""+g_strategy_runtime.htf_structure[i]+"\"}";
    json+="],\"news_data_health\":{\"warn\":"+IntegerToString(g_news_health.warn)+",\"info\":"+IntegerToString(g_news_health.info)+"}}";
    return json;
@@ -862,6 +869,10 @@ void EEA_PublishPanelEngineView()
    view.live_reason=g_live_runtime.last_reason;
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
+   if(g_strategy_runtime.zone_mode)
+      view.strategy_reason+=" | S04 "+(g_strategy_runtime.s04_mode==EEA_S04_MODE_LIVE ? "LIVE" :
+                                      g_strategy_runtime.s04_mode==EEA_S04_MODE_SHADOW ? "SHADOW" : "OFF")+
+                            " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
    EEA_PublishSentimentView(view);
@@ -908,14 +919,17 @@ void EEA_PublishPanelEngineView()
             row=view.setup_count; view.setup_count++;
             view.setup_symbol[row]=symbol; view.setup_state[row]=""; view.setup_detail[row]="";
            }
+         const string setup=g_strategy_runtime.setup[i];
+         const string state_name=EEA_SetupStateName(setup,g_strategy_runtime.engines[i].state);
          string state=g_strategy_runtime.has_candidate[i] ?
-            g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction :
-            EEA_S02StateName(g_strategy_runtime.engines[i].state);
+            g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction : state_name;
          if(g_strategy_runtime.zone_mode)
            {
-            string tag=(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
-            view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+EEA_S02StateName(g_strategy_runtime.engines[i].state);
-            view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+g_strategy_runtime.profile[i]+" "+state+
+            // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; an idle S04 engine is left out of the row.
+            string tag=(setup=="S04" ? "S04-" : "")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
+            if(setup!="S04" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
+               view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+state_name;
+            view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+setup+" "+g_strategy_runtime.profile[i]+" "+state+
                " zone "+g_strategy_runtime.zone_text[i]+" HTF "+g_strategy_runtime.htf_structure[i]+
                (g_strategy_runtime.htf_risk_modifier[i]<1.0 ? " risk x"+DoubleToString(g_strategy_runtime.htf_risk_modifier[i],2) : "");
            }
@@ -1042,7 +1056,7 @@ int OnInit()
       bool strategy_ready=InpS02UsePrototype ?
          EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                           strategy_config,InpStrategyRuntimeEnabled) :
-         EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled);
+         EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode);
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",
@@ -1086,6 +1100,8 @@ int OnInit()
    sentiment_config.enabled=InpSentimentEnabled;
    EEA_SentimentRuntimeInit(g_sentiment,sentiment_config);
    EEA_AiClientInit(g_ai,g_config.data_root,InpAiEnabled,InpAiMaxCallsPerDay);
+   EEA_SetupReplayInit(g_setup_replay,g_config.data_root,InpSetupReplayEnabled && InpStrategyRuntimeEnabled &&
+                       !InpS02UsePrototype,(long)InpSetupReplayFrom);
    if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
@@ -1204,6 +1220,10 @@ void OnTimer()
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
+          // S04 SHADOW records would-be trades; the replay measures S02/S04 on history.
+          EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
+                               g_trade_manager,g_pending_runtime,g_audit);
+          EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,

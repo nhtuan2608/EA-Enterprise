@@ -210,9 +210,14 @@ class RuntimeWiringTests(unittest.TestCase):
 
     def test_two_profile_engines_per_symbol(self):
         init = self.runtime.split("bool EEA_StrategyCandidateRuntimeInitV1", 1)[1].split("string EEA_StrategyRuntimeCheckpointPath", 1)[0]
-        for token in ('p==0 ? "SCALP" : "SWING"', 'p==0 ? "M5" : "H1"', "EEA_S02V1Config(runtime.profile_config[engine_count],profile)",
-                      "runtime.zone_mode=true", "count*2>EEA_STRATEGY_RUNTIME_MAX_ENGINES", "runtime.symbol_count=engine_count"):
+        slot = self.runtime.split("void EEA_StrategyRuntimeSlot", 1)[1].split("\n  }\n", 1)[0]
+        for token in ('profile=(p%2==0 ? "SCALP" : "SWING")', 'timeframe=(p%2==0 ? "M5" : "H1")',
+                      'setup=(p<2 ? "S02" : "S04")', "EEA_S02V1Config(config,profile)", "EEA_S04V1Config(config,profile)"):
+            self.assertIn(token, slot)
+        for token in ("EEA_StrategyRuntimeSlot(p,setup,profile,timeframe,runtime.profile_config[engine_count])",
+                      "runtime.zone_mode=true", "count*stride>EEA_STRATEGY_RUNTIME_MAX_ENGINES", "runtime.symbol_count=engine_count"):
             self.assertIn(token, init)
+        self.assertIn("return runtime.s04_mode==EEA_S04_MODE_OFF ? 2 : 4;", self.runtime)
 
     def test_zone_scan_uses_profile_timeframes_closed_bars_and_qualified_zones_only(self):
         for token in ("swing ? PERIOD_H1 : PERIOD_M5", "swing ? PERIOD_H4 : PERIOD_H1",
@@ -284,7 +289,7 @@ class RuntimeWiringTests(unittest.TestCase):
         live = (ROOT / "Integration/ControlledLiveRuntime.mqh").read_text(encoding="utf-8")
         plan = live.split("bool EEA_ControlledLiveResolveV1Plan", 1)[1].split("bool EEA_ControlledLiveBuildRiskContext(", 1)[0]
         for token in ("engine.candidate.retest_extreme", "MathMax(0.10*engine.signal_atr,1.5*spread_price)",
-                      "EEA_S02V1StructuralTarget(points,point_count,direction,entry,risk_distance,target)",
+                      "EEA_S02V1StructuralTarget(points,point_count,direction,entry,min_target,target)",
                       '"NO_STRUCTURAL_TARGET"', "p.max_spread_points=2.0*median_spread", "p.max_spread_stop_fraction=0.25",
                       "p.minimum_net_rr=swing ? 2.0 : 1.5", "EEA_CommissionPerLotPerSide", "EEA_SwapMoneyPerLotPerNight",
                       "EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)",
@@ -312,7 +317,7 @@ class RuntimeWiringTests(unittest.TestCase):
     def test_shell_defaults_to_v1_and_panel_shows_zone_detail(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
         self.assertIn("input bool   InpS02UsePrototype        = false;", shell)
-        self.assertIn("EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled)", shell)
+        self.assertIn("EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode)", shell)
         self.assertIn("view.setup_detail[row]", shell)
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
         self.assertIn('ObjectSetString(chart_id,n+"_u",OBJPROP_TOOLTIP,detail=="" ? "\\n" : detail);', panel)

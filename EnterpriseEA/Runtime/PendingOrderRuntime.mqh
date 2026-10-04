@@ -355,11 +355,13 @@ void EEA_PendingObserveBars(EEA_PendingTracked &t,const EEA_StrategyCandidateRun
    int copied=CopyRates(t.broker_symbol,tf,1,64,rates);
    if(copied<=0) return;
    bool setup_valid=false;
+   // S02 and S04 engines share symbol and timeframe: the order belongs to the engine whose
+   // candidate it carries.
    for(int e=0;e<strategy.symbol_count;e++)
-      if(strategy.engines[e].canonical_symbol==t.state.canonical_symbol && strategy.engines[e].timeframe==t.timeframe)
+      if(strategy.engines[e].canonical_symbol==t.state.canonical_symbol && strategy.engines[e].timeframe==t.timeframe &&
+         strategy.engines[e].candidate.candidate_id==t.state.candidate_id)
         {
-         setup_valid=strategy.engines[e].candidate.candidate_id==t.state.candidate_id &&
-                     !EEA_S02IsTerminal(strategy.engines[e].state) && strategy.engines[e].state!=EEA_S02_IDLE;
+         setup_valid=!EEA_S02IsTerminal(strategy.engines[e].state) && strategy.engines[e].state!=EEA_S02_IDLE;
          break;
         }
    bool spec_unchanged=false;
