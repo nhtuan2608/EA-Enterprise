@@ -22,9 +22,10 @@ int EEA_NewsReactionHorizonMin(const int i)
    return 0;
   }
 
-struct EEA_ReactionBar      // one M1 bar, open time in UTC
+struct EEA_ReactionBar      // one M1 bar (M5 when M1 history is out of reach), open time in UTC
   {
    long   t;
+   int    seconds;          // bar length: 60 (M1) or 300 (M5)
    double o;
    double h;
    double l;
@@ -99,6 +100,7 @@ struct EEA_Reaction
    string quality;                        // OK | INCOMPLETE_<reason>
    // News Guard replay (P1): what the guard would have done around this event
    long   server_offset;                  // trade-server offset used for this event
+   string price_resolution;               // M1, or M5 when M1 history is beyond the terminal limit
    bool   replay_ok;
    int    guard_block_end_min;            // minutes after T when new entries would resume
    bool   guard_covered;                  // volatility and spread were back to normal by then
@@ -123,7 +125,7 @@ void EEA_ReactionDefaults(EEA_Reaction &r)
    r.guard_normal_min=-1; r.guard_timeout=false;
    r.positions_open=0; r.positions_detail=""; r.exits_in_window=0; r.be_before_news=0; r.be_would_have_hit_sl=0;
    r.entries_blocked=0; r.pending_cancelled=0; r.quality="";
-   r.server_offset=0; r.replay_ok=false; r.guard_block_end_min=-1; r.guard_covered=false; r.residual_after_block_atr=0.0;
+   r.server_offset=0; r.price_resolution=""; r.replay_ok=false; r.guard_block_end_min=-1; r.guard_covered=false; r.residual_after_block_atr=0.0;
    r.has_pre_drift=false; r.pre_drift_scalp_atr=0.0; r.pre_drift_swing_atr=0.0;
   }
 
@@ -191,7 +193,7 @@ void EEA_NewsSurprise(EEA_Reaction &r,const int digits,const double &history_dif
 int EEA_NewsBarClosingBy(const EEA_ReactionBar &bars[],const int n,const long time_utc)
   {
    int found=-1;
-   for(int i=0;i<n;i++) { if(bars[i].t+60<=time_utc) found=i; else break; }
+   for(int i=0;i<n;i++) { if(bars[i].t+bars[i].seconds<=time_utc) found=i; else break; }
    return found;
   }
 
@@ -203,7 +205,7 @@ void EEA_NewsReactionPath(EEA_Reaction &r,const EEA_ReactionBar &bars[],const in
    int i0=EEA_NewsBarClosingBy(bars,n,T);
    if(i0<0 || bars[i0].t<T-600) { r.quality="INCOMPLETE_NO_PRE_PRICE"; return; }
    r.p0=bars[i0].c;
-   long last_close=n>0 ? bars[n-1].t+60 : 0;
+   long last_close=n>0 ? bars[n-1].t+bars[n-1].seconds : 0;
    for(int h=0;h<EEA_NR_HORIZONS;h++)
      {
       long target=T+EEA_NewsReactionHorizonMin(h)*60;

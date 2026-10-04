@@ -199,7 +199,7 @@ string EEA_NrJson(const EEA_Reaction &r)
       EEA_NrNum("residual_after_block_atr",r.replay_ok,r.residual_after_block_atr,3)+
       EEA_NrNum("pre_drift_scalp_atr",r.has_pre_drift,r.pre_drift_scalp_atr,3)+
       EEA_NrNum("pre_drift_swing_atr",r.has_pre_drift,r.pre_drift_swing_atr,3)+
-      ",\"server_offset\":"+IntegerToString(r.server_offset)+
+      ",\"server_offset\":"+IntegerToString(r.server_offset)+",\"price_resolution\":\""+r.price_resolution+"\""+
       ",\"quality\":\""+r.quality+"\",\"recorded_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
    return json;
   }
@@ -265,14 +265,26 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    r.atr_ref=EEA_NrAtrRef(broker,T,offset,atr_copied);
    MqlRates m1[];
    ArraySetAsSeries(m1,false);
-   int copied=CopyRates(broker,PERIOD_M1,(datetime)(T+offset-news.cfg.swing_block_before_min*60-900),
-                        (datetime)(T+offset+4*3600),m1);
+   const datetime from_server=(datetime)(T+offset-news.cfg.swing_block_before_min*60-900);
+   const datetime to_server=(datetime)(T+offset+4*3600);
+   // M1 reaches back only "Max. bars in chart" bars; older events use M5 (1-minute move unavailable).
+   int bar_seconds=60;
+   long first_m1=(long)SeriesInfoInteger(broker,PERIOD_M1,SERIES_FIRSTDATE);
+   int copied=-1;
+   if(first_m1>0 && first_m1<=(long)from_server)
+      copied=CopyRates(broker,PERIOD_M1,from_server,to_server,m1);
+   if(copied<=0)
+     {
+      bar_seconds=300;
+      copied=CopyRates(broker,PERIOD_M5,from_server,to_server,m1);
+     }
+   r.price_resolution=(bar_seconds==60 ? "M1" : "M5");
    if(copied<0 || atr_copied<0) return -1;      // terminal still loading history
    EEA_ReactionBar bars[];
    ArrayResize(bars,MathMax(copied,0));
    for(int i=0;i<copied;i++)
      {
-      bars[i].t=(long)m1[i].time-offset; bars[i].o=m1[i].open; bars[i].h=m1[i].high; bars[i].l=m1[i].low;
+      bars[i].t=(long)m1[i].time-offset; bars[i].seconds=bar_seconds; bars[i].o=m1[i].open; bars[i].h=m1[i].high; bars[i].l=m1[i].low;
       bars[i].c=m1[i].close; bars[i].volume=m1[i].tick_volume; bars[i].spread=m1[i].spread*r.point;
      }
    EEA_NewsReactionPath(r,bars,copied);
@@ -303,7 +315,8 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    for(int d=1;d<=7;d++)
      {
       MqlRates prior[];
-      int pc=CopyRates(broker,PERIOD_M1,(datetime)(T+offset-d*86400),(datetime)(T+offset-d*86400+840),prior);
+      int pc=CopyRates(broker,bar_seconds==60 ? PERIOD_M1 : PERIOD_M5,(datetime)(T+offset-d*86400),
+                       (datetime)(T+offset-d*86400+840),prior);
       if(pc<=0) continue;
       long v=0; for(int i=0;i<pc;i++) v+=prior[i].tick_volume;
       if(v>0) { base_sum+=(double)v; base_days++; }

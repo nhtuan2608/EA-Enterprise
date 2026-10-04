@@ -202,5 +202,24 @@ class GuardReplayTests(unittest.TestCase):
         self.assertIn("EEA_NewsNthSundayUtc(d.year,11,1)+6*3600", pure)
 
 
+class M5FallbackTests(unittest.TestCase):
+    def test_m5_bars_give_moves_but_no_one_minute(self):
+        bars = []
+        for m in range(-30, 245, 5):
+            c = 100.0 if m < 0 else 100.0 + 0.1 * (m // 5 + 1)
+            bars.append({"t": T + m * 60, "o": c, "h": c + 0.05, "l": c - 0.05, "c": c, "seconds": 300})
+        r = path(bars, T, ATR)
+        self.assertEqual(r["quality"], "OK")
+        self.assertFalse(r["move_ok"][0])          # no 1-minute move from M5
+        self.assertTrue(r["move_ok"][1])
+        self.assertAlmostEqual(r["move"][1], 0.1)
+
+    def test_recorder_falls_back_to_m5(self):
+        rec = read("News/NewsReactionRecorder.mqh")
+        self.assertIn("SeriesInfoInteger(broker,PERIOD_M1,SERIES_FIRSTDATE)", rec)
+        self.assertIn("copied=CopyRates(broker,PERIOD_M5,from_server,to_server,m1);", rec)
+        self.assertIn('"price_resolution', rec)
+
+
 if __name__ == "__main__":
     unittest.main()

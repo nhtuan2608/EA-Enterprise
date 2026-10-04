@@ -27,7 +27,7 @@ def surprise(actual, forecast, digits, history):
 def closing_by(bars, t):
     found = -1
     for i, b in enumerate(bars):
-        if b["t"] + 60 <= t:
+        if b["t"] + b.get("seconds", 60) <= t:
             found = i
         else:
             break
@@ -45,7 +45,7 @@ def path(bars, T, atr):
         r["quality"] = "INCOMPLETE_NO_PRE_PRICE"
         return r
     p0 = bars[i0]["c"]
-    last_close = bars[-1]["t"] + 60 if bars else 0
+    last_close = bars[-1]["t"] + bars[-1].get("seconds", 60) if bars else 0
     for h, k_min in enumerate(HORIZONS):
         target = T + k_min * 60
         k = closing_by(bars, target)
