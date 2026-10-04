@@ -106,7 +106,9 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
            {
             string line=FileReadString(h);
             string key=EEA_NrField(line,"key");
-            if(key=="") continue;
+            // Lines written before clusters existed are re-measured with their cluster; the old
+            // lines stay in the log but no longer count.
+            if(key=="" || StringFind(line,"\"cluster_events\":")<0) continue;
             EEA_ReactionSummary s;
             string group=EEA_NrField(line,"group");
             s.group=group!="" ? group : EEA_NrGroup(EEA_NrField(line,"currency"),EEA_NrField(line,"event"),EEA_NrField(line,"symbol"));

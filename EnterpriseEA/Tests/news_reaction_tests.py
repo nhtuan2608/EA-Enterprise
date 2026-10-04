@@ -143,6 +143,7 @@ class ClusterTests(unittest.TestCase):
         self.assertIn("if(values[j].time!=values[i].time) continue;", rec)
         self.assertIn("EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);", rec)
         self.assertIn('EEA_NrField(line,"cluster_lead")!="false"', rec)
+        self.assertIn('if(key=="" || StringFind(line,"\\"cluster_events\\":")<0) continue;', rec)
         self.assertNotIn('\\"x\\"', rec)
         shell = read("EnterpriseEA.mq5")
         self.assertIn("EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,focus,stats)", shell)
