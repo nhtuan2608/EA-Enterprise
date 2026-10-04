@@ -13,6 +13,7 @@
 // Thresholds are PROPOSED seeds (S02 design section 10), to be confirmed by forward data.
 
 #include "PendingOrderRuntime.mqh"
+#include "../News/NewsCalendar.mqh"
 
 #define EEA_TM_MAX 32
 #define EEA_TM_DOCUMENT "managed-trade-v1.0.0"
@@ -481,7 +482,7 @@ string EEA_TradeManagerObserveBars(EEA_ManagedTrade &t,const EEA_TradeProfile &p
 // was revoked or expired: then only a break-even move of a profitable position is allowed.
 void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const string root,
                             const EEA_ObserverRuntimeContext &observer,const bool execution_enabled,
-                            const bool entries_permitted)
+                            const bool entries_permitted,const EEA_NewsRuntime &news)
   {
    if(observer.status.runtime_state!="OBSERVING") { rt.reason="TRADE_MANAGER_WAIT_RUNTIME"; return; }
    int managed=0;
@@ -543,6 +544,15 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
             else if(t.exit_request!="")
               {
                EEA_TradeManagerClose(t,audit,root,observer,position,execution_enabled,position.volume,t.exit_request,reason);
+              }
+            else if(!t.be_done && quote && r>0.0 && now_r>=news.cfg.be_min_r &&
+                    EEA_NewsBreakEvenDueFor(news,t.intent.canonical_symbol))
+              {
+               // News Guard D2: a profitable position goes to break-even before a HIGH impact
+               // event. The guard never closes a position (D5).
+               if(EEA_TradeManagerModifyStop(t,audit,root,observer,position,execution_enabled,be_price,
+                                             "NEWS_BREAK_EVEN",reason))
+                  t.be_done=true;
               }
             else if(quote && r>0.0)
               {

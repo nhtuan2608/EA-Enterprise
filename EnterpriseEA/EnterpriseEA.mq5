@@ -54,6 +54,15 @@ input int    InpSessionMaxScalpPerDay   = 6;      // session: SCALP (M5) entries
 input int    InpSessionMaxSwingPerDay   = 2;      // session: SWING (H1) entries per Prague day
 input bool   InpSessionAllowRealAccount = false;  // a session on a REAL account needs this set explicitly
 input string InpOperatorId              = "operator"; // recorded on session and controller documents
+input bool   InpNewsGuardEnabled        = true;   // News Guard: MT5 economic calendar, HIGH impact only
+input int    InpNewsScalpBlockBeforeMin = 60;     // News Guard: SCALP blocks new entries this long before
+input int    InpNewsSwingBlockBeforeMin = 180;    // News Guard: SWING blocks new entries this long before
+input int    InpNewsActiveMin           = 5;      // News Guard: ACTIVE window after the event
+input int    InpNewsPostMin             = 15;     // News Guard: POST_NEWS ends, stability check starts
+input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait for a stable market
+input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
+input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
+input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -115,6 +124,7 @@ EEA_RiskLedger g_risk_ledger;
 EEA_PendingRuntime g_pending_runtime;
 EEA_LiveSessionRuntime g_live_session;
 EEA_TradeManagerRuntime g_trade_manager;
+EEA_NewsRuntime g_news;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -376,6 +386,47 @@ string EEA_PanelControllerStatusText(const EEA_ControllerStateLoadStatus status)
      }
   }
 
+// News Guard facts for the dashboard News tab.
+void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
+  {
+   view.news_reason=g_news.reason;
+   view.news_last_success_utc=g_news.last_success_utc;
+   view.news_policy="SCALP blocks "+IntegerToString(g_news.cfg.scalp_block_before_min)+"m before, SWING "+
+      IntegerToString(g_news.cfg.swing_block_before_min/60)+"h"+(g_news.cfg.swing_block_before_min%60>0 ?
+      IntegerToString(g_news.cfg.swing_block_before_min%60)+"m" : "")+" before; break-even "+
+      IntegerToString(g_news.cfg.be_before_min)+"m before at "+DoubleToString(g_news.cfg.be_min_r,1)+
+      "R; unknown calendar: "+(g_news.cfg.allow_when_unknown ? "ALLOW" : "BLOCK");
+   long now=(long)TimeGMT();
+   view.news_symbol_count=MathMin(g_news.symbol_count,EEA_PANEL_MAX_ROWS);
+   for(int i=0;i<view.news_symbol_count;i++)
+     {
+      view.news_symbol[i]=g_news.symbols[i].canonical;
+      view.news_state[i]=g_news.symbols[i].state;
+      string detail="";
+      if(g_news.symbols[i].event_utc>0)
+         detail=g_news.symbols[i].event_label+(g_news.symbols[i].event_utc>now ? "  in " : "  ")+
+                EEA_SymbolPanelDurationText(MathAbs(g_news.symbols[i].event_utc-now))+
+                (g_news.symbols[i].event_utc>now ? "" : " ago");
+      else if(g_news.symbols[i].next_event_utc>0)
+         detail="next: "+g_news.symbols[i].next_label+"  in "+EEA_SymbolPanelDurationText(g_news.symbols[i].next_event_utc-now);
+      else
+         detail=g_news.symbols[i].currencies=="" ? "no calendar currency" : "no HIGH event in 7 days ("+g_news.symbols[i].currencies+")";
+      view.news_detail[i]=detail;
+     }
+   view.news_event_count=0;
+   for(int i=0;i<g_news.count && view.news_event_count<EEA_PANEL_NEWS_ROWS;i++)
+     {
+      if(g_news.events[i].time_utc<now-3600) continue;
+      int k=view.news_event_count;
+      view.news_event_utc[k]=g_news.events[i].time_utc;
+      view.news_event_text[k]=g_news.events[i].currency+"  "+g_news.events[i].name;
+      view.news_event_values[k]="A "+(g_news.events[i].actual=="" ? "-" : g_news.events[i].actual)+
+         "  F "+(g_news.events[i].forecast=="" ? "-" : g_news.events[i].forecast)+
+         "  P "+(g_news.events[i].previous=="" ? "-" : g_news.events[i].previous);
+      view.news_event_count++;
+     }
+  }
+
 // Publishes read-only engine facts for the control center; the panel never
 // derives execution, controller or strategy state on its own.
 void EEA_PublishPanelEngineView()
@@ -393,6 +444,7 @@ void EEA_PublishPanelEngineView()
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
    view.trade_manager_reason=g_trade_manager.reason;
+   EEA_PublishNewsView(view);
    view.recovery_message=g_recovery_message;
    if(g_live_runtime.recovery_blocked)
       view.recovery_detail="intent "+g_live_runtime.recovery_result.intent_id+"  ticket "+
@@ -598,6 +650,18 @@ int OnInit()
    EEA_LoadDurableControllerState();
    EEA_MaintainDurableState();
    EEA_LiveSessionReload();
+   EEA_NewsConfig news_config; EEA_NewsConfigDefaults(news_config);
+   news_config.enabled=InpNewsGuardEnabled;
+   news_config.scalp_block_before_min=InpNewsScalpBlockBeforeMin;
+   news_config.swing_block_before_min=InpNewsSwingBlockBeforeMin;
+   news_config.active_min=InpNewsActiveMin; news_config.post_min=InpNewsPostMin;
+   news_config.max_normalize_min=InpNewsMaxNormalizeMin;
+   news_config.be_before_min=InpNewsBreakEvenBeforeMin; news_config.be_min_r=InpNewsBreakEvenMinR;
+   news_config.allow_when_unknown=InpNewsAllowWhenUnknown;
+   EEA_NewsRuntimeInit(g_news,news_config);
+   if(g_runtime.initialized)
+      EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
+                     g_runtime.symbol_count);
    string recovery_reason="";
    if(!EEA_ControlledLiveLoadRecovery(g_live_runtime,g_config.data_root,recovery_reason))
       Print("Execution recovery is fail-closed: ",recovery_reason);
@@ -663,6 +727,9 @@ void OnTimer()
        EEA_LoadDurableControllerState();
        EEA_MaintainDurableState();
        if(g_runtime.initialized)
+          EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
+                         g_runtime.symbol_count);
+       if(g_runtime.initialized)
           EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
                                               g_runtime.reconciliation,g_audit);
        if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
@@ -695,6 +762,7 @@ void OnTimer()
           string session_reason;
           g_pending_runtime.entry_permission_revoked=g_live_session.present &&
              EEA_LiveSessionStateText(session_reason)!="ACTIVE";
+          EEA_PendingApplyNews(g_pending_runtime,g_news,g_audit,g_config.data_root);
           EEA_PendingRuntimeUpdate(g_pending_runtime,g_audit,g_config.data_root,g_strategy_runtime,g_runtime,
                                    g_live_config.enabled && g_live_config.armed);
           // REQ-005: manage every EA position (also when entries are blocked). After a
@@ -702,11 +770,11 @@ void OnTimer()
           if(!g_trade_manager.loaded) EEA_TradeManagerLoad(g_trade_manager,g_config.data_root);
           EEA_TradeManagerUpdate(g_trade_manager,g_audit,g_config.data_root,g_runtime,
                                  g_live_config.enabled && g_live_config.armed,
-                                 !g_pending_runtime.entry_permission_revoked);
+                                 !g_pending_runtime.entry_permission_revoked,g_news);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
-                                       g_pending_runtime,g_live_session,g_trade_manager);
+                                       g_pending_runtime,g_live_session,g_trade_manager,g_news);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

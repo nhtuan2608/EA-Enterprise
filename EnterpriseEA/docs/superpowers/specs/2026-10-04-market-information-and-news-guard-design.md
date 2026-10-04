@@ -1,6 +1,6 @@
 # Thông tin thị trường trong phân tích và vào lệnh; thiết kế News Guard
 
-Ngày 04/10/2026. Trạng thái: **DESIGN — chưa sửa source**. Mục 1–2 mô tả hiện trạng của bản đang chạy (`29f9a5d`). Mục 3 trở đi là thiết kế News Guard, chờ người dùng xác nhận các quyết định ở mục 11 trước khi triển khai.
+Ngày 04/10/2026. Trạng thái: **IMPLEMENTED** (`News/NewsState.mqh`, `News/NewsCalendar.mqh`; nối vào vòng live, REQ-021 và Trade Manager) theo D1–D5 người dùng chốt ở mục 11. Còn chờ kiểm chứng trên terminal qua một tin HIGH thật (mục 12). Từ bản này, O-16 (`NEWS_UNAVAILABLE_ACCEPTED`) được thay bằng News Guard. Mục 1–2 mô tả hiện trạng của bản `29f9a5d`, trước khi có News Guard. Mục 3 trở đi là thiết kế News Guard theo các quyết định đã chốt.
 
 Nguồn: master specification v1.4 mục 7 (News Center), 7.4 (news risk state machine), REQ-007, TC-018 đến TC-020, CHK-NEWS-01/02, quyết định O-16; S02 v1 design; Trade Manager v1; REQ-021.
 
@@ -86,38 +86,41 @@ Lưu ý kỹ thuật:
 
 ## 6. Máy trạng thái tin cho từng symbol
 
-Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH gần nhất của các đồng tiền liên quan:
+Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH của các đồng tiền liên quan. Khoảng chặn theo D1 khác nhau cho từng profile:
 
-| Khoảng thời gian | Trạng thái | Ý nghĩa |
-|---|---|---|
-| Không có tin trong [T − 60 phút, …] | `NORMAL` | Không hạn chế |
-| [T − 60, T − 15) | `PRE_NEWS` | Cảnh báo và đếm ngược; SWING chặn vào lệnh mới; SCALP vào lệnh với rủi ro × 0,5 |
-| [T − 15, T) | `PRE_NEWS_BLOCK` | Chặn mọi lệnh mới; hủy lệnh chờ; dời SL hòa vốn cho lệnh đang lời |
-| [T, T + 5) | `ACTIVE` | Chặn lệnh mới; quản lý lệnh khẩn cấp vẫn chạy |
-| [T + 5, T + 15) | `POST_NEWS` | Chặn lệnh mới; chặn spread và độ biến động |
-| Từ T + 15 | `NORMALIZING` → `NORMAL` | Chỉ về NORMAL khi spread ≤ 1,5× median và biên độ nến M5 đã đóng gần nhất ≤ 2×ATR14 (M5); tối đa tới T + 60, quá thì vẫn chặn và ghi `NEWS_NOT_NORMALIZED` |
-| Không đọc được lịch | `UNKNOWN` | Áp policy D3 |
+| Khoảng thời gian | Trạng thái | SCALP | SWING |
+|---|---|---|---|
+| Không có tin trong 3 giờ tới | `NORMAL` | Vào lệnh bình thường | Vào lệnh bình thường |
+| [T − 3 giờ, T − 60 phút) | `PRE_NEWS` | Vào lệnh bình thường, có cảnh báo và đếm ngược | **Chặn** lệnh mới |
+| [T − 60 phút, T) | `PRE_NEWS_BLOCK` | **Chặn** lệnh mới | **Chặn** lệnh mới |
+| [T, T + 5 phút) | `ACTIVE` | Chặn | Chặn |
+| [T + 5, T + 15 phút) | `POST_NEWS` | Chặn | Chặn |
+| Từ T + 15 phút | `NORMALIZING` → `NORMAL` | Chặn tới khi ổn định | Chặn tới khi ổn định |
+| Không đọc được lịch | `UNKNOWN` | Áp policy D3 | Áp policy D3 |
 
-- Các mốc 60/15/5/15 phút là seed PROPOSED, cấu hình bằng input (mục 10).
+- **Ổn định** nghĩa là spread ≤ 1,5× median spread (288 nến M5) **và** biên độ nến M5 đã đóng gần nhất ≤ 2×ATR14 (M5). Đạt một lần thì symbol về `NORMAL` cho tin đó.
+- Nếu tới T + 60 phút vẫn chưa ổn định, symbol về `NORMAL` kèm audit `NEWS_NORMALIZE_TIMEOUT`. Từ đó chặn spread của S02 (spread > 2× median) tiếp tục bảo vệ. Cách này tránh việc chặn vô thời hạn, ví dụ khi thị trường đóng cửa ngay sau tin.
+- Dời SL hòa vốn trước tin chạy ở mốc T − 15 phút (mục 7.3).
+- Các mốc là seed PROPOSED, cấu hình bằng input (mục 10).
 - Mỗi lần đổi trạng thái được ghi audit `NEWS_STATE_CHANGED` kèm symbol, tin, T (UTC) và trạng thái trước → sau.
 
 ## 7. Tác động lên vào lệnh, lệnh chờ và lệnh đang mở
 
 ### 7.1 Vào lệnh mới (đường live)
 - News Guard là một lớp kiểm tra trong vòng live, đặt ngay sau bước chọn kiểu lệnh và **trước** Risk Kernel.
-- Bị chặn thì ghi lý do theo profile, ví dụ `NEWS_PRE_BLOCK_SCALP`, `NEWS_ACTIVE`, `NEWS_POST`, `NEWS_UNKNOWN`. Candidate không bị đánh dấu đã dùng, nên nếu còn hiệu lực sau cửa sổ tin thì vẫn được xét lại.
+- Bị chặn thì ghi lý do theo profile: `NEWS_PRE_BLOCK_SCALP`, `NEWS_PRE_BLOCK_SWING`, `NEWS_ACTIVE`, `NEWS_POST`, `NEWS_NORMALIZING`, `NEWS_UNKNOWN`.
+- Candidate không bị đánh dấu đã dùng, nên nếu còn hiệu lực sau cửa sổ tin thì vẫn được xét lại.
 - Setup vẫn được quét bình thường trong lúc tin; chỉ việc gửi lệnh bị chặn.
-- Rủi ro × 0,5 (SCALP trong `PRE_NEWS`) nhân thêm vào hệ số HTF, theo cùng cách: chỉ có thể giảm, không bao giờ tăng.
 
 ### 7.2 Lệnh chờ (REQ-021)
-- `news_entry_allowed` lấy từ News Guard thay cho hằng `true`.
-- Khi symbol vào trạng thái chặn của profile lệnh đó, tracker chuyển `CANCEL_REQUIRED` **ngay ở timer đó**, không chờ nến đóng (đặc tả 7.4 và REQ-021: "đánh giá khi có news update").
-- Khi đặt lệnh chờ mới, thời hạn broker được giới hạn tới trước thời điểm bắt đầu chặn của profile. Nếu thời gian còn lại ít hơn 1 nến thì không đặt lệnh (`NEWS_WINDOW_TOO_CLOSE`).
+- `news_entry_allowed` lấy từ News Guard theo profile của lệnh (`trade_style`) thay cho hằng `true`.
+- Khi symbol vào trạng thái chặn của profile đó, tracker nhận một quan sát không phụ thuộc nến (`EEA_PendingObserveGuard`) và chuyển `CANCEL_REQUIRED` **ngay ở timer đó**, không chờ nến đóng.
+- Khi đặt lệnh chờ mới, thời hạn broker được giới hạn tới trước thời điểm bắt đầu chặn của profile (SCALP: T − 60 phút, SWING: T − 3 giờ). Nếu thời gian còn lại ít hơn 1 nến thì không đặt lệnh (`NEWS_WINDOW_TOO_CLOSE`).
 
 ### 7.3 Lệnh đang mở (Trade Manager)
-- Tại `PRE_NEWS_BLOCK`: lệnh **đang lời ≥ 0,3R** được dời SL về hòa vốn (nếu broker chấp nhận khoảng cách stop), lý do `NEWS_BREAK_EVEN`. Lệnh lỗ hoặc lời ít giữ nguyên SL ban đầu.
-- Không đóng lệnh vì tin. Chốt một phần và trail theo profile vẫn chạy như bình thường.
-- Time stop không bị dời.
+- Từ T − 15 phút: lệnh **đang lời ≥ 0,3R**, cả SCALP và SWING (D2), được dời SL về hòa vốn nếu broker chấp nhận khoảng cách stop. Lý do ghi là `NEWS_BREAK_EVEN`.
+- Lệnh lỗ hoặc lời ít giữ nguyên SL ban đầu.
+- Không đóng lệnh vì tin (D5). Chốt một phần và trail theo profile vẫn chạy bình thường. Time stop không bị dời.
 - Khi phiên đã bị thu hồi, quy tắc của Trade Manager vẫn giữ: chỉ dời SL hòa vốn cho lệnh đang lời. Hai quy tắc dùng chung một thao tác, không bị thực hiện hai lần.
 
 ### 7.4 Không thay đổi
@@ -146,46 +149,45 @@ Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH gần nhất c�
 - Audit của candidate và của lệnh ghi trạng thái tin tại thời điểm quyết định (`news_state`), thay cho `NEWS_UNAVAILABLE_ACCEPTED` của O-16.
 - Mỗi lần có lệnh, Trade Manager ghi `news_state` vào audit của thao tác quản lý (đặc tả 6.3).
 
-## 10. Input đề xuất (seed PROPOSED)
+## 10. Input (seed PROPOSED)
 
 | Input | Mặc định | Ý nghĩa |
 |---|---|---|
 | `InpNewsGuardEnabled` | `true` | Tắt thì quay về hành vi O-16 và Dashboard hiện `NEWS_GUARD_DISABLED` |
-| `InpNewsMinImportance` | `HIGH` | `HIGH` hoặc `MODERATE` |
-| `InpNewsWarnBeforeMin` | 60 | Bắt đầu `PRE_NEWS` |
-| `InpNewsBlockBeforeMin` | 15 | Bắt đầu `PRE_NEWS_BLOCK` |
+| `InpNewsScalpBlockBeforeMin` | 60 | SCALP chặn lệnh mới từ mốc này trước tin |
+| `InpNewsSwingBlockBeforeMin` | 180 | SWING chặn lệnh mới từ mốc này trước tin (≥ mốc của SCALP) |
 | `InpNewsActiveMin` | 5 | Độ dài `ACTIVE` |
-| `InpNewsBlockAfterMin` | 15 | Hết `POST_NEWS`, bắt đầu kiểm tra ổn định |
-| `InpNewsMaxNormalizeMin` | 60 | Quá mốc này mà chưa ổn định thì vẫn chặn và báo |
-| `InpNewsSwingBlockBeforeMin` | 60 | SWING chặn từ mốc này |
-| `InpNewsScalpPreRiskFactor` | 0,5 | Hệ số rủi ro SCALP trong `PRE_NEWS` |
-| `InpNewsBreakEvenEnabled` | `true` | Dời SL hòa vốn trước tin |
+| `InpNewsPostMin` | 15 | Hết `POST_NEWS`, bắt đầu kiểm tra ổn định |
+| `InpNewsMaxNormalizeMin` | 60 | Chưa ổn định tới mốc này thì về NORMAL kèm audit |
+| `InpNewsBreakEvenBeforeMin` | 15 | Mốc dời SL hòa vốn trước tin |
 | `InpNewsBreakEvenMinR` | 0,3 | Lời tối thiểu (R) để dời SL hòa vốn |
-| `InpNewsUnknownPolicy` | `BLOCK` | `BLOCK` hoặc `ALLOW` khi không đọc được lịch |
+| `InpNewsAllowWhenUnknown` | `false` | `false` = chặn lệnh mới khi không đọc được lịch; bật `true` để vẫn cho vào lệnh |
 
-## 11. Quyết định cần người dùng chốt
+Mức độ tin cố định là HIGH (D4).
 
-| ID | Câu hỏi | Đề xuất | Lý do |
-|---|---|---|---|
-| D1 | Khoảng chặn quanh tin | SCALP: từ T−15 tới T+15 cộng thời gian chờ ổn định. SWING: từ T−60. | SCALP ngắn, chỉ cần tránh nhịp giật. SWING giữ lệnh qua tin nên không nên mở sát giờ tin. |
-| D2 | Dời SL hòa vốn trước tin | Có, chỉ với lệnh lời ≥ 0,3R, tại T−15 | Giữ lãi khi tin đảo chiều; lệnh lỗ để SL cấu trúc xử lý. |
-| D3 | Không đọc được lịch thì làm gì | `BLOCK`: chặn lệnh mới, vẫn quản lý lệnh đang mở | Đặc tả TC-019 không cho tự coi là NORMAL. Bạn có thể đặt `ALLOW` nếu muốn ưu tiên không lỡ lệnh. |
-| D4 | Mức độ tin | Chỉ HIGH | MODERATE quá nhiều tin với FX, chặn quá dày. |
-| D5 | Đóng lệnh trước tin | Không | Đặc tả chỉ yêu cầu chặn vào lệnh và quản lý khẩn cấp; đóng lệnh là quyết định vào lệnh ngược mà không có setup. |
+## 11. Quyết định đã chốt (04/10/2026)
+
+| ID | Quyết định |
+|---|---|
+| D1 | SCALP chặn lệnh mới từ **60 phút** trước tin; SWING chặn từ **3 giờ** trước tin. Sau tin cả hai chặn qua ACTIVE, POST_NEWS và tới khi ổn định. |
+| D2 | Dời SL hòa vốn trước tin cho **cả SCALP và SWING**, chỉ với lệnh lời ≥ 0,3R, tại T − 15 phút. |
+| D3 | Không đọc được lịch thì **chặn** lệnh mới (mặc định); người dùng bật `InpNewsAllowWhenUnknown` để vẫn cho phép. Lệnh đang mở vẫn được quản lý. |
+| D4 | Chỉ tin mức **HIGH**. |
+| D5 | **Không** đóng lệnh trước tin. |
 
 ## 12. Kiểm thử
 
 | ID | Kịch bản → kết quả mong đợi |
 |---|---|
-| TC-NG-01 (TC-018) | Đếm ngược chuyển đúng NORMAL → PRE_NEWS → PRE_NEWS_BLOCK → ACTIVE → POST_NEWS → NORMALIZING → NORMAL theo các mốc |
-| TC-NG-02 (TC-019) | Calendar trả lỗi hoặc lần đọc thành công cũ hơn 30 phút → UNKNOWN; policy BLOCK chặn lệnh mới, không bao giờ hiện NORMAL |
+| TC-NG-01 (TC-018) | Đếm ngược chuyển đúng NORMAL → PRE_NEWS (T−3h) → PRE_NEWS_BLOCK (T−60) → ACTIVE → POST_NEWS → NORMALIZING → NORMAL theo các mốc |
+| TC-NG-02 (TC-019) | Calendar trả lỗi hoặc lần đọc thành công cũ hơn 30 phút → UNKNOWN; mặc định chặn lệnh mới; bật `InpNewsAllowWhenUnknown` thì cho phép; không bao giờ hiện NORMAL |
 | TC-NG-03 | XAUUSD và BTCUSD chỉ theo tin USD; EURUSD theo cả EUR và USD |
 | TC-NG-04 | Hai tin cách 20 phút gộp thành một cửa sổ chặn liên tục |
 | TC-NG-05 | Giờ server ↔ UTC đúng qua chuyển DST (cuối tháng 3 và cuối tháng 10) |
-| TC-NG-06 | Lệnh chờ đang chạy bị hủy ngay khi vào PRE_NEWS_BLOCK; lệnh chờ mới có thời hạn ≤ thời điểm bắt đầu chặn |
+| TC-NG-06 | Lệnh chờ SCALP bị hủy ngay ở T−60, lệnh chờ SWING ở T−3h; lệnh chờ mới có thời hạn ≤ thời điểm bắt đầu chặn của profile |
 | TC-NG-07 | Lệnh lời 0,5R được dời SL hòa vốn tại T−15; lệnh lời 0,1R và lệnh lỗ giữ nguyên |
-| TC-NG-08 | SWING bị chặn từ T−60; SCALP trong [T−60, T−15) được vào với rủi ro × 0,5 |
-| TC-NG-09 | Sau T+15, spread vẫn > 1,5× median → vẫn chặn; tới T+60 vẫn chưa ổn định → `NEWS_NOT_NORMALIZED` |
+| TC-NG-08 | Trong [T−3h, T−60) SWING bị chặn còn SCALP vẫn vào được; từ T−60 cả hai bị chặn |
+| TC-NG-09 | Sau T+15, spread vẫn > 1,5× median → vẫn chặn; tới T+60 vẫn chưa ổn định → về NORMAL kèm `NEWS_NORMALIZE_TIMEOUT` |
 | TC-NG-10 | Gắn lại EA giữa cửa sổ tin → đọc lại calendar và vào đúng trạng thái, không vào lệnh lúc chờ đọc |
 | TC-NG-11 (TC-020) | Tin chưa có actual hoặc forecast vẫn hiển thị đúng, không tính surprise |
 | TC-NG-12 | `InpNewsGuardEnabled=false` → hành vi O-16, Dashboard hiện `NEWS_GUARD_DISABLED` |
@@ -194,7 +196,7 @@ Kiểm chứng trên terminal: ít nhất một tin HIGH của USD (ví dụ NFP
 
 ## 13. Kế hoạch triển khai
 
-1. Module thuần `News/NewsState.mqh`: máy trạng thái, gộp cửa sổ, ánh xạ đồng tiền; kèm oracle Python và test (TC-NG-01, 03, 04, 08, 09).
+1. Module thuần `News/NewsState.mqh`: máy trạng thái, gộp cửa sổ, ánh xạ đồng tiền, quyết định theo profile; kèm oracle Python và test (TC-NG-01, 03, 04, 08, 09).
 2. Adapter `News/CalendarAdapter.mqh`: đọc MT5 Calendar, quy đổi UTC, theo dõi lần đọc gần nhất, xử lý UNKNOWN (TC-NG-02, 05, 11).
 3. Nối vào vòng live (chặn và hệ số rủi ro), lệnh chờ REQ-021 (hủy và giới hạn thời hạn), Trade Manager (dời SL hòa vốn) (TC-NG-06, 07).
 4. Dashboard tab News, pill ở header, `news_state.json`, audit (TC-NG-10, 12).

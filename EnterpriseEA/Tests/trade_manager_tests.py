@@ -91,7 +91,7 @@ class TradeManagerIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_TradeManagerHasCandidate(trades,candidate_id)", live)
         shell = read("EnterpriseEA.mq5")
         self.assertIn("EEA_TradeManagerLoad(g_trade_manager,g_config.data_root)", shell)
-        self.assertIn("!g_pending_runtime.entry_permission_revoked);", shell)
+        self.assertIn("!g_pending_runtime.entry_permission_revoked,g_news);", shell)
 
 
 class ExecutionRecoveryOperatorTests(unittest.TestCase):

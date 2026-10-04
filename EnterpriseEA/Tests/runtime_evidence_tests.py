@@ -1350,7 +1350,10 @@ class ControlCenterInteractionTests(unittest.TestCase):
         dashboard = self.panel.split("void EEA_SymbolPanelRenderDashboard(", 1)[1].split("double EEA_SymbolPanelRealizedForDay", 1)[0]
         for tab in ("OVERVIEW", "MARKET", "TRADES", "RISK", "NEWS", "AI", "CALENDAR"):
             self.assertIn('"' + tab + '"', dashboard)
-        self.assertIn("NEWS_UNKNOWN", dashboard)
+        # News Guard: an unreadable calendar is shown as NEWS_UNKNOWN, never NORMAL.
+        self.assertIn("EEA_SymbolPanelDashNews(chart_id,ctx)", dashboard)
+        news = self.panel.split("void EEA_SymbolPanelDashNews", 1)[1].split("void EEA_SymbolPanelDashPlaceholder", 1)[0]
+        self.assertIn("NEWS_UNKNOWN", news)
         self.assertIn("Not built yet", dashboard)
         settings = self.panel.split("void EEA_SymbolPanelRenderSettings(", 1)[1].split("void EEA_SymbolPanelSettingsRisk", 1)[0]
         for tab in ("RISK", "SYMBOLS", "AUTHORIZATION", "SYSTEM"):

@@ -71,6 +71,7 @@
 #define EEA_PANEL_AUTO_REFRESH "AUTO_REFRESH"
 // EnterpriseEA — OBSERVER ONLY; explicit confirmation is required for proposals.
 #define EEA_PANEL_POLICY_PROPOSAL_ONLY "POLICY_PROPOSAL_ONLY"
+#define EEA_PANEL_NEWS_ROWS 10
 
 enum EEA_SymbolPanelButtonVariant
   {
@@ -181,6 +182,17 @@ struct EEA_SymbolPanelEngineView
    string session_message;
    bool session_real_account;
    string trade_manager_reason;
+   string news_reason;            // News Guard calendar status
+   long news_last_success_utc;
+   string news_policy;
+   int news_symbol_count;
+   string news_symbol[EEA_PANEL_MAX_ROWS];
+   string news_state[EEA_PANEL_MAX_ROWS];
+   string news_detail[EEA_PANEL_MAX_ROWS];
+   int news_event_count;
+   long news_event_utc[EEA_PANEL_NEWS_ROWS];
+   string news_event_text[EEA_PANEL_NEWS_ROWS];
+   string news_event_values[EEA_PANEL_NEWS_ROWS];
    string recovery_detail;        // the blocked entry: intent, ticket, retcode
    string recovery_message;       // last re-check / resolve outcome
    bool active_risk_valid;
@@ -223,6 +235,8 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_max_entries=0; view.session_swing_entries_today=0; view.session_max_swing_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
    view.recovery_detail=""; view.recovery_message="";
+   view.news_reason="NEWS_GUARD_NOT_PUBLISHED"; view.news_last_success_utc=0; view.news_policy="";
+   view.news_symbol_count=0; view.news_event_count=0;
    view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
@@ -1581,11 +1595,7 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
    if(g_panel_state.dashboard_tab=="MARKET") EEA_SymbolPanelDashMarket(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="TRADES") EEA_SymbolPanelDashTrades(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="RISK") EEA_SymbolPanelDashRisk(chart_id,ctx);
-   else if(g_panel_state.dashboard_tab=="NEWS")
-      EEA_SymbolPanelDashPlaceholder(chart_id,"NEWS CENTER","NEWS_UNKNOWN","Not built yet  "+EEA_SymbolPanelGlyph(0x00B7)+"  spec section 7, Phase 6",
-         "No calendar feed is connected, so news state is UNKNOWN and is never treated as NORMAL.",
-         "Planned: PRE NEWS / NEWS ACTIVE / POST NEWS countdown, impact, actual vs forecast,",
-         "affected symbols and the entry policy applied to each setup.");
+   else if(g_panel_state.dashboard_tab=="NEWS") EEA_SymbolPanelDashNews(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="AI")
       EEA_SymbolPanelDashPlaceholder(chart_id,"MCP AI BRIDGE","OFFLINE","Not built yet  "+EEA_SymbolPanelGlyph(0x00B7)+"  spec section 8, Phase 7",
          "Deterministic EA logic runs without AI; nothing waits on a provider.",
@@ -1950,6 +1960,79 @@ void EEA_SymbolPanelDashRisk(const long chart_id,EEA_ObserverRuntimeContext &ctx
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Why3",EEA_PANEL_CONTENT_X,w+60,
                           "never recomputes them itself, so it cannot disagree with the kernel (TC-026).",
                           EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+  }
+
+void EEA_SymbolPanelNewsStateColors(const string state,color &fill,color &text_color)
+  {
+   fill=EEA_PANEL_SURFACE_ALT_COLOR; text_color=EEA_PANEL_MUTED_COLOR;
+   if(state=="NORMAL") { fill=EEA_PANEL_OK_FILL_COLOR; text_color=EEA_PANEL_OK_COLOR; }
+   else if(state=="PRE_NEWS" || state=="NORMALIZING") { fill=EEA_PANEL_WARNING_FILL_COLOR; text_color=EEA_PANEL_WARNING_COLOR; }
+   else if(state=="PRE_NEWS_BLOCK" || state=="ACTIVE" || state=="POST_NEWS" || state=="UNKNOWN")
+     { fill=EEA_PANEL_DANGER_FILL_COLOR; text_color=EEA_PANEL_DANGER_COLOR; }
+  }
+
+// News Guard (REQ-007 subset): calendar status, per-symbol state and upcoming HIGH events.
+// A calendar that cannot be read shows NEWS_UNKNOWN and is never treated as NORMAL.
+void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx)
+  {
+   int y=EEA_PANEL_CONTENT_Y;
+   bool unknown=(StringFind(g_panel_engine.news_reason,"REFRESHED")<0 && g_panel_engine.news_reason!="NEWS_GUARD_DISABLED");
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"NewsSurface",EEA_PANEL_INNER_X,y,
+                             EEA_PANEL_INNER_WIDTH,62,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_News",EEA_PANEL_CONTENT_X,y+8,
+                             "NEWS GUARD"+EEA_SymbolPanelSep()+"MT5 ECONOMIC CALENDAR"+EEA_SymbolPanelSep()+"HIGH ONLY");
+   EEA_SymbolPanelSetPill(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Pill_News",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-150,y+5,150,
+                          unknown ? "NEWS_UNKNOWN" : (g_panel_engine.news_reason=="NEWS_GUARD_DISABLED" ? "DISABLED" : "CALENDAR OK"),
+                          unknown ? EEA_PANEL_DANGER_FILL_COLOR : EEA_PANEL_OK_FILL_COLOR,
+                          unknown ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_OK_COLOR);
+   long offset=EEA_SymbolPanelLocalOffsetSeconds();
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsStatus",EEA_PANEL_CONTENT_X,y+28,
+                          "Last read  "+(g_panel_engine.news_last_success_utc>0 ?
+                          TimeToString((datetime)(g_panel_engine.news_last_success_utc+offset),TIME_DATE|TIME_MINUTES) : "never")+
+                          EEA_SymbolPanelSep()+g_panel_engine.news_reason,
+                          unknown ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsPolicy",EEA_PANEL_CONTENT_X,y+44,
+                          g_panel_engine.news_policy,EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,
+                          ANCHOR_LEFT_UPPER,100);
+   int sy=y+70;
+   for(int i=0;i<8;i++)
+     {
+      string row=EEA_PANEL_OVERLAY_PREFIX+"NewsSym_"+IntegerToString(i);
+      if(i>=g_panel_engine.news_symbol_count)
+        { ObjectDelete(chart_id,row+"_Name"); ObjectDelete(chart_id,row+"_Pill"); ObjectDelete(chart_id,row+"_Detail"); continue; }
+      color fill,text_color;
+      EEA_SymbolPanelNewsStateColors(g_panel_engine.news_state[i],fill,text_color);
+      EEA_SymbolPanelSetText(chart_id,row+"_Name",EEA_PANEL_CONTENT_X,sy+i*24+4,g_panel_engine.news_symbol[i],
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_BODY_FONT_SIZE,EEA_PANEL_FONT_BOLD);
+      EEA_SymbolPanelSetPill(chart_id,row+"_Pill",EEA_PANEL_CONTENT_X+76,sy+i*24,124,g_panel_engine.news_state[i],fill,text_color);
+      EEA_SymbolPanelSetText(chart_id,row+"_Detail",EEA_PANEL_CONTENT_X+210,sy+i*24+5,g_panel_engine.news_detail[i],
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,52);
+     }
+   int ey=sy+MathMin(g_panel_engine.news_symbol_count,8)*24+8;
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsEvents",EEA_PANEL_CONTENT_X,ey,
+                             "UPCOMING HIGH IMPACT"+EEA_SymbolPanelSep()+EEA_SymbolPanelLocalZoneLabel());
+   int max_rows=MathMax(0,MathMin(EEA_PANEL_NEWS_ROWS,(EEA_PANEL_STATUSBAR_Y-ey-24)/18));
+   for(int i=0;i<EEA_PANEL_NEWS_ROWS;i++)
+     {
+      string row=EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_"+IntegerToString(i);
+      if(i>=g_panel_engine.news_event_count || i>=max_rows)
+        { ObjectDelete(chart_id,row+"_Time"); ObjectDelete(chart_id,row+"_Name"); ObjectDelete(chart_id,row+"_Val"); continue; }
+      int ry=ey+18+i*18;
+      EEA_SymbolPanelSetText(chart_id,row+"_Time",EEA_PANEL_CONTENT_X,ry,
+                             TimeToString((datetime)(g_panel_engine.news_event_utc[i]+offset),TIME_DATE|TIME_MINUTES),
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+      EEA_SymbolPanelSetText(chart_id,row+"_Name",EEA_PANEL_CONTENT_X+120,ry,g_panel_engine.news_event_text[i],
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,40);
+      EEA_SymbolPanelSetText(chart_id,row+"_Val",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X,ry,g_panel_engine.news_event_values[i],
+                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER,30);
+     }
+   if(g_panel_engine.news_event_count==0)
+      EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_None",EEA_PANEL_CONTENT_X,ey+20,
+                             unknown ? "Calendar unavailable: news state is NEWS_UNKNOWN, never NORMAL." :
+                             "No HIGH impact event in the next 7 days for the selected symbols.",
+                             unknown ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
+   else
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_None");
   }
 
 void EEA_SymbolPanelDashPlaceholder(const long chart_id,const string title,const string state,const string subtitle,

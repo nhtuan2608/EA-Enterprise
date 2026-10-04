@@ -22,6 +22,7 @@
 #include "../Runtime/PendingOrderRuntime.mqh"
 #include "../Runtime/LiveSessionAuthorization.mqh"
 #include "../Runtime/TradeManagerRuntime.mqh"
+#include "../News/NewsCalendar.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -53,6 +54,7 @@ struct EEA_ControlledLiveRuntimeState
    long last_attempt_utc;
    string last_candidate_id[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string last_reason;
+   string news_blocked_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    bool recovery_blocked;
    EEA_ExecutionResult recovery_result;
   };
@@ -73,7 +75,7 @@ void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
    s.recovery_blocked=false;
    EEA_ExecutionResultDefaults(s.recovery_result);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) s.last_candidate_id[i]="";
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; }
   }
 
 bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
@@ -799,6 +801,56 @@ bool EEA_ControlledLiveApplySessionCap(const bool session_mode,const EEA_LiveSes
    return true;
   }
 
+// News Guard: a pending order may not stay working into its profile's block window.
+// Its broker expiry is capped at the block start; too little time left means no order.
+bool EEA_ControlledLiveApplyNewsExpiry(const EEA_NewsRuntime &news,const string canonical,const string profile,
+                                       const string timeframe,EEA_ControlledLiveTradePlan &plan,string &reason)
+  {
+   if(plan.pending_order_type<ORDER_TYPE_BUY_LIMIT) return true;
+   const long block_start=EEA_NewsBlockStartFor(news,canonical,profile);
+   if(block_start<=0) return true;
+   const long now=(long)TimeGMT();
+   const long tf_seconds=PeriodSeconds(timeframe=="H1" ? PERIOD_H1 : PERIOD_M5);
+   if(block_start-now<tf_seconds) { reason="NEWS_WINDOW_TOO_CLOSE"; return false; }
+   if((long)plan.pending_expiration_utc>block_start)
+     {
+      plan.pending_expiration_utc=(datetime)block_start;
+      plan.pending_max_wait_bars=(int)MathMin((long)plan.pending_max_wait_bars,(block_start-now)/tf_seconds);
+     }
+   return true;
+  }
+
+// News Guard on working EA pending orders: when the order's profile is blocked, a
+// non-bar guard observation requires the cancel at once (REQ-021 + design 7.2).
+void EEA_PendingApplyNews(EEA_PendingRuntime &rt,const EEA_NewsRuntime &news,CAuditLog &audit,const string root)
+  {
+   const long now=(long)TimeGMT();
+   for(int i=0;i<rt.count;i++)
+     {
+      if(!rt.items[i].active) continue;
+      EEA_PendingTracked t=rt.items[i];
+      if(t.state.status!="WORKING" && t.state.status!="PARTIAL") continue;
+      string reason=EEA_NewsEntryBlockFor(news,t.state.canonical_symbol,t.state.trade_style);
+      if(reason=="") continue;
+      EEA_PendingGuard g;
+      g.intent_id=t.state.intent_id; g.config_version=t.state.config_version;
+      g.snapshot_id="news-"+IntegerToString(now); g.content_fingerprint=reason;
+      g.observed_at_utc=(datetime)now; g.setup_valid=true; g.session_open=true; g.risk_entry_allowed=true;
+      g.news_entry_allowed=false; g.quote_premise_valid=true; g.config_spec_unchanged=true; g.data_quality="OK";
+      if(!EEA_PendingObserveGuard(t.state,g)) continue;
+      if(t.state.status=="CANCEL_REQUIRED")
+        {
+         EEAEvent event;
+         EEAEvent_Init(event,"NEWS_PENDING_CANCEL",TimeGMT(),"",t.state.candidate_id,t.state.canonical_symbol,
+                       "CANCEL_REQUIRED",reason);
+         event.details_json="{\"order_ticket\":\""+EEA_JsonEscape(t.state.order_ticket)+"\",\"reason\":\""+reason+"\"}";
+         audit.Append(event,"EA_NEWS_GUARD");
+        }
+      EEA_PendingWrite(root,t);
+      rt.items[i]=t;
+     }
+  }
+
 bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_ControlledLiveConfig &config,
                                const EEA_StrategyCandidateRuntime &strategy,
@@ -809,7 +861,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                const EEA_RiskLedger &ledger,
                                EEA_PendingRuntime &pending,
                                EEA_LiveSessionRuntime &session,
-                               EEA_TradeManagerRuntime &trades)
+                               EEA_TradeManagerRuntime &trades,
+                               const EEA_NewsRuntime &news)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -854,6 +907,23 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       const string scope=(pending_mode ? "PENDING_ENTRY" : "MARKET_ENTRY");
       if(pending_mode ? !pending_granted : !market_granted)
         { state.last_reason="CONTROLLED_LIVE_SCOPE_NOT_GRANTED_"+scope; continue; }
+      // News Guard (design 7.1): blocked candidates are not consumed and may enter after the window.
+      const string news_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP");
+      const string news_block=EEA_NewsEntryBlockFor(news,strategy.engines[i].canonical_symbol,news_profile);
+      if(news_block!="")
+        {
+         state.last_reason=news_block;
+         if(state.news_blocked_candidate[i]!=candidate_id)
+           {
+            state.news_blocked_candidate[i]=candidate_id;
+            EEAEvent event;
+            EEAEvent_Init(event,"NEWS_ENTRY_BLOCKED",TimeGMT(),"",candidate_id,strategy.engines[i].canonical_symbol,
+                          EEA_NewsStateFor(news,strategy.engines[i].canonical_symbol),news_block);
+            event.details_json="{\"profile\":\""+news_profile+"\",\"reason\":\""+news_block+"\"}";
+            audit.Append(event,"EA_NEWS_GUARD");
+           }
+         continue;
+        }
       EEA_PolicySettings policy; string reason;
       if(!EEA_ControlledLiveResolvePolicy(observer.root,observer.config_version,observer.account,policy,reason))
         { state.last_reason=reason; continue; }
@@ -895,6 +965,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
          context_ready=EEA_ControlledLiveResolveV1Plan(strategy,i,observer,observer.symbol_specs[row],policy,
                                                        ledger,entry_mode,plan,reason) &&
                        EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason) &&
+                       EEA_ControlledLiveApplyNewsExpiry(news,strategy.engines[i].canonical_symbol,news_profile,
+                                                         strategy.engines[i].timeframe,plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);
