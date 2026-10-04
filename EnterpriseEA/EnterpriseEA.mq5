@@ -316,6 +316,35 @@ bool EEA_LiveSessionRevoke(string &reason)
    return ok;
   }
 
+string g_recovery_message="";
+
+// Operator handling of an entry with an unknown outcome (panel Settings > System).
+void EEA_RecoveryHandlePanelRequest()
+  {
+   string request=g_panel_state.recovery_request;
+   if(request=="") return;
+   g_panel_state.recovery_request="";
+   string reason="";
+   if(request=="RECHECK")
+     {
+      EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);
+      bool cleared=g_runtime.initialized &&
+                   EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,g_runtime.reconciliation,g_audit) &&
+                   !g_live_runtime.recovery_blocked;
+      reason=cleared ? "Broker confirmed the order: entries resume." :
+                       "Broker still shows no matching order or deal ("+g_live_runtime.last_reason+").";
+     }
+   else if(request=="RESOLVE")
+     {
+      if(EEA_ControlledLiveResolveRecoveryByOperator(g_live_runtime,g_config.data_root,InpOperatorId,g_audit,reason))
+         reason="Resolved by operator "+InpOperatorId+": entries resume.";
+      else
+         reason="FAILED: "+reason;
+     }
+   g_recovery_message=reason;
+   EEA_SymbolPanelToast(reason,StringFind(reason,"FAILED")==0 ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_OK_COLOR);
+  }
+
 void EEA_LiveSessionHandlePanelRequest()
   {
    string request=g_panel_state.session_request;
@@ -361,6 +390,11 @@ void EEA_PublishPanelEngineView()
    view.strategy_enabled=g_strategy_runtime.enabled;
    view.strategy_reason=g_strategy_runtime.reason_code;
    view.trade_manager_reason=g_trade_manager.reason;
+   view.recovery_message=g_recovery_message;
+   if(g_live_runtime.recovery_blocked)
+      view.recovery_detail="intent "+g_live_runtime.recovery_result.intent_id+"  ticket "+
+         IntegerToString(g_live_runtime.recovery_result.request_ticket)+" ("+g_live_runtime.recovery_result.request_ticket_kind+
+         ")  retcode "+g_live_runtime.recovery_result.request_retcode;
    string session_reason;
    view.session_state=EEA_LiveSessionStateText(session_reason);
    view.session_reason=(g_live_session.usage_failed ? g_live_session.reason : session_reason);
@@ -693,9 +727,10 @@ void OnChartEvent(const int id,
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
-      if(g_panel_state.session_request!="")
+      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="")
         {
          EEA_LiveSessionHandlePanelRequest();
+         EEA_RecoveryHandlePanelRequest();
          EEA_PublishPanelEngineView();
          EEA_SymbolPanelRefreshOpenOverlay(0,g_runtime);
          ChartRedraw(0);

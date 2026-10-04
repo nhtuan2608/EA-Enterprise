@@ -108,6 +108,33 @@ bool EEA_ControlledLiveReconcileRecovery(EEA_ControlledLiveRuntimeState &state,
    return true;
   }
 
+// Operator resolution of an entry whose outcome stayed unknown (no broker evidence). The
+// operator attests after checking the MT5 terminal (Trade and History tabs). The result
+// is persisted as OPERATOR_RESOLVED with the operator id and audited before entries resume.
+bool EEA_ControlledLiveResolveRecoveryByOperator(EEA_ControlledLiveRuntimeState &state,const string root,
+                                                 const string operator_id,CAuditLog &audit,string &reason)
+  {
+   if(!state.recovery_blocked) { reason="EXECUTION_RECOVERY_NOT_BLOCKED"; return false; }
+   EEA_ExecutionResult resolved=state.recovery_result;
+   resolved.confirmation_state="OPERATOR_RESOLVED";
+   resolved.reason_code="OPERATOR_VERIFIED_IN_TERMINAL";
+   resolved.observed_at_utc=TimeGMT();
+   EEAEvent event;
+   EEAEvent_Init(event,"EXECUTION_RECOVERY_OPERATOR_RESOLVED",TimeGMT(),"","","","","OK");
+   event.details_json="{\"intent_id\":\""+EEA_JsonEscape(resolved.intent_id)+
+      "\",\"idempotency_key\":\""+EEA_JsonEscape(resolved.idempotency_key)+
+      "\",\"request_ticket\":"+IntegerToString(resolved.request_ticket)+
+      ",\"request_ticket_kind\":\""+EEA_JsonEscape(resolved.request_ticket_kind)+
+      "\",\"operator_id\":\""+EEA_JsonEscape(operator_id)+"\"}";
+   if(!audit.Append(event,"EA_OPERATOR")) { reason="EXECUTION_RECOVERY_AUDIT_FAILED"; return false; }
+   if(!EEA_ExecutionStoreWriteResult(root,resolved)) { reason="EXECUTION_RECOVERY_PERSISTENCE_FAILED"; return false; }
+   state.recovery_result=resolved;
+   state.recovery_blocked=false;
+   state.last_reason="EXECUTION_RECOVERY_OPERATOR_RESOLVED";
+   reason=state.last_reason;
+   return true;
+  }
+
 bool EEA_ControlledLiveAuditAuthorization(CAuditLog &audit,
                                           const EEA_LiveAuthorizationDecision &authorization,
                                           const EEA_RiskDecision &decision,

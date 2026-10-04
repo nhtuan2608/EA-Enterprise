@@ -138,6 +138,8 @@ struct EEA_SymbolPanelState
    datetime toast_until;
    string edit_rendered_value;
    string session_request;        // consumed by the EA shell: SIGN_24H | SIGN_7D | REVOKE
+   string recovery_request;       // consumed by the EA shell: RECHECK | RESOLVE
+   uint recovery_confirm_tick;    // RESOLVE needs a second click within 10 seconds
    string session_confirm_action; // the first click arms a confirmation for 10 seconds
    uint session_confirm_tick;
   };
@@ -177,6 +179,8 @@ struct EEA_SymbolPanelEngineView
    string session_message;
    bool session_real_account;
    string trade_manager_reason;
+   string recovery_detail;        // the blocked entry: intent, ticket, retcode
+   string recovery_message;       // last re-check / resolve outcome
    bool active_risk_valid;
    double active_risk_money;      // loss at SL of open positions and EA/broker pending orders
    double active_risk_capital;    // initial capital the percentage is measured against
@@ -216,6 +220,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_risk_fraction=0.0; view.session_daily_loss_fraction=0.0; view.session_entries_today=0;
    view.session_max_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
+   view.recovery_detail=""; view.recovery_message="";
    view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
@@ -1437,11 +1442,56 @@ void EEA_SymbolPanelSettingsAuthorization(const long chart_id,EEA_ObserverRuntim
    EEA_SymbolPanelSettingsSession(chart_id,y+128);
   }
 
+bool EEA_SymbolPanelRecoveryConfirming()
+  {
+   return g_panel_state.recovery_confirm_tick>0 && GetTickCount()-g_panel_state.recovery_confirm_tick<10000;
+  }
+
+// Execution recovery: shown only while an entry's outcome is unknown and entries are
+// blocked. Re-check asks the broker again; Mark resolved is the operator's attestation
+// after checking the MT5 Trade and History tabs (two clicks).
+void EEA_SymbolPanelSettingsRecovery(const long chart_id,const int y)
+  {
+   if(!g_panel_engine.recovery_blocked)
+     {
+      EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"RecoverySurface",EEA_PANEL_INNER_X,y,
+                                EEA_PANEL_INNER_WIDTH,40,EEA_PANEL_SURFACE_COLOR);
+      EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Recovery",EEA_PANEL_CONTENT_X,y+13,
+                             EEA_SymbolPanelGlyph(0x2713)+"  Execution recovery clear: no entry with an unknown outcome.",
+                             EEA_PANEL_OK_COLOR,EEA_PANEL_META_FONT_SIZE);
+      EEA_SymbolPanelUnregisterHit(EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryRecheck");
+      EEA_SymbolPanelUnregisterHit(EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryResolve");
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryRecheck");
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryResolve");
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_RecoveryDetail");
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_RecoveryMessage");
+      return;
+     }
+   bool confirming=EEA_SymbolPanelRecoveryConfirming();
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"RecoverySurface",EEA_PANEL_INNER_X,y,
+                             EEA_PANEL_INNER_WIDTH,96,EEA_PANEL_SURFACE_COLOR,EEA_PANEL_DANGER_COLOR);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Recovery",EEA_PANEL_CONTENT_X,y+10,
+                          "ENTRIES BLOCKED: an order outcome is unknown",EEA_PANEL_DANGER_COLOR,EEA_PANEL_BODY_FONT_SIZE,
+                          EEA_PANEL_FONT_BOLD);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_RecoveryDetail",EEA_PANEL_CONTENT_X,y+28,
+                          g_panel_engine.recovery_detail,EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryRecheck",EEA_PANEL_CONTENT_X,y+44,
+                              150,28,"Re-check broker",EEA_PANEL_BUTTON_PRIMARY);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryResolve",EEA_PANEL_CONTENT_X+158,y+44,
+                              190,28,confirming ? "Confirm: checked in MT5" : "Mark resolved",
+                              confirming ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_DANGER);
+   string message=confirming ? "Only confirm after checking the MT5 Trade and History tabs for this ticket." :
+                  (g_panel_engine.recovery_message=="" ? "Re-check first; mark resolved only when the broker shows nothing." :
+                   g_panel_engine.recovery_message);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_RecoveryMessage",EEA_PANEL_CONTENT_X,y+76,message,
+                          confirming ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE);
+  }
+
 void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    int y=EEA_PANEL_CONTENT_Y;
    EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"SystemSurface",EEA_PANEL_INNER_X,y,
-                             EEA_PANEL_INNER_WIDTH,236,EEA_PANEL_SURFACE_COLOR);
+                             EEA_PANEL_INNER_WIDTH,220,EEA_PANEL_SURFACE_COLOR);
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_System",EEA_PANEL_CONTENT_X,y+10,
                              "RUNTIME CONFIGURATION"+EEA_SymbolPanelSep()+"READ-ONLY");
    int left=EEA_PANEL_CONTENT_X, right=EEA_PANEL_CONTENT_X+264;
@@ -1464,6 +1514,7 @@ void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContex
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_StrategyReason",right,y+140,"Strategy reason",
                            g_panel_engine.strategy_reason=="" ? "--" : g_panel_engine.strategy_reason,EEA_PANEL_MUTED_COLOR);
+   EEA_SymbolPanelSettingsRecovery(chart_id,y+228);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SystemNote",EEA_PANEL_CONTENT_X,y+186,
                           "Change these through the EA Inputs dialog (F7). Reloading re-runs every startup gate.",
                           EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE);
@@ -2441,6 +2492,19 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
         { g_panel_state.session_request=action; g_panel_state.session_confirm_action=""; }
       else
         { g_panel_state.session_confirm_action=action; g_panel_state.session_confirm_tick=GetTickCount(); }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryRecheck")
+     {
+      g_panel_state.recovery_request="RECHECK"; g_panel_state.recovery_confirm_tick=0;
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryResolve")
+     {
+      if(EEA_SymbolPanelRecoveryConfirming())
+        { g_panel_state.recovery_request="RESOLVE"; g_panel_state.recovery_confirm_tick=0; }
+      else
+         g_panel_state.recovery_confirm_tick=GetTickCount();
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionRevoke")

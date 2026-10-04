@@ -94,5 +94,23 @@ class TradeManagerIntegrationTests(unittest.TestCase):
         self.assertIn("!g_pending_runtime.entry_permission_revoked);", shell)
 
 
+class ExecutionRecoveryOperatorTests(unittest.TestCase):
+    def test_operator_resolution_is_audited_persisted_and_two_step(self):
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        resolve = section(live, "bool EEA_ControlledLiveResolveRecoveryByOperator")
+        self.assertIn('"EXECUTION_RECOVERY_NOT_BLOCKED"', resolve)
+        self.assertIn('resolved.confirmation_state="OPERATOR_RESOLVED"', resolve)
+        # Audit first, then persistence, then unblock.
+        self.assertLess(resolve.index("audit.Append"), resolve.index("EEA_ExecutionStoreWriteResult"))
+        self.assertLess(resolve.index("EEA_ExecutionStoreWriteResult"), resolve.index("state.recovery_blocked=false"))
+        panel = read("Runtime/SymbolSelectionPanel.mqh")
+        handler = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryResolve"', 1)[1].split("return;", 1)[0]
+        self.assertIn("if(EEA_SymbolPanelRecoveryConfirming())", handler)
+        shell = read("EnterpriseEA.mq5")
+        recheck = section(shell, "void EEA_RecoveryHandlePanelRequest")
+        self.assertIn("EEA_ControlledLiveReconcileRecovery(", recheck)
+        self.assertIn("EEA_ControlledLiveResolveRecoveryByOperator(", recheck)
+
+
 if __name__ == "__main__":
     unittest.main()
