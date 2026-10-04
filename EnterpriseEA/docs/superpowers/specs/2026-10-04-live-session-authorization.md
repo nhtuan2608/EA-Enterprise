@@ -25,7 +25,7 @@ Ngày 04/10/2026. Trạng thái: IMPLEMENTED, chưa deploy. Thay cho việc ph�
   - danh sách broker symbol tại thời điểm ký;
   - rủi ro mỗi lệnh = `per_trade` của O-04;
   - lỗ ngày tối đa = `internal_daily` của O-04;
-  - số lệnh mỗi ngày Prague = `InpSessionMaxEntriesPerDay` (mặc định 6);
+  - số lệnh mỗi ngày Prague, tách riêng theo profile: SCALP = `InpSessionMaxScalpPerDay` (mặc định 6), SWING = `InpSessionMaxSwingPerDay` (mặc định 2). Phiên ký trước khi tách giới hạn có một giới hạn chung; EA áp giới hạn đó cho từng profile;
   - hiệu lực tối đa 7 ngày.
 - Mỗi lần ký ghi sự kiện audit `LIVE_SESSION_SIGNED`.
 
@@ -37,7 +37,7 @@ Ngày 04/10/2026. Trạng thái: IMPLEMENTED, chưa deploy. Thay cho việc ph�
   - đổi tài khoản, server, config hoặc policy;
   - đổi loại tài khoản giữa demo và real;
   - symbol không nằm trong danh sách;
-  - đã đủ số lệnh trong ngày;
+  - đã đủ số lệnh trong ngày của profile (SCALP hoặc SWING);
   - lỗ trong ngày (balance lúc reset − equity) chạm giới hạn;
   - không ghi được bộ đếm lệnh.
 - Rủi ro của phiên chỉ có thể giảm rủi ro của plan, không bao giờ tăng.

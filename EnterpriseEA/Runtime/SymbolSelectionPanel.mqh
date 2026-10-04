@@ -173,8 +173,10 @@ struct EEA_SymbolPanelEngineView
    string session_symbols;
    double session_risk_fraction;
    double session_daily_loss_fraction;
-   int session_entries_today;
+   int session_entries_today;        // SCALP
    int session_max_entries;
+   int session_swing_entries_today;
+   int session_max_swing_entries;
    string session_reason;
    string session_message;
    bool session_real_account;
@@ -218,7 +220,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.universe_count=0;
    view.session_state="NONE"; view.session_id=""; view.session_until_utc=0; view.session_symbols="";
    view.session_risk_fraction=0.0; view.session_daily_loss_fraction=0.0; view.session_entries_today=0;
-   view.session_max_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
+   view.session_max_entries=0; view.session_swing_entries_today=0; view.session_max_swing_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
    view.recovery_detail=""; view.recovery_message="";
    view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
@@ -1386,8 +1388,10 @@ void EEA_SymbolPanelSettingsSession(const long chart_id,const int y)
    string limits=g_panel_engine.session_max_entries>0 ?
       "Limits  "+EEA_SymbolPanelPercent(g_panel_engine.session_risk_fraction)+" per trade"+EEA_SymbolPanelSep()+
       EEA_SymbolPanelPercent(g_panel_engine.session_daily_loss_fraction)+" daily loss"+EEA_SymbolPanelSep()+
-      IntegerToString(g_panel_engine.session_entries_today)+"/"+IntegerToString(g_panel_engine.session_max_entries)+
-      " entries today" : "Limits  taken from the committed risk policy (O-04) when you authorize";
+      "today scalp "+IntegerToString(g_panel_engine.session_entries_today)+"/"+IntegerToString(g_panel_engine.session_max_entries)+
+      ", swing "+IntegerToString(g_panel_engine.session_swing_entries_today)+"/"+
+      IntegerToString(g_panel_engine.session_max_swing_entries) :
+      "Limits  taken from the committed risk policy (O-04) when you authorize";
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionLimits",EEA_PANEL_CONTENT_X,y+70,limits,
                           EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
    string layers="Inputs "+((g_panel_engine.execution_enabled && g_panel_engine.live_armed) ? "ARMED" : "NOT ARMED (F7)")+

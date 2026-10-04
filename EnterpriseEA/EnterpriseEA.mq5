@@ -50,7 +50,8 @@ input int    InpS02MaxBarsToRetest      = 0;
 input int    InpS02MaxBarsForReaction   = 0;
 input int    InpS02CandidateTtlBars     = 0;
 input string InpLiveAuthorizationPath  = "";
-input int    InpSessionMaxEntriesPerDay = 6;      // session authorization: entries per Prague day
+input int    InpSessionMaxScalpPerDay   = 6;      // session: SCALP (M5) entries per Prague day
+input int    InpSessionMaxSwingPerDay   = 2;      // session: SWING (H1) entries per Prague day
 input bool   InpSessionAllowRealAccount = false;  // a session on a REAL account needs this set explicitly
 input string InpOperatorId              = "operator"; // recorded on session and controller documents
 input string InpLiveSetupVersion        = "";
@@ -244,7 +245,8 @@ bool EEA_LiveSessionSign(const long seconds,string &reason)
    if(!EEA_ExecutionControllerOpaqueIdentifierValid(InpOperatorId)) { reason="SESSION_OPERATOR_ID_INVALID"; return false; }
    bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
    if(real_account && !InpSessionAllowRealAccount) { reason="SESSION_REAL_ACCOUNT_NOT_ALLOWED"; return false; }
-   if(InpSessionMaxEntriesPerDay<1 || InpSessionMaxEntriesPerDay>50) { reason="SESSION_ENTRY_LIMIT_INVALID"; return false; }
+   if(InpSessionMaxScalpPerDay<1 || InpSessionMaxScalpPerDay>50 ||
+      InpSessionMaxSwingPerDay<1 || InpSessionMaxSwingPerDay>50) { reason="SESSION_ENTRY_LIMIT_INVALID"; return false; }
    if(g_live_runtime.recovery_blocked) { reason="EXECUTION_UNKNOWN_RECOVERY_REQUIRED"; return false; }
    if(g_pending_runtime.entries_blocked) { reason=g_pending_runtime.reason; return false; }
    EEA_PolicySettings policy;
@@ -274,7 +276,8 @@ bool EEA_LiveSessionSign(const long seconds,string &reason)
    session.signed_at_utc=now; session.valid_from_utc=now; session.valid_until_utc=now+seconds;
    session.max_risk_per_trade_fraction=limits.per_trade_fraction;
    session.max_daily_loss_fraction=limits.internal_daily_fraction;
-   session.max_entries_per_day=InpSessionMaxEntriesPerDay;
+   session.max_scalp_entries_per_day=InpSessionMaxScalpPerDay;
+   session.max_swing_entries_per_day=InpSessionMaxSwingPerDay;
    session.real_account=real_account;
    if(!EEA_LiveSessionActive(session,now,reason)) return false;
    if(!EEA_LiveSessionWrite(g_config.data_root,session)) { reason="SESSION_PERSISTENCE_FAILED"; return false; }
@@ -403,8 +406,11 @@ void EEA_PublishPanelEngineView()
    view.session_symbols=g_live_session.session.allowed_symbols;
    view.session_risk_fraction=g_live_session.session.max_risk_per_trade_fraction;
    view.session_daily_loss_fraction=g_live_session.session.max_daily_loss_fraction;
-   view.session_max_entries=g_live_session.session.max_entries_per_day;
-   view.session_entries_today=EEA_LiveSessionEntriesToday(g_live_session,EEA_PragueDailyResetUtc((long)TimeGMT()));
+   long day_reset=EEA_PragueDailyResetUtc((long)TimeGMT());
+   view.session_max_entries=g_live_session.session.max_scalp_entries_per_day;
+   view.session_entries_today=EEA_LiveSessionEntriesToday(g_live_session,day_reset,"SCALP");
+   view.session_max_swing_entries=g_live_session.session.max_swing_entries_per_day;
+   view.session_swing_entries_today=EEA_LiveSessionEntriesToday(g_live_session,day_reset,"SWING");
    view.session_message=g_live_session.last_action!="" ? g_live_session.last_action :
                         (view.session_state=="ACTIVE" && g_live_session.reason!="LIVE_SESSION_NONE" ? g_live_session.reason : "");
    view.session_real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);

@@ -39,7 +39,8 @@ struct EEA_LiveSession
    long revoked_at_utc;
    double max_risk_per_trade_fraction;
    double max_daily_loss_fraction;
-   int max_entries_per_day;
+   int max_scalp_entries_per_day;   // SCALP and SWING have separate daily caps
+   int max_swing_entries_per_day;
    bool real_account;
   };
 
@@ -47,7 +48,8 @@ struct EEA_LiveSessionUsage
   {
    string session_id;
    long day_reset_utc;
-   int entries;
+   int scalp_entries;
+   int swing_entries;
   };
 
 struct EEA_LiveSessionRuntime
@@ -66,14 +68,14 @@ void EEA_LiveSessionDefaults(EEA_LiveSession &s)
    s.session_id=""; s.status=""; s.operator_id=""; s.config_version=""; s.account_fingerprint="";
    s.broker_server=""; s.account_mode=""; s.risk_policy_id=""; s.build_hash=""; s.allowed_symbols="";
    s.scope=""; s.signed_at_utc=0; s.valid_from_utc=0; s.valid_until_utc=0; s.revoked_at_utc=0;
-   s.max_risk_per_trade_fraction=0.0; s.max_daily_loss_fraction=0.0; s.max_entries_per_day=0;
+   s.max_risk_per_trade_fraction=0.0; s.max_daily_loss_fraction=0.0; s.max_scalp_entries_per_day=0; s.max_swing_entries_per_day=0;
    s.real_account=false;
   }
 
 void EEA_LiveSessionRuntimeDefaults(EEA_LiveSessionRuntime &r)
   {
    r.loaded=false; r.present=false; EEA_LiveSessionDefaults(r.session);
-   r.usage.session_id=""; r.usage.day_reset_utc=0; r.usage.entries=0;
+   r.usage.session_id=""; r.usage.day_reset_utc=0; r.usage.scalp_entries=0; r.usage.swing_entries=0;
    r.usage_failed=false; r.reason="LIVE_SESSION_NONE"; r.last_action="";
   }
 
@@ -95,7 +97,8 @@ string EEA_LiveSessionToJson(const EEA_LiveSession &s)
       ",\"revoked_at_utc\":"+IntegerToString(s.revoked_at_utc)+
       ",\"max_risk_per_trade_fraction\":"+DoubleToString(s.max_risk_per_trade_fraction,6)+
       ",\"max_daily_loss_fraction\":"+DoubleToString(s.max_daily_loss_fraction,6)+
-      ",\"max_entries_per_day\":"+IntegerToString(s.max_entries_per_day)+
+      ",\"max_scalp_entries_per_day\":"+IntegerToString(s.max_scalp_entries_per_day)+
+      ",\"max_swing_entries_per_day\":"+IntegerToString(s.max_swing_entries_per_day)+
       ",\"real_account\":"+(s.real_account ? "true" : "false")+"}";
   }
 
@@ -128,7 +131,12 @@ bool EEA_LiveSessionLoadPath(const string path,EEA_LiveSession &s,bool &present)
    s.revoked_at_utc=StringToInteger(EEA_LiveAuthorizationStoreField(json,"revoked_at_utc"));
    s.max_risk_per_trade_fraction=StringToDouble(EEA_LiveAuthorizationStoreField(json,"max_risk_per_trade_fraction"));
    s.max_daily_loss_fraction=StringToDouble(EEA_LiveAuthorizationStoreField(json,"max_daily_loss_fraction"));
-   s.max_entries_per_day=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"max_entries_per_day"));
+   s.max_scalp_entries_per_day=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"max_scalp_entries_per_day"));
+   s.max_swing_entries_per_day=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"max_swing_entries_per_day"));
+   // A session signed before the split carried one shared cap: apply it to each profile.
+   int legacy=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"max_entries_per_day"));
+   if(s.max_scalp_entries_per_day<=0 && s.max_swing_entries_per_day<=0 && legacy>0)
+     { s.max_scalp_entries_per_day=legacy; s.max_swing_entries_per_day=legacy; }
    s.real_account=EEA_LiveAuthorizationStoreBool(json,"real_account");
    return s.session_id!="";
   }
@@ -139,13 +147,14 @@ bool EEA_LiveSessionLoad(const string root,EEA_LiveSession &s,bool &present)
 bool EEA_LiveSessionUsageWrite(const string root,const EEA_LiveSessionUsage &u)
   {
    string json="{\"schema_version\":\""+EEA_LIVE_SESSION_USAGE_SCHEMA+"\",\"session_id\":\""+EEA_JsonEscape(u.session_id)+
-      "\",\"day_reset_utc\":"+IntegerToString(u.day_reset_utc)+",\"entries\":"+IntegerToString(u.entries)+"}";
+      "\",\"day_reset_utc\":"+IntegerToString(u.day_reset_utc)+
+      ",\"scalp_entries\":"+IntegerToString(u.scalp_entries)+",\"swing_entries\":"+IntegerToString(u.swing_entries)+"}";
    return EEA_WriteAtomicText(EEA_LiveSessionUsagePath(root),json);
   }
 
 bool EEA_LiveSessionUsageLoad(const string root,EEA_LiveSessionUsage &u)
   {
-   u.session_id=""; u.day_reset_utc=0; u.entries=0;
+   u.session_id=""; u.day_reset_utc=0; u.scalp_entries=0; u.swing_entries=0;
    string path=EEA_LiveSessionUsagePath(root);
    if(!FileIsExist(path,0)) return true;
    string json;
@@ -153,17 +162,21 @@ bool EEA_LiveSessionUsageLoad(const string root,EEA_LiveSessionUsage &u)
    if(EEA_LiveAuthorizationStoreField(json,"schema_version")!=EEA_LIVE_SESSION_USAGE_SCHEMA) return false;
    u.session_id=EEA_LiveAuthorizationStoreField(json,"session_id");
    u.day_reset_utc=StringToInteger(EEA_LiveAuthorizationStoreField(json,"day_reset_utc"));
-   u.entries=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"entries"));
-   return u.entries>=0;
+   u.scalp_entries=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"scalp_entries"));
+   u.swing_entries=(int)StringToInteger(EEA_LiveAuthorizationStoreField(json,"swing_entries"));
+   return u.scalp_entries>=0 && u.swing_entries>=0;
   }
 
 // Entries sent on the current Prague day across all sessions: re-signing a session
 // must not reset the daily cap. Another day counts zero.
-int EEA_LiveSessionEntriesToday(const EEA_LiveSessionRuntime &r,const long day_reset_utc)
+int EEA_LiveSessionEntriesToday(const EEA_LiveSessionRuntime &r,const long day_reset_utc,const string profile)
   {
    if(r.usage.day_reset_utc!=day_reset_utc) return 0;
-   return r.usage.entries;
+   return profile=="SWING" ? r.usage.swing_entries : r.usage.scalp_entries;
   }
+
+int EEA_LiveSessionMaxEntries(const EEA_LiveSession &s,const string profile)
+  { return profile=="SWING" ? s.max_swing_entries_per_day : s.max_scalp_entries_per_day; }
 
 bool EEA_LiveSessionSymbolAllowed(const EEA_LiveSession &s,const string broker_symbol)
   {
@@ -188,7 +201,8 @@ bool EEA_LiveSessionActive(const EEA_LiveSession &s,const long now_utc,string &r
    if(s.scope!=EEA_LIVE_SESSION_SCOPE) { reason="LIVE_SESSION_SCOPE_INVALID"; return false; }
    if(s.max_risk_per_trade_fraction<=0.0 || s.max_risk_per_trade_fraction>0.02 ||
       s.max_daily_loss_fraction<=0.0 || s.max_daily_loss_fraction>0.05 ||
-      s.max_entries_per_day<1 || s.max_entries_per_day>50)
+      s.max_scalp_entries_per_day<1 || s.max_scalp_entries_per_day>50 ||
+      s.max_swing_entries_per_day<1 || s.max_swing_entries_per_day>50)
      { reason="LIVE_SESSION_LIMITS_INVALID"; return false; }
    if(s.allowed_symbols=="") { reason="LIVE_SESSION_SYMBOLS_EMPTY"; return false; }
    reason="LIVE_SESSION_ACTIVE";
@@ -202,7 +216,7 @@ bool EEA_LiveSessionAuthorize(const EEA_LiveSessionRuntime &r,
                               const string config_version,const string account_fingerprint,
                               const string broker_server,const string account_mode,
                               const string risk_policy_id,const string broker_symbol,
-                              const string candidate_id,const bool real_account,
+                              const string candidate_id,const string profile,const bool real_account,
                               const long now_utc,const long day_reset_utc,
                               const double initial_capital,const double reset_balance,const double equity,
                               EEA_LiveAuthorizationDecision &d,string &reason)
@@ -219,8 +233,8 @@ bool EEA_LiveSessionAuthorize(const EEA_LiveSessionRuntime &r,
    if(s.real_account!=real_account) { reason="LIVE_SESSION_ACCOUNT_TYPE_CHANGED"; return false; }
    if(!EEA_LiveSessionSymbolAllowed(s,broker_symbol)) { reason="LIVE_SESSION_SYMBOL_NOT_ALLOWED"; return false; }
    if(candidate_id=="") { reason="LIVE_CANDIDATE_ID_MISSING"; return false; }
-   if(EEA_LiveSessionEntriesToday(r,day_reset_utc)>=s.max_entries_per_day)
-     { reason="LIVE_SESSION_DAILY_ENTRIES_REACHED"; return false; }
+   if(EEA_LiveSessionEntriesToday(r,day_reset_utc,profile)>=EEA_LiveSessionMaxEntries(s,profile))
+     { reason=(profile=="SWING" ? "LIVE_SESSION_DAILY_SWING_ENTRIES_REACHED" : "LIVE_SESSION_DAILY_SCALP_ENTRIES_REACHED"); return false; }
    if(initial_capital<=0.0 || reset_balance<=0.0) { reason="LIVE_SESSION_LOSS_BASIS_UNKNOWN"; return false; }
    if(reset_balance-equity>=s.max_daily_loss_fraction*initial_capital)
      { reason="LIVE_SESSION_DAILY_LOSS_REACHED"; return false; }
@@ -269,11 +283,12 @@ bool EEA_LiveSessionCancelAuthorization(const string path,const string intent_id
   }
 
 // Counts one sent entry; persisted so the daily cap survives EA removal and re-attach.
-bool EEA_LiveSessionRecordEntry(EEA_LiveSessionRuntime &r,const string root,const long day_reset_utc)
+bool EEA_LiveSessionRecordEntry(EEA_LiveSessionRuntime &r,const string root,const long day_reset_utc,const string profile)
   {
-   if(r.usage.day_reset_utc!=day_reset_utc) { r.usage.day_reset_utc=day_reset_utc; r.usage.entries=0; }
+   if(r.usage.day_reset_utc!=day_reset_utc)
+     { r.usage.day_reset_utc=day_reset_utc; r.usage.scalp_entries=0; r.usage.swing_entries=0; }
    r.usage.session_id=r.session.session_id;
-   r.usage.entries++;
+   if(profile=="SWING") r.usage.swing_entries++; else r.usage.scalp_entries++;
    if(!EEA_LiveSessionUsageWrite(root,r.usage)) { r.usage_failed=true; return false; }
    return true;
   }

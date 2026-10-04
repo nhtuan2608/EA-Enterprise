@@ -864,12 +864,13 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       // without a session file the per-intent document remains the only path.
       const long day_reset=EEA_PragueDailyResetUtc((long)TimeGMT());
       const bool session_mode=session.present;
+      const string entry_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP");
       if(session_mode)
         {
          const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
          if(!EEA_LiveSessionAuthorize(session,observer.config_version,observer.account.account_fingerprint,
                observer.account.broker_server,observer.account.account_margin_mode,policy.committed_policy,
-               observer.broker_symbols[row],candidate_id,real_account,(long)TimeGMT(),day_reset,
+               observer.broker_symbols[row],candidate_id,entry_profile,real_account,(long)TimeGMT(),day_reset,
                ledger.initial_capital,ledger.last_reset_balance,observer.account.equity,authorization,reason))
            { state.last_reason=reason; session.reason=reason; continue; }
          authorization_path=EEA_LiveSessionPath(observer.root);
@@ -981,7 +982,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                      pending_order ? "ORDER" : result.request_ticket_kind,strategy.profile[i],
                                      strategy.engines[i].timeframe,strategy.engines[i].zone_low,
                                      strategy.engines[i].zone_high,authorization_path,manage_reason);
-         if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset))
+         if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile))
             session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
          state.recovery_result=result;
          state.recovery_blocked=result.confirmation_state=="EXECUTION_UNKNOWN";

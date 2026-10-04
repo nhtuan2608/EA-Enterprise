@@ -30,7 +30,8 @@ class LiveSessionGateTests(unittest.TestCase):
         authorize = section(self.module, "bool EEA_LiveSessionAuthorize")
         for token in ('"LIVE_SESSION_IDENTITY_MISMATCH"', '"LIVE_SESSION_POLICY_CHANGED"',
                       '"LIVE_SESSION_ACCOUNT_TYPE_CHANGED"', '"LIVE_SESSION_SYMBOL_NOT_ALLOWED"',
-                      '"LIVE_SESSION_DAILY_ENTRIES_REACHED"', '"LIVE_SESSION_DAILY_LOSS_REACHED"',
+                      '"LIVE_SESSION_DAILY_SWING_ENTRIES_REACHED"', '"LIVE_SESSION_DAILY_SCALP_ENTRIES_REACHED"',
+                      '"LIVE_SESSION_DAILY_LOSS_REACHED"',
                       '"LIVE_SESSION_USAGE_PERSISTENCE_FAILED"'):
             self.assertIn(token, authorize)
         # The adapter still binds one authorization to exactly one intent.
@@ -63,7 +64,8 @@ class LiveSessionIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_LiveAuthorizationStoreLoad(authorization_path,", on_timer)
         self.assertIn('"LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"', on_timer)
         self.assertIn("EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason)", on_timer)
-        self.assertIn("EEA_LiveSessionRecordEntry(session,observer.root,day_reset)", on_timer)
+        self.assertIn("EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile)", on_timer)
+        self.assertIn('entry_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP")', on_timer)
         self.assertIn('params.idempotency_key="entry-"+candidate_id;', on_timer)
         cap = section(live, "bool EEA_ControlledLiveApplySessionCap")
         self.assertIn("MathMin(plan.base_risk_fraction,cap)", cap)
@@ -120,6 +122,20 @@ class InternalLossLimitTests(unittest.TestCase):
         self.assertEqual(weekday(monday), 1)
         self.assertEqual((weekday(monday) + 6) % 7, 0)
         self.assertEqual((weekday(monday + 6) + 6) % 7, 6)
+
+
+class LiveSessionProfileCapTests(unittest.TestCase):
+    def test_scalp_and_swing_have_separate_daily_caps(self):
+        module = read("Runtime/LiveSessionAuthorization.mqh")
+        today = section(module, "int EEA_LiveSessionEntriesToday")
+        self.assertIn('profile=="SWING" ? r.usage.swing_entries : r.usage.scalp_entries', today)
+        record = section(module, "bool EEA_LiveSessionRecordEntry")
+        self.assertIn('if(profile=="SWING") r.usage.swing_entries++; else r.usage.scalp_entries++;', record)
+        load = section(module, "bool EEA_LiveSessionLoadPath")
+        self.assertIn('"max_entries_per_day"', load)   # sessions signed before the split stay valid
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("input int    InpSessionMaxScalpPerDay   = 6;", shell)
+        self.assertIn("input int    InpSessionMaxSwingPerDay   = 2;", shell)
 
 
 if __name__ == "__main__":
