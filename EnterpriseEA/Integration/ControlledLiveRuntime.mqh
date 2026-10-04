@@ -830,7 +830,7 @@ void EEA_PendingApplyNews(EEA_PendingRuntime &rt,EEA_NewsRuntime &news,CAuditLog
       if(!rt.items[i].active) continue;
       EEA_PendingTracked t=rt.items[i];
       if(t.state.status!="WORKING" && t.state.status!="PARTIAL") continue;
-      string reason=EEA_NewsEntryBlockFor(news,t.state.canonical_symbol,t.state.trade_style);
+      string reason=EEA_NewsDirectBlockFor(news,t.state.canonical_symbol,t.state.trade_style);
       if(reason=="") continue;
       EEA_PendingGuard g;
       g.intent_id=t.state.intent_id; g.config_version=t.state.config_version;
@@ -852,6 +852,17 @@ void EEA_PendingApplyNews(EEA_PendingRuntime &rt,EEA_NewsRuntime &news,CAuditLog
       EEA_PendingWrite(root,t);
       rt.items[i]=t;
      }
+  }
+
+// Yellow (indirect) news: SCALP risk is reduced, never raised.
+bool EEA_ControlledLiveApplyNewsRisk(const EEA_NewsRuntime &news,const string canonical,const string profile,
+                                     EEA_ControlledLiveTradePlan &plan,string &reason)
+  {
+   double factor=EEA_NewsRiskFactorFor(news,canonical,profile);
+   if(factor<=0.0 || factor>1.0) { reason="NEWS_RISK_FACTOR_INVALID"; return false; }
+   plan.base_risk_fraction*=factor;
+   plan.per_trade_cap_money*=factor;
+   return true;
   }
 
 bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
@@ -973,6 +984,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                        EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason) &&
                        EEA_ControlledLiveApplyNewsExpiry(news,strategy.engines[i].canonical_symbol,news_profile,
                                                          strategy.engines[i].timeframe,plan,reason) &&
+                       EEA_ControlledLiveApplyNewsRisk(news,strategy.engines[i].canonical_symbol,news_profile,
+                                                       plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);

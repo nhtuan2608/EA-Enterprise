@@ -60,6 +60,19 @@ def entry_block(state, profile, c):
     return {"ACTIVE": "NEWS_ACTIVE", "POST_NEWS": "NEWS_POST", "NORMALIZING": "NEWS_NORMALIZING"}.get(state, "")
 
 
+def indirect_window(events, currencies, now, c):
+    """events: list of (time_utc, currency, strength_sector). Returns (swing_blocked, scalp_reduced)."""
+    swing = scalp = False
+    if not c["enabled"]:
+        return swing, scalp
+    for t, currency, strength in events:
+        if currency in currencies or not strength:
+            continue
+        swing |= t - c["swing_block_before_min"] * 60 <= now < t + c["post_min"] * 60
+        scalp |= t - c["scalp_block_before_min"] * 60 <= now < t + c["post_min"] * 60
+    return swing, scalp
+
+
 def break_even_due(events, currencies, now, c):
     if not c["enabled"]:
         return False

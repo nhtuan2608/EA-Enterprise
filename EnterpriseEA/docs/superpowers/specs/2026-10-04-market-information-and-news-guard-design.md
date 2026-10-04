@@ -113,7 +113,12 @@ Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH của các đồ
 - **Hiện trạng:**
   - Dashboard hiện `WATCH (indirect)` màu vàng cho symbol có tin gián tiếp trong cửa sổ SWING.
   - Bộ ghi phản ứng đo riêng các trường hợp `INDIRECT`.
-  - **Hành vi giao dịch ở mức vàng chờ người dùng chốt.**
+- **Hành vi giao dịch ở mức vàng (người dùng chốt 04/10/2026, D6):**
+  - **SWING** ngừng vào lệnh mới từ T − 3 giờ tới T + 15 phút. Lý do ghi là `NEWS_INDIRECT_SWING`.
+  - **SCALP** vẫn vào lệnh trong khoảng T − 60 phút tới T + 15 phút, nhưng **rủi ro × 0,5**. Hệ số này chỉ có thể giảm rủi ro, không bao giờ tăng.
+  - **Không** hủy lệnh chờ và **không** dời SL hòa vốn; hai việc đó chỉ dành cho mức đỏ.
+  - Nếu cùng lúc có tin đỏ thì áp quy tắc của mức đỏ.
+  - Dashboard ghi rõ hành vi đang áp, ví dụ `SWING blocked, SCALP x0.5: EUR ECB Interest Rate Decision in 2h10m`.
 
 ## 7. Tác động lên vào lệnh, lệnh chờ và lệnh đang mở
 
@@ -186,6 +191,7 @@ Mức độ tin cố định là HIGH (D4).
 | D3 | Không đọc được lịch thì **chặn** lệnh mới (mặc định); người dùng bật `InpNewsAllowWhenUnknown` để vẫn cho phép. Lệnh đang mở vẫn được quản lý. |
 | D4 | Chỉ tin mức **HIGH**. |
 | D5 | **Không** đóng lệnh trước tin. |
+| D6 | Mức vàng (tin gián tiếp): SWING ngừng vào lệnh mới từ T−3h tới T+15 phút; SCALP vào với rủi ro × 0,5 từ T−60 tới T+15 phút; không hủy lệnh chờ, không dời SL hòa vốn. |
 
 ## 12. Kiểm thử
 

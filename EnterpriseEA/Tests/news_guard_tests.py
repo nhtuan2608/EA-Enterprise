@@ -2,7 +2,7 @@
 import unittest
 from pathlib import Path
 
-from news_guard_oracle import config, symbol_currencies, evaluate, entry_block, break_even_due
+from news_guard_oracle import config, symbol_currencies, evaluate, entry_block, break_even_due, indirect_window
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +76,35 @@ class NewsStateMachineTests(unittest.TestCase):
         self.assertTrue(break_even_due(self.usd, ["USD"], T - 15 * MIN, self.c))
         self.assertTrue(break_even_due(self.usd, ["USD"], T + 14 * MIN, self.c))
         self.assertFalse(break_even_due(self.usd, ["USD"], T + 15 * MIN, self.c))
+
+
+class IndirectYellowTests(unittest.TestCase):
+    def test_yellow_windows(self):
+        c = config()
+        ecb = [(T, "EUR", True)]
+        xau = ["USD"]
+        self.assertEqual(indirect_window(ecb, xau, T - 181 * MIN, c), (False, False))
+        self.assertEqual(indirect_window(ecb, xau, T - 180 * MIN, c), (True, False))
+        self.assertEqual(indirect_window(ecb, xau, T - 60 * MIN, c), (True, True))
+        self.assertEqual(indirect_window(ecb, xau, T + 14 * MIN, c), (True, True))
+        self.assertEqual(indirect_window(ecb, xau, T + 15 * MIN, c), (False, False))
+        # Own currency is red, not yellow; non-strength sectors are ignored.
+        self.assertEqual(indirect_window([(T, "USD", True)], xau, T, c), (False, False))
+        self.assertEqual(indirect_window([(T, "EUR", False)], xau, T, c), (False, False))
+
+    def test_yellow_policy_in_source(self):
+        cal = read("News/NewsCalendar.mqh")
+        block = section(cal, "string EEA_NewsEntryBlockFor")
+        self.assertIn('if(profile=="SWING" && rt.symbols[i].indirect_swing_blocked) return "NEWS_INDIRECT_SWING";', block)
+        factor = section(cal, "double EEA_NewsRiskFactorFor")
+        self.assertIn('profile=="SWING"', factor)
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        self.assertIn("EEA_ControlledLiveApplyNewsRisk(news,", live)
+        pending = section(live, "void EEA_PendingApplyNews")
+        self.assertIn("EEA_NewsDirectBlockFor(", pending)           # yellow never cancels pending orders
+        self.assertNotIn("EEA_NewsEntryBlockFor(", pending)
+        state = read("News/NewsState.mqh")
+        self.assertIn("c.indirect_scalp_factor=0.5;", state)
 
 
 class NewsStateParityTests(unittest.TestCase):

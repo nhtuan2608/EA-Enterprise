@@ -39,6 +39,7 @@ struct EEA_NewsConfig
    double be_min_r;                 // D2: 0.3
    bool   allow_when_unknown;       // D3: false = block
    string ignore_keywords;          // comma list matched against event names; empty = keep every HIGH event
+   double indirect_scalp_factor;    // yellow: SCALP risk multiplier (0.5)
   };
 
 void EEA_NewsConfigDefaults(EEA_NewsConfig &c)
@@ -46,6 +47,7 @@ void EEA_NewsConfigDefaults(EEA_NewsConfig &c)
    c.enabled=true; c.scalp_block_before_min=60; c.swing_block_before_min=180; c.active_min=5;
    c.post_min=15; c.max_normalize_min=60; c.be_before_min=15; c.be_min_r=0.3; c.allow_when_unknown=false;
    c.ignore_keywords="";
+   c.indirect_scalp_factor=0.5;
   }
 
 bool EEA_NewsConfigValid(const EEA_NewsConfig &c)
@@ -86,6 +88,26 @@ bool EEA_NewsIndirectAffects(const string currencies,const string event_currency
   {
    return currencies!="" && event_currency!="" && EEA_NewsCurrencyTracked(event_currency) &&
           !EEA_NewsAffects(currencies,event_currency) && EEA_NewsStrengthSector(sector);
+  }
+
+// Yellow policy (user decision 04/10/2026): around an indirect event SWING takes no new
+// entry from T-swing_block until T+post, SCALP enters with risk x indirect_scalp_factor from
+// T-scalp_block until T+post. Pending orders are not cancelled and no break-even is forced.
+void EEA_NewsIndirectWindow(const EEA_NewsEvent &events[],const int count,const string currencies,const long now,
+                            const EEA_NewsConfig &c,bool &swing_blocked,bool &scalp_reduced,string &label)
+  {
+   swing_blocked=false; scalp_reduced=false; label="";
+   if(!c.enabled) return;
+   for(int i=0;i<count;i++)
+     {
+      if(!EEA_NewsIndirectAffects(currencies,events[i].currency,events[i].sector)) continue;
+      const long t=events[i].time_utc;
+      bool swing=(now>=t-c.swing_block_before_min*60 && now<t+c.post_min*60);
+      bool scalp=(now>=t-c.scalp_block_before_min*60 && now<t+c.post_min*60);
+      if(swing && label=="") label=events[i].currency+" "+events[i].name;
+      swing_blocked=swing_blocked || swing;
+      scalp_reduced=scalp_reduced || scalp;
+     }
   }
 
 // Currencies published by the MT5 economic calendar that the guard follows.

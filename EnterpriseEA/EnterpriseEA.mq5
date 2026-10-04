@@ -400,7 +400,8 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
       IntegerToString(g_news.cfg.swing_block_before_min%60)+"m" : "")+" before; break-even "+
       IntegerToString(g_news.cfg.be_before_min)+"m before at "+DoubleToString(g_news.cfg.be_min_r,1)+
       "R; unknown calendar: "+(g_news.cfg.allow_when_unknown ? "ALLOW" : "BLOCK")+
-      (g_news.cfg.ignore_keywords=="" ? "" : "; ignoring: "+g_news.cfg.ignore_keywords);
+      (g_news.cfg.ignore_keywords=="" ? "" : "; ignoring: "+g_news.cfg.ignore_keywords)+
+      "; indirect: SWING blocked, SCALP risk x"+DoubleToString(g_news.cfg.indirect_scalp_factor,1);
    long now=(long)TimeGMT();
    view.news_symbol_count=MathMin(g_news.symbol_count,EEA_PANEL_MAX_ROWS);
    for(int i=0;i<view.news_symbol_count;i++)
@@ -424,7 +425,9 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
    view.news_focus=focus;
    for(int i=0;i<view.news_symbol_count;i++)
       view.news_watch[i]=g_news.symbols[i].watch_event_utc>0 ?
-         "watch: "+g_news.symbols[i].watch_label+(g_news.symbols[i].watch_event_utc>now ? "  in " : "  ")+
+         (g_news.symbols[i].indirect_swing_blocked ? (g_news.symbols[i].indirect_scalp_reduced ?
+          "SWING blocked, SCALP x"+DoubleToString(g_news.cfg.indirect_scalp_factor,1)+": " : "SWING blocked: ") : "watch: ")+
+         g_news.symbols[i].watch_label+(g_news.symbols[i].watch_event_utc>now ? "  in " : "  ")+
          EEA_SymbolPanelDurationText(MathAbs(g_news.symbols[i].watch_event_utc-now))+
          (g_news.symbols[i].watch_event_utc>now ? "" : " ago") : "";
    view.news_recent_count=g_news_reaction.recent_count;

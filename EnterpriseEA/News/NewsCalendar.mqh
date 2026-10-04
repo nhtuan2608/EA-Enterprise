@@ -31,8 +31,10 @@ struct EEA_NewsSymbol
    long   normalized_event_utc;
    long   normal_at_utc;          // last time the state returned to NORMAL (recorder timing)
    long   timeout_event_utc;      // event whose normalization timed out
-   long   watch_event_utc;        // next indirect (yellow) event, display only
+   long   watch_event_utc;        // next indirect (yellow) event
    string watch_label;
+   bool   indirect_swing_blocked; // yellow: SWING takes no new entry
+   bool   indirect_scalp_reduced; // yellow: SCALP risk reduced
   };
 
 // Recent News Guard effects (entry blocks, pending cancels) for the reaction recorder.
@@ -260,6 +262,7 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
       s.normal_at_utc=prev>=0 ? rt.symbols[prev].normal_at_utc : 0;
       s.timeout_event_utc=prev>=0 ? rt.symbols[prev].timeout_event_utc : 0;
       s.watch_event_utc=0; s.watch_label="";
+      s.indirect_swing_blocked=false; s.indirect_scalp_reduced=false;
       string before=prev>=0 ? rt.symbols[prev].state : "";
       s.currencies=brokers[i]=="" ? "" :
          EEA_NewsSymbolCurrencies(SymbolInfoString(brokers[i],SYMBOL_CURRENCY_BASE),
@@ -278,7 +281,10 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
            }
          s.state=phase.state; s.event_utc=phase.event_utc; s.event_label=phase.event_label;
          s.next_event_utc=phase.next_event_utc; s.next_label=phase.next_label;
-         // Next indirect (yellow) event within the SWING window, display only.
+         string indirect_label;
+         EEA_NewsIndirectWindow(rt.events,rt.count,s.currencies,now,rt.cfg,s.indirect_swing_blocked,
+                                s.indirect_scalp_reduced,indirect_label);
+         // Next indirect (yellow) event within the SWING window.
          for(int e=0;e<rt.count;e++)
             if(rt.events[e].time_utc>=now-rt.cfg.post_min*60 &&
                rt.events[e].time_utc<=now+rt.cfg.swing_block_before_min*60 &&
@@ -315,10 +321,30 @@ string EEA_NewsStateFor(const EEA_NewsRuntime &rt,const string canonical)
    return rt.symbols[i].state;
   }
 
-string EEA_NewsEntryBlockFor(const EEA_NewsRuntime &rt,const string canonical,const string profile)
+// Red only: used for working pending orders (yellow never cancels them).
+string EEA_NewsDirectBlockFor(const EEA_NewsRuntime &rt,const string canonical,const string profile)
   {
    if(!rt.initialized) return "NEWS_GUARD_NOT_READY";
    return EEA_NewsEntryBlock(EEA_NewsStateFor(rt,canonical),profile,rt.cfg);
+  }
+
+// New entries: red first, then yellow (SWING blocked around an indirect event).
+string EEA_NewsEntryBlockFor(const EEA_NewsRuntime &rt,const string canonical,const string profile)
+  {
+   string red=EEA_NewsDirectBlockFor(rt,canonical,profile);
+   if(red!="") return red;
+   int i=EEA_NewsSymbolIndex(rt,canonical);
+   if(i<0 || rt.disabled || !rt.cfg.enabled) return "";
+   if(profile=="SWING" && rt.symbols[i].indirect_swing_blocked) return "NEWS_INDIRECT_SWING";
+   return "";
+  }
+
+// Yellow: SCALP risk multiplier around an indirect event (1.0 otherwise).
+double EEA_NewsRiskFactorFor(const EEA_NewsRuntime &rt,const string canonical,const string profile)
+  {
+   int i=EEA_NewsSymbolIndex(rt,canonical);
+   if(i<0 || rt.disabled || !rt.cfg.enabled || profile=="SWING") return 1.0;
+   return rt.symbols[i].indirect_scalp_reduced ? rt.cfg.indirect_scalp_factor : 1.0;
   }
 
 long EEA_NewsBlockStartFor(const EEA_NewsRuntime &rt,const string canonical,const string profile)
