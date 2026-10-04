@@ -335,7 +335,9 @@ void EEA_AiLocalClock(const long local_offset_seconds,long &day,int &minute_of_d
 void EEA_AiRollDay(EEA_AiClient &c,const long day)
   {
    if(c.day_local==day) return;
-   c.day_local=day; c.calls_today=0;
+   // First run: adopt the day without dropping requests already counted since init.
+   if(c.day_local!=0) c.calls_today=0;
+   c.day_local=day;
    EEA_AiSaveState(c);
   }
 

@@ -566,13 +566,13 @@ string EEA_AiContextDiagnostics()
       string lines[];
       int n=StringSplit(text,'\n',lines);
       string cutoff=EEA_IsoUtc((datetime)((long)TimeGMT()-86400));
-      for(int i=0;i<n;i++)
+      // The first line of a tail read starts mid-record: skip it.
+      for(int i=(from>0 ? 1 : 0);i<n;i++)
         {
          string at=EEA_AiField(lines[i],"occurred_at_utc");
          if(at=="" || StringCompare(at,cutoff)<0) continue;
          scanned++;
          string type=EEA_AiField(lines[i],"event_type");
-         if(type=="RUNTIME_REFRESHED") { }
          int f=-1;
          for(int j=0;j<nt;j++) if(types[j]==type) { f=j; break; }
          if(f<0 && nt<60) { ArrayResize(types,nt+1); ArrayResize(counts,nt+1); types[nt]=type; counts[nt]=1; nt++; }
