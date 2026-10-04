@@ -22,6 +22,7 @@
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
 #include "Runtime/SetupReplay.mqh"
+#include "Runtime/BarExport.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
 #include "Market/ConfluenceLevels.mqh"
 #include "Risk/RiskLimitsProfile.mqh"
@@ -47,6 +48,7 @@ enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
 input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
+input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;
@@ -106,6 +108,7 @@ EEA_ObserverRuntimeContext g_runtime;
 EEA_StrategyCandidateRuntime g_strategy_runtime;
 bool g_strategy_checkpoints_loaded=false;
 EEA_ReplayRuntime g_setup_replay;
+EEA_BarExportRuntime g_bar_export;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
@@ -1102,6 +1105,7 @@ int OnInit()
    EEA_AiClientInit(g_ai,g_config.data_root,InpAiEnabled,InpAiMaxCallsPerDay);
    EEA_SetupReplayInit(g_setup_replay,g_config.data_root,InpSetupReplayEnabled && InpStrategyRuntimeEnabled &&
                        !InpS02UsePrototype,(long)InpSetupReplayFrom);
+   EEA_BarExportInit(g_bar_export,g_config.data_root,InpResearchExportBars,(long)InpSetupReplayFrom);
    if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
@@ -1224,6 +1228,7 @@ void OnTimer()
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
           EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
+          EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
