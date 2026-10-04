@@ -97,6 +97,15 @@ struct EEA_Reaction
    int    entries_blocked;
    int    pending_cancelled;
    string quality;                        // OK | INCOMPLETE_<reason>
+   // News Guard replay (P1): what the guard would have done around this event
+   long   server_offset;                  // trade-server offset used for this event
+   bool   replay_ok;
+   int    guard_block_end_min;            // minutes after T when new entries would resume
+   bool   guard_covered;                  // volatility and spread were back to normal by then
+   double residual_after_block_atr;       // largest move in the 60 minutes after the block, in ATR
+   bool   has_pre_drift;
+   double pre_drift_scalp_atr;            // move during the SCALP pre-block window (T-60 .. T)
+   double pre_drift_swing_atr;            // move during the SWING pre-block window (T-180 .. T)
   };
 
 void EEA_ReactionDefaults(EEA_Reaction &r)
@@ -114,6 +123,15 @@ void EEA_ReactionDefaults(EEA_Reaction &r)
    r.guard_normal_min=-1; r.guard_timeout=false;
    r.positions_open=0; r.positions_detail=""; r.exits_in_window=0; r.be_before_news=0; r.be_would_have_hit_sl=0;
    r.entries_blocked=0; r.pending_cancelled=0; r.quality="";
+   r.server_offset=0; r.replay_ok=false; r.guard_block_end_min=-1; r.guard_covered=false; r.residual_after_block_atr=0.0;
+   r.has_pre_drift=false; r.pre_drift_scalp_atr=0.0; r.pre_drift_swing_atr=0.0;
+  }
+
+// Recovery minutes used by the replay: -1 when either recovery never happened in its window.
+double EEA_NewsReactionRecoveryMinRaw(const int spread_recovery_min,const int vol_recovery_min)
+  {
+   if(vol_recovery_min<0) return -1.0;
+   return MathMax((double)vol_recovery_min,(double)MathMax(0,spread_recovery_min));
   }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +242,68 @@ void EEA_NewsReactionPath(EEA_Reaction &r,const EEA_ReactionBar &bars[],const in
    r.quality=r.move_ok[3] ? "OK" : "INCOMPLETE_NO_60M_PRICE";
   }
 
+// ---------------------------------------------------------------------------
+// News Guard replay. Red: entries resume after POST_NEWS once volatility and spread are
+// back (recovery), bounded by [post, max_normalize]. Yellow: SWING resumes at T+post.
+// Covered = both recoveries happened by the block end. Residual = largest excursion in
+// the 60 minutes after the block end. Pre drift = move inside the pre-block windows.
+// ---------------------------------------------------------------------------
+void EEA_NewsGuardReplay(EEA_Reaction &r,const EEA_ReactionBar &bars[],const int n,const int scalp_before_min,
+                         const int swing_before_min,const int post_min,const int max_normalize_min)
+  {
+   r.replay_ok=false;
+   const long T=r.event_utc;
+   const double atr=r.atr_ref;
+   if(atr<=0.0 || r.p0<=0.0) return;
+   int recovery=(int)EEA_NewsReactionRecoveryMinRaw(r.spread_recovery_min,r.vol_recovery_min);
+   if(r.impact=="INDIRECT") r.guard_block_end_min=post_min;
+   else r.guard_block_end_min=recovery<0 ? max_normalize_min : MathMax(post_min,MathMin(max_normalize_min,recovery));
+   r.guard_covered=(r.vol_recovery_min>=0 && r.vol_recovery_min<=r.guard_block_end_min &&
+                    (r.spread_recovery_min<0 ? r.spread_source=="" : r.spread_recovery_min<=r.guard_block_end_min));
+   const long block_end=T+r.guard_block_end_min*60;
+   int k=EEA_NewsBarClosingBy(bars,n,block_end);
+   if(k<0) return;
+   double ref=bars[k].c, far=0.0;
+   for(int i=k+1;i<n && bars[i].t<block_end+3600;i++)
+      far=MathMax(far,MathMax(bars[i].h-ref,ref-bars[i].l));
+   r.residual_after_block_atr=far/atr;
+   int s60=EEA_NewsBarClosingBy(bars,n,T-scalp_before_min*60);
+   int s180=EEA_NewsBarClosingBy(bars,n,T-swing_before_min*60);
+   if(s60>=0 && s180>=0 && bars[s180].t>=T-swing_before_min*60-600)
+     {
+      r.has_pre_drift=true;
+      r.pre_drift_scalp_atr=(r.p0-bars[s60].c)/atr;
+      r.pre_drift_swing_atr=(r.p0-bars[s180].c)/atr;
+     }
+   r.replay_ok=true;
+  }
+
+// US daylight saving: second Sunday of March 07:00 UTC to first Sunday of November 06:00 UTC.
+long EEA_NewsNthSundayUtc(const int year,const int month,const int nth)
+  {
+   MqlDateTime d; ZeroMemory(d); d.year=year; d.mon=month; d.day=1;
+   long first=(long)StructToTime(d);
+   MqlDateTime w; TimeToStruct((datetime)first,w);
+   int offset=(7-w.day_of_week)%7;
+   return first+(offset+(nth-1)*7)*86400;
+  }
+
+bool EEA_NewsUsDstAt(const long utc)
+  {
+   MqlDateTime d; TimeToStruct((datetime)utc,d);
+   long start=EEA_NewsNthSundayUtc(d.year,3,2)+7*3600;
+   long end=EEA_NewsNthSundayUtc(d.year,11,1)+6*3600;
+   return utc>=start && utc<end;
+  }
+
+// Trade-server offset at a past instant for a broker on New York close time (summer
+// offset now = winter offset + 1 hour). current_offset is the offset observed now.
+long EEA_NewsServerOffsetAt(const long utc,const long current_offset,const long now_utc)
+  {
+   long winter=current_offset-(EEA_NewsUsDstAt(now_utc) ? 3600 : 0);
+   return winter+(EEA_NewsUsDstAt(utc) ? 3600 : 0);
+  }
+
 double EEA_NewsMedian(double &values[],const int n)
   {
    if(n<=0) return 0.0;
@@ -280,6 +360,9 @@ struct EEA_ReactionSummary
    double recovery_min;     // max(spread recovery, volatility recovery); 240 when never
    bool   reversal;
    bool   ok;
+   bool   replay_ok;
+   bool   covered;
+   double residual_atr;
   };
 
 struct EEA_ReactionStats
@@ -290,6 +373,9 @@ struct EEA_ReactionStats
    double median_spread_ratio;
    double median_recovery_min;
    double reversal_rate;
+   int    replay_n;
+   double covered_rate;
+   double median_residual_atr;
    bool   has_suggestion;
    int    suggested_post_min;
    string suggested_pre;    // KEEP | REDUCE
@@ -305,13 +391,16 @@ double EEA_NewsReactionRecoveryMin(const EEA_Reaction &r)
 void EEA_NewsReactionStats(const EEA_ReactionSummary &rows[],const int count,const string group,EEA_ReactionStats &s)
   {
    s.n=0; s.median_move15_atr=0.0; s.p80_move60_atr=0.0; s.median_spread_ratio=0.0; s.median_recovery_min=0.0;
-   s.reversal_rate=0.0; s.has_suggestion=false; s.suggested_post_min=0; s.suggested_pre="";
+   s.reversal_rate=0.0; s.replay_n=0; s.covered_rate=0.0; s.median_residual_atr=0.0; s.has_suggestion=false; s.suggested_post_min=0; s.suggested_pre="";
    double m15[],m60[],sp[],rec[];
    ArrayResize(m15,count); ArrayResize(m60,count); ArrayResize(sp,count); ArrayResize(rec,count);
-   int reversals=0;
+   int reversals=0, covered=0;
+   double residual[];
+   ArrayResize(residual,count);
    for(int i=0;i<count;i++)
      {
       if(!rows[i].ok || rows[i].group!=group) continue;
+      if(rows[i].replay_ok) { residual[s.replay_n]=rows[i].residual_atr; if(rows[i].covered) covered++; s.replay_n++; }
       m15[s.n]=MathAbs(rows[i].move15_atr); m60[s.n]=MathAbs(rows[i].move60_atr);
       sp[s.n]=rows[i].spread_ratio; rec[s.n]=rows[i].recovery_min;
       if(rows[i].reversal) reversals++;
@@ -323,6 +412,8 @@ void EEA_NewsReactionStats(const EEA_ReactionSummary &rows[],const int count,con
    s.median_spread_ratio=EEA_NewsMedian(sp,s.n);
    s.median_recovery_min=EEA_NewsMedian(rec,s.n);
    s.reversal_rate=(double)reversals/s.n;
+   if(s.replay_n>0)
+     { s.covered_rate=(double)covered/s.replay_n; s.median_residual_atr=EEA_NewsMedian(residual,s.replay_n); }
    if(s.n>=EEA_NR_MIN_SAMPLES_FOR_SUGGESTION)
      {
       s.has_suggestion=true;

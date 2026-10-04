@@ -143,7 +143,7 @@ class ClusterTests(unittest.TestCase):
         self.assertIn("if(values[j].time!=values[i].time) continue;", rec)
         self.assertIn("EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);", rec)
         self.assertIn('EEA_NrField(line,"cluster_lead")!="false"', rec)
-        self.assertIn('if(key=="" || StringFind(line,"\\"cluster_events\\":")<0) continue;', rec)
+        self.assertIn('StringFind(line,"\\"cluster_events\\":")<0', rec)
         self.assertNotIn('\\"x\\"', rec)
         shell = read("EnterpriseEA.mq5")
         self.assertIn("EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,focus,stats)", shell)
@@ -159,6 +159,47 @@ class ClusterTests(unittest.TestCase):
         b = label(["USD Nonfarm Payrolls", "USD Average Hourly Earnings", "USD Unemployment Rate"])
         self.assertEqual(a, b)
         self.assertTrue(a.startswith("USD Average Hourly Earnings + "))
+
+
+class GuardReplayTests(unittest.TestCase):
+    def test_replay_fields_and_rules(self):
+        pure = read("News/NewsReaction.mqh")
+        replay = section(pure, "void EEA_NewsGuardReplay")
+        self.assertIn('if(r.impact=="INDIRECT") r.guard_block_end_min=post_min;', replay)
+        self.assertIn("MathMax(post_min,MathMin(max_normalize_min,recovery))", replay)
+        self.assertIn("r.residual_after_block_atr=far/atr;", replay)
+        self.assertIn("r.pre_drift_swing_atr", replay)
+        rec = read("News/NewsReactionRecorder.mqh")
+        self.assertIn("EEA_NewsGuardReplay(r,bars,copied,", rec)
+        self.assertIn('StringFind(line,"\\"guard_block_end_min\\":")<0', rec)   # older lines are re-measured
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("input datetime InpNewsReplayFrom        = D'2026.01.01 00:00';", shell)
+
+    def test_us_dst_server_offset(self):
+        import datetime as dt
+
+        def nth_sunday(year, month, nth):
+            d = dt.datetime(year, month, 1)
+            first = d + dt.timedelta(days=(6 - d.weekday()) % 7)
+            return first + dt.timedelta(days=7 * (nth - 1))
+
+        def us_dst(t):
+            start = nth_sunday(t.year, 3, 2) + dt.timedelta(hours=7)
+            end = nth_sunday(t.year, 11, 1) + dt.timedelta(hours=6)
+            return start <= t < end
+
+        def offset_at(t, current_offset, now):
+            winter = current_offset - (3600 if us_dst(now) else 0)
+            return winter + (3600 if us_dst(t) else 0)
+
+        now = dt.datetime(2026, 10, 4, 6, 0)
+        self.assertEqual(offset_at(dt.datetime(2026, 1, 9, 13, 30), 10800, now), 7200)   # January: GMT+2
+        self.assertEqual(offset_at(dt.datetime(2026, 7, 3, 12, 30), 10800, now), 10800)  # July: GMT+3
+        self.assertEqual(nth_sunday(2026, 3, 2).day, 8)
+        self.assertEqual(nth_sunday(2026, 11, 1).day, 1)
+        pure = read("News/NewsReaction.mqh")
+        self.assertIn("EEA_NewsNthSundayUtc(d.year,3,2)+7*3600", pure)
+        self.assertIn("EEA_NewsNthSundayUtc(d.year,11,1)+6*3600", pure)
 
 
 if __name__ == "__main__":

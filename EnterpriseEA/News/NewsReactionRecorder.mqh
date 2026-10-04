@@ -15,7 +15,8 @@
 #define EEA_NR_LIVE_LOOKBACK_SECONDS (48*3600)
 #define EEA_NR_SETTLE_SECONDS (4*3600+300)
 #define EEA_NR_BACKFILL_SECONDS (84*86400)          // R2: 12 weeks
-#define EEA_NR_MAX_PER_TIMER 6
+#define EEA_NR_MAX_PER_TIMER 12
+#define EEA_NR_MAX_MS_PER_TIMER 2500     // stop the batch after this much work in one timer
 #define EEA_NR_LIVE_SCAN_SECONDS 300
 #define EEA_NR_MAX_NOT_READY 5
 #define EEA_NR_RECENT 3
@@ -28,6 +29,7 @@ struct EEA_NewsReactionRuntime
    int    summary_count;
    EEA_ReactionSummary summaries[];
    long   backfill_cursor_utc;
+   long   backfill_from_utc;               // P1: replay starts here (default 2026-01-01)
    bool   backfill_done;
    int    not_ready_attempts;
    long   last_live_scan_utc;
@@ -90,7 +92,7 @@ string EEA_NrRecentText(const EEA_Reaction &r)
   }
 
 // Restores keys, summaries and the backfill cursor so nothing is measured twice.
-void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
+void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const long backfill_from_utc)
   {
    rt.loaded=true; rt.key_count=0; rt.summary_count=0; rt.recent_count=0; rt.not_ready_attempts=0;
    rt.last_live_scan_utc=0; rt.reason="NEWS_REACTION_LOADED";
@@ -108,7 +110,7 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
             string key=EEA_NrField(line,"key");
             // Lines written before clusters existed are re-measured with their cluster; the old
             // lines stay in the log but no longer count.
-            if(key=="" || StringFind(line,"\"cluster_events\":")<0) continue;
+            if(key=="" || StringFind(line,"\"cluster_events\":")<0 || StringFind(line,"\"guard_block_end_min\":")<0) continue;
             EEA_ReactionSummary s;
             string group=EEA_NrField(line,"group");
             s.group=group!="" ? group : EEA_NrGroup(EEA_NrField(line,"currency"),EEA_NrField(line,"event"),EEA_NrField(line,"symbol"));
@@ -118,6 +120,9 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
             s.spread_ratio=StringToDouble(EEA_NrField(line,"spread_peak_ratio"));
             s.recovery_min=StringToDouble(EEA_NrField(line,"recovery_min"));
             s.reversal=EEA_NrField(line,"reversal_60m")=="true";
+            s.replay_ok=EEA_NrField(line,"replay_ok")=="true";
+            s.covered=EEA_NrField(line,"guard_covered")=="true";
+            s.residual_atr=StringToDouble(EEA_NrField(line,"residual_after_block_atr"));
             // Only the lead record of a cluster feeds the statistics (records before clusters count alone).
             EEA_NrRemember(rt,key,s,"",EEA_NrField(line,"cluster_lead")!="false");
            }
@@ -126,9 +131,13 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
       else rt.reason="NEWS_REACTION_LOG_UNREADABLE";
      }
    string json;
-   rt.backfill_cursor_utc=(long)TimeGMT()-EEA_NR_BACKFILL_SECONDS-EEA_NR_LIVE_LOOKBACK_SECONDS;
+   rt.backfill_from_utc=backfill_from_utc>0 ? backfill_from_utc :
+                        (long)TimeGMT()-EEA_NR_BACKFILL_SECONDS-EEA_NR_LIVE_LOOKBACK_SECONDS;
+   rt.backfill_cursor_utc=rt.backfill_from_utc;
    rt.backfill_done=false;
-   if(EEA_PendingReadText(EEA_NrBackfillPath(root),json))
+   // A backfill that started from another date (or before the replay fields) restarts.
+   if(EEA_PendingReadText(EEA_NrBackfillPath(root),json) &&
+      StringToInteger(EEA_NrField(json,"from_utc"))==rt.backfill_from_utc)
      {
       long cursor=StringToInteger(EEA_NrField(json,"cursor_utc"));
       if(cursor>0) rt.backfill_cursor_utc=cursor;
@@ -138,7 +147,8 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root)
 
 void EEA_NrWriteBackfill(const EEA_NewsReactionRuntime &rt,const string root)
   {
-   EEA_WriteAtomicText(EEA_NrBackfillPath(root),"{\"document_version\":\"news-reaction-backfill-v1.0.0\",\"cursor_utc\":"+
+   EEA_WriteAtomicText(EEA_NrBackfillPath(root),"{\"document_version\":\"news-reaction-backfill-v1.1.0\",\"from_utc\":"+
+                       IntegerToString(rt.backfill_from_utc)+",\"cursor_utc\":"+
                        IntegerToString(rt.backfill_cursor_utc)+",\"done\":"+(rt.backfill_done ? "true" : "false")+"}");
   }
 
@@ -184,6 +194,12 @@ string EEA_NrJson(const EEA_Reaction &r)
       "\",\"exits_in_window\":"+IntegerToString(r.exits_in_window)+",\"be_before_news\":"+IntegerToString(r.be_before_news)+
       ",\"be_would_have_hit_sl\":"+IntegerToString(r.be_would_have_hit_sl)+
       ",\"entries_blocked\":"+IntegerToString(r.entries_blocked)+",\"pending_cancelled\":"+IntegerToString(r.pending_cancelled)+
+      ",\"replay_ok\":"+(r.replay_ok ? "true" : "false")+",\"guard_block_end_min\":"+IntegerToString(r.guard_block_end_min)+
+      ",\"guard_covered\":"+(r.guard_covered ? "true" : "false")+
+      EEA_NrNum("residual_after_block_atr",r.replay_ok,r.residual_after_block_atr,3)+
+      EEA_NrNum("pre_drift_scalp_atr",r.has_pre_drift,r.pre_drift_scalp_atr,3)+
+      EEA_NrNum("pre_drift_swing_atr",r.has_pre_drift,r.pre_drift_swing_atr,3)+
+      ",\"server_offset\":"+IntegerToString(r.server_offset)+
       ",\"quality\":\""+r.quality+"\",\"recorded_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
    return json;
   }
@@ -227,13 +243,16 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
   {
    const string key=IntegerToString((long)value.id)+"|"+canonical;
    if(EEA_NrKnown(rt,key)) return 0;
-   const long offset=EEA_NewsServerOffsetSeconds();
+   const long now_offset=EEA_NewsServerOffsetSeconds();
+   // Offset valid at the event (broker on New York close: one hour less in US winter time).
+   const long offset=EEA_NewsServerOffsetAt((long)value.time-now_offset,now_offset,(long)TimeGMT());
    EEA_Reaction r;
    EEA_ReactionDefaults(r);
    r.key=key; r.source=source; r.symbol=canonical; r.currency=currency; r.event_name=ev.name; r.impact=impact;
    r.cluster_label=cluster_label!="" ? cluster_label : currency+" "+ev.name;
    r.cluster_size=MathMax(1,cluster_size); r.cluster_lead=cluster_lead;
    r.event_utc=(long)value.time-offset;
+   r.server_offset=offset;
    const long T=r.event_utc;
    r.has_actual=value.HasActualValue(); if(r.has_actual) r.actual=value.GetActualValue();
    r.has_forecast=value.HasForecastValue(); if(r.has_forecast) r.forecast=value.GetForecastValue();
@@ -246,7 +265,8 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    r.atr_ref=EEA_NrAtrRef(broker,T,offset,atr_copied);
    MqlRates m1[];
    ArraySetAsSeries(m1,false);
-   int copied=CopyRates(broker,PERIOD_M1,(datetime)(T+offset-1800),(datetime)(T+offset+4*3600),m1);
+   int copied=CopyRates(broker,PERIOD_M1,(datetime)(T+offset-news.cfg.swing_block_before_min*60-900),
+                        (datetime)(T+offset+4*3600),m1);
    if(copied<0 || atr_copied<0) return -1;      // terminal still loading history
    EEA_ReactionBar bars[];
    ArrayResize(bars,MathMax(copied,0));
@@ -289,6 +309,8 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
       if(v>0) { base_sum+=(double)v; base_days++; }
      }
    if(base_days>=3 && base_sum>0.0) { r.has_volume_ratio=true; r.tick_volume_ratio_15m=after/(base_sum/base_days); }
+   EEA_NewsGuardReplay(r,bars,copied,news.cfg.scalp_block_before_min,news.cfg.swing_block_before_min,
+                       news.cfg.post_min,news.cfg.max_normalize_min);
    // News Guard timing for this symbol.
    int si=EEA_NewsSymbolIndex(news,canonical);
    if(si>=0)
@@ -343,6 +365,7 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    s.spread_ratio=r.spread_peak_ratio;
    s.recovery_min=EEA_NewsReactionRecoveryMin(r);
    s.reversal=r.reversal_60;
+   s.replay_ok=r.replay_ok; s.covered=r.guard_covered; s.residual_atr=r.residual_after_block_atr;
    EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);
    return 1;
   }
@@ -354,14 +377,17 @@ long EEA_NrProcessWindow(EEA_NewsReactionRuntime &rt,const string root,CAuditLog
                          const string source,const EEA_NewsRuntime &news,const EEA_TradeManagerRuntime &trades,
                          int &budget)
   {
-   const long offset=EEA_NewsServerOffsetSeconds();
+   const long now_offset=EEA_NewsServerOffsetSeconds();
+   const long now=(long)TimeGMT();
+   const uint started=GetTickCount();
    MqlCalendarValue values[];
-   if(!CalendarValueHistory(values,(datetime)(from+offset),(datetime)(to+offset),NULL,NULL)) return -1;
+   if(!CalendarValueHistory(values,(datetime)(from+EEA_NewsServerOffsetAt(from,now_offset,now)),
+                            (datetime)(to+EEA_NewsServerOffsetAt(to,now_offset,now)),NULL,NULL)) return -1;
    long done_until=to;
    int total=ArraySize(values);
    for(int i=0;i<total;i++)
      {
-      long T=(long)values[i].time-offset;
+      long T=(long)values[i].time-EEA_NewsServerOffsetAt((long)values[i].time-now_offset,now_offset,now);
       if(T<=from) continue;
       MqlCalendarEvent ev;
       if(!CalendarEventById(values[i].event_id,ev) || ev.importance!=CALENDAR_IMPORTANCE_HIGH) continue;
@@ -392,7 +418,7 @@ long EEA_NrProcessWindow(EEA_NewsReactionRuntime &rt,const string root,CAuditLog
          string cluster=EEA_NewsClusterLabel(labels,label_count);
          bool lead=(label_count<=1 || labels[0]==country.currency+" "+ev.name);
          if(EEA_NrKnown(rt,IntegerToString((long)values[i].id)+"|"+news.symbols[s].canonical)) continue;
-         if(budget<=0) return T-1;
+         if(budget<=0 || GetTickCount()-started>EEA_NR_MAX_MS_PER_TIMER) return T-1;
          int status=EEA_NrRecord(rt,root,audit,values[i],ev,country.currency,news.symbols[s].canonical,
                                  news.symbols[s].broker,source,impact,cluster,label_count,lead,news,trades);
          if(status<0) return -1;
@@ -404,10 +430,11 @@ long EEA_NrProcessWindow(EEA_NewsReactionRuntime &rt,const string root,CAuditLog
 
 // Timer entry point: LIVE records for the last 48 hours once settled, then BACKFILL.
 void EEA_NewsReactionUpdate(EEA_NewsReactionRuntime &rt,CAuditLog &audit,const string root,
-                            const EEA_NewsRuntime &news,const EEA_TradeManagerRuntime &trades)
+                            const EEA_NewsRuntime &news,const EEA_TradeManagerRuntime &trades,
+                            const long backfill_from_utc)
   {
    if(!news.initialized || news.disabled || news.symbol_count==0) { rt.reason="NEWS_REACTION_WAIT_GUARD"; return; }
-   if(!rt.loaded) EEA_NewsReactionLoad(rt,root);
+   if(!rt.loaded) EEA_NewsReactionLoad(rt,root,backfill_from_utc);
    const long now=(long)TimeGMT();
    int budget=EEA_NR_MAX_PER_TIMER;
    if(now-rt.last_live_scan_utc>=EEA_NR_LIVE_SCAN_SECONDS)

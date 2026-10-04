@@ -65,6 +65,7 @@ input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for 
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
 input string InpNewsIgnoreKeywords      = "";     // News Guard: comma list of HIGH event names to ignore (empty = none)
+input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -463,6 +464,7 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
       if(focus!="" && cluster!="" && EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,focus,stats))
          view.news_event_stats[k]=focus+" n="+IntegerToString(stats.n)+"  15m "+DoubleToString(stats.median_move15_atr,1)+
             "A  sp x"+DoubleToString(stats.median_spread_ratio,1)+"  ~"+DoubleToString(stats.median_recovery_min,0)+"m"+
+            (stats.replay_n>0 ? "  guard cov "+DoubleToString(stats.covered_rate*100.0,0)+"%" : "")+
             (stats.has_suggestion ? "  suggest post "+IntegerToString(stats.suggested_post_min)+"m, pre "+stats.suggested_pre : "");
       else
          view.news_event_stats[k]="";
@@ -815,7 +817,7 @@ void OnTimer()
           EEA_TradeManagerUpdate(g_trade_manager,g_audit,g_config.data_root,g_runtime,
                                  g_live_config.enabled && g_live_config.armed,
                                  !g_pending_runtime.entry_permission_revoked,g_news);
-          EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager);
+          EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
