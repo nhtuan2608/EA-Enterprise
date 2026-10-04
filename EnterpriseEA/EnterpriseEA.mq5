@@ -44,7 +44,7 @@ input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented 
 input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
 input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
-input EEA_S04ModeInput InpS04Mode       = S04_SHADOW; // S04 Failed Break: OFF, SHADOW (record only) or LIVE
+input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input string InpStrategyConfigVersion  = "";

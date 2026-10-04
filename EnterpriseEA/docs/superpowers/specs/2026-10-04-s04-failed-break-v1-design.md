@@ -129,5 +129,5 @@ S04 **không** dùng LIMIT trong v1: điểm vào tốt nhất của S04 là lú
 | D2 | Cửa sổ "quay lại trong vùng" | 3 nến khung entry (SCALP 15 phút, SWING 3 giờ) |
 | D3 | Điều kiện trigger | Nến thân ≥ 40% đóng vượt cực trị của nến RETURNED ≥ 0,05×ATR, trong 3 nến |
 | D4 | Ngược chiều với S02 trên cùng symbol | Không cho hai vị thế ngược chiều; setup đến sau bị bỏ |
-| D5 | Chế độ bắt đầu | **SHADOW** 1–2 tuần (chỉ ghi candidate và kế hoạch lệnh), sau đó người dùng quyết định LIVE |
+| D5 | Chế độ bắt đầu | Đề xuất ban đầu SHADOW 1–2 tuần. **Người dùng chốt 04/10: LIVE ngay, chạy chung S02** (`InpS04Mode=S04_LIVE`); SHADOW vẫn chọn được qua input |
 | D6 | Replay lịch sử | Có: chạy S02 + S04 trên nến từ 01/01/2026, chỉ đo |
