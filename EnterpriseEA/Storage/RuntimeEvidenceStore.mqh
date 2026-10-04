@@ -10,6 +10,69 @@
 string EEA_RuntimeBoolJson(const bool value) { return value ? "true" : "false"; }
 string EEA_RuntimeDoubleJson(const double value) { return DoubleToString(value,12); }
 
+// ---------------------------------------------------------------------------
+// Idempotency index: one small marker file per idempotency key. Duplicate checks
+// are O(1) and independent of the execution audit size (the audit log only grows).
+// Keys recorded before the index existed are migrated once from the audit log;
+// until that migration succeeded every duplicate check fails closed.
+// ---------------------------------------------------------------------------
+string EEA_IdempotencyDir(const string root) { return root+"/current/idempotency"; }
+
+string EEA_IdempotencyMarkerPath(const string root,const string key)
+  {
+   uint h=0x811C9DC5;
+   string safe="";
+   for(int i=0;i<StringLen(key);i++)
+     {
+      ushort ch=StringGetCharacter(key,i);
+      h=(h^(uchar)ch)*0x01000193;
+      bool ok=(ch>='A' && ch<='Z') || (ch>='a' && ch<='z') || (ch>='0' && ch<='9') || ch=='-' || ch=='_' || ch=='.';
+      if(StringLen(safe)<72) safe+=ok ? ShortToString(ch) : "_";
+     }
+   return EEA_IdempotencyDir(root)+"/"+safe+"-"+StringFormat("%08x",h)+".key";
+  }
+
+bool EEA_IdempotencyMarkerWrite(const string root,const string key)
+  {
+   if(key=="") return true;
+   string path=EEA_IdempotencyMarkerPath(root,key);
+   if(FileIsExist(path,0)) return true;
+   return EEA_WriteAtomicText(path,key);
+  }
+
+string EEA_IdempotencyKeyFromLine(const string line)
+  {
+   string tag="\"idempotency_key\":\"";
+   int at=StringFind(line,tag);
+   if(at<0) return "";
+   int start=at+StringLen(tag);
+   int end=StringFind(line,"\"",start);
+   return end>start ? StringSubstr(line,start,end-start) : "";
+  }
+
+// True once every key of the execution audit has a marker. Reads the audit log line by
+// line (no size limit) exactly once, then records a ready flag.
+bool EEA_IdempotencyIndexReady(const string root)
+  {
+   string ready=EEA_IdempotencyDir(root)+"/index_ready.flag";
+   if(FileIsExist(ready,0)) return true;
+   string log=root+"/logs/execution_audit.jsonl";
+   if(FileIsExist(log,0))
+     {
+      int h=FileOpen(log,FILE_READ|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
+      if(h==INVALID_HANDLE) return false;
+      bool ok=true;
+      while(!FileIsEnding(h))
+        {
+         string key=EEA_IdempotencyKeyFromLine(FileReadString(h));
+         if(key!="" && !EEA_IdempotencyMarkerWrite(root,key)) { ok=false; break; }
+        }
+      FileClose(h);
+      if(!ok) return false;
+     }
+   return EEA_WriteAtomicText(ready,"idempotency-index-v1");
+  }
+
 bool EEA_RuntimeStoreWriteAccount(const string root,const EEA_RuntimeAccountSnapshot &account)
   {
    string json="{\"schema_version\":\""+EEA_JsonEscape(account.schema_version)+
@@ -383,7 +446,8 @@ bool EEA_ExecutionStoreWriteIntent(const string root,const EEA_ExecutionIntent &
       EEA_JsonEscape(intent.request_ticket_kind)+"\"}";
    bool ok1=EEA_WriteAtomicText(root+"/current/execution_intent.json",json);
    bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
-   return ok1 && ok2;
+   bool ok3=EEA_IdempotencyMarkerWrite(root,intent.idempotency_key);
+   return ok1 && ok2 && ok3;
   }
 
 bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &result)
@@ -406,7 +470,8 @@ bool EEA_ExecutionStoreWriteResult(const string root,const EEA_ExecutionResult &
       EEA_IsoUtc((datetime)result.observed_at_utc)+"\"}";
    bool ok1=EEA_WriteAtomicText(root+"/current/execution_result.json",json);
    bool ok2=EEA_WriteAtomicAppendText(root+"/logs/execution_audit.jsonl",json+"\r\n");
-   return ok1 && ok2;
+   bool ok3=EEA_IdempotencyMarkerWrite(root,result.idempotency_key);
+   return ok1 && ok2 && ok3;
   }
 
 #endif

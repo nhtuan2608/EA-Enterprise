@@ -18,12 +18,23 @@ string EEA_ExecutionResolveRoot(const string data_root)
 bool EEA_ExecutionIsDuplicateIdempotency(const string root, const string idempotency_key)
 {
    if(idempotency_key == "") return false;
+   // Marker index first: O(1) and unaffected by the audit log size. Until the one-time
+   // migration of older keys succeeded, fail closed.
+   if(!EEA_IdempotencyIndexReady(root)) return true;
+   if(FileIsExist(EEA_IdempotencyMarkerPath(root, idempotency_key), 0)) return true;
+   return EEA_ExecutionIsDuplicateIdempotencyInLog(root, idempotency_key);
+}
+
+// Legacy scan of the audit log. Above 1MB the marker index (complete after the migration)
+// is authoritative, so a large log no longer blocks every request.
+bool EEA_ExecutionIsDuplicateIdempotencyInLog(const string root, const string idempotency_key)
+{
    string path = root + "/logs/execution_audit.jsonl";
    if(!FileIsExist(path, 0)) return false;
    int h = FileOpen(path, FILE_READ|FILE_BIN|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(h == INVALID_HANDLE) return true; // Fail closed on unreadable log
    ulong size = FileSize(h);
-   if(size > 1048576) { FileClose(h); return true; } // Fail closed on oversized log (>1MB)
+   if(size > 1048576) { FileClose(h); return false; } // Marker index is authoritative (>1MB)
    if(size == 0) { FileClose(h); return false; }
    uchar bytes[];
    if(ArrayResize(bytes, (int)size) != (int)size) { FileClose(h); return true; }
