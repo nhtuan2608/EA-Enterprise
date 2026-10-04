@@ -101,6 +101,8 @@ struct EEA_Reaction
    // News Guard replay (P1): what the guard would have done around this event
    long   server_offset;                  // trade-server offset used for this event
    string price_resolution;               // M1, or M5 when M1 history is beyond the terminal limit
+   bool   has_peak_offset;
+   int    peak_bar_offset_min;            // minutes from T to the widest bar in [T-90m, T+90m]
    bool   replay_ok;
    int    guard_block_end_min;            // minutes after T when new entries would resume
    bool   guard_covered;                  // volatility and spread were back to normal by then
@@ -125,7 +127,7 @@ void EEA_ReactionDefaults(EEA_Reaction &r)
    r.guard_normal_min=-1; r.guard_timeout=false;
    r.positions_open=0; r.positions_detail=""; r.exits_in_window=0; r.be_before_news=0; r.be_would_have_hit_sl=0;
    r.entries_blocked=0; r.pending_cancelled=0; r.quality="";
-   r.server_offset=0; r.price_resolution=""; r.replay_ok=false; r.guard_block_end_min=-1; r.guard_covered=false; r.residual_after_block_atr=0.0;
+   r.server_offset=0; r.price_resolution=""; r.has_peak_offset=false; r.peak_bar_offset_min=0; r.replay_ok=false; r.guard_block_end_min=-1; r.guard_covered=false; r.residual_after_block_atr=0.0;
    r.has_pre_drift=false; r.pre_drift_scalp_atr=0.0; r.pre_drift_swing_atr=0.0;
   }
 
@@ -241,6 +243,11 @@ void EEA_NewsReactionPath(EEA_Reaction &r,const EEA_ReactionBar &bars[],const in
          if(bars[i].t>=w0 && bars[i].t<w1) { wh=MathMax(wh,bars[i].h); wl=MathMin(wl,bars[i].l); cnt++; }
       if(cnt>0 && wh-wl<=atr) r.vol_recovery_min=(j+1)*5;
      }
+   // Time alignment evidence: the widest bar around a HIGH event should sit at T, not T±60.
+   double widest=0.0;
+   for(int i=0;i<n;i++)
+      if(bars[i].t>=T-5400 && bars[i].t<=T+5400 && bars[i].h-bars[i].l>widest)
+        { widest=bars[i].h-bars[i].l; r.peak_bar_offset_min=(int)((bars[i].t-T)/60); r.has_peak_offset=true; }
    r.quality=r.move_ok[3] ? "OK" : "INCOMPLETE_NO_60M_PRICE";
   }
 

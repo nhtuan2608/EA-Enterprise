@@ -131,6 +131,28 @@ EEA_TradeManagerRuntime g_trade_manager;
 EEA_NewsRuntime g_news;
 EEA_NewsReactionRuntime g_news_reaction;
 EEA_SentimentRuntime g_sentiment;
+EEA_NewsHealthReport g_news_health;
+long g_news_health_at=0;
+string g_news_health_warn="";
+
+void EEA_NewsHealthUpdate()
+  {
+   if(!g_news_reaction.loaded || (long)TimeGMT()-g_news_health_at<300) return;
+   g_news_health_at=(long)TimeGMT();
+   EEA_NewsHealthEvaluate(g_news_reaction,g_news,g_news_health);
+   EEA_NewsHealthWrite(g_news_health,g_config.data_root);
+   if(g_news_health.warn_signature!=g_news_health_warn)
+     {
+      g_news_health_warn=g_news_health.warn_signature;
+      EEAEvent event;
+      EEAEvent_Init(event,"NEWS_DATA_HEALTH",TimeGMT(),"","","",
+                    IntegerToString(g_news_health.warn)+" WARN",g_news_health.warn>0 ? "DEGRADED" : "OK");
+      event.config_version=g_config.config_version;
+      for(int i=0;i<g_news_health.count;i++) if(g_news_health.severity[i]=="WARN") EEAEvent_AddReason(event,g_news_health.code[i]);
+      event.details_json="{\"warn\":"+IntegerToString(g_news_health.warn)+",\"info\":"+IntegerToString(g_news_health.info)+"}";
+      g_audit.Append(event,"EA_NEWS_HEALTH");
+     }
+  }
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -475,6 +497,10 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
    view.news_recent_count=g_news_reaction.recent_count;
    for(int i=0;i<g_news_reaction.recent_count && i<3;i++) view.news_recent[i]=g_news_reaction.recent[i];
    view.news_reaction_reason=g_news_reaction.reason;
+   view.news_health_line=g_news_health_at==0 ? "Data health: pending" :
+      "Data health: "+IntegerToString(g_news_health.warn)+" WARN, "+IntegerToString(g_news_health.info)+" INFO"+
+      (g_news_health.count>0 ? "  "+g_news_health.code[0]+" "+g_news_health.detail[0] : "");
+   view.news_health_warn=g_news_health.warn;
    view.news_event_count=0;
    int focus_index=EEA_NewsSymbolIndex(g_news,focus);
    string focus_currencies=focus_index>=0 ? g_news.symbols[focus_index].currencies : "";
@@ -865,6 +891,7 @@ void OnTimer()
                                  g_live_config.enabled && g_live_config.armed,
                                  !g_pending_runtime.entry_permission_revoked,g_news);
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
+          EEA_NewsHealthUpdate();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,

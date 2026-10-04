@@ -21,6 +21,78 @@
 #define EEA_NR_MAX_NOT_READY 5
 #define EEA_NR_RECENT 3
 
+// ---------------------------------------------------------------------------
+// News data health (AI design section 7): deterministic checks over every record.
+// ---------------------------------------------------------------------------
+#define EEA_NH_MAX_SYMBOLS 32
+#define EEA_NH_MAX_CLUSTERS 4000
+
+struct EEA_NewsHealth
+  {
+   int    total;
+   int    symbol_count;
+   string symbol[EEA_NH_MAX_SYMBOLS];
+   int    symbol_total[EEA_NH_MAX_SYMBOLS];
+   int    symbol_incomplete[EEA_NH_MAX_SYMBOLS];
+   int    ok;
+   int    spread_m1;
+   int    outliers;
+   string outlier_example;
+   int    big_reactions;          // DIRECT, |move_5m| >= 1 ATR, with a peak offset
+   int    offset_sixty;           // of those, widest bar at T±55..65 minutes
+   int    cluster_count;
+   string cluster_key[];
+   double cluster_move15[];
+   int    cluster_conflicts;
+   string cluster_example;
+   int    be_before_news;
+   int    be_would_have_hit_sl;
+  };
+
+void EEA_NewsHealthDefaults(EEA_NewsHealth &h)
+  {
+   h.total=0; h.symbol_count=0; h.ok=0; h.spread_m1=0; h.outliers=0; h.outlier_example="";
+   h.big_reactions=0; h.offset_sixty=0; h.cluster_count=0; h.cluster_conflicts=0; h.cluster_example="";
+   h.be_before_news=0; h.be_would_have_hit_sl=0;
+   ArrayResize(h.cluster_key,0); ArrayResize(h.cluster_move15,0);
+  }
+
+void EEA_NewsHealthAdd(EEA_NewsHealth &h,const string symbol,const string quality,const string impact,
+                       const string spread_source,const double move5_atr,const double move15_atr,const bool move15_ok,
+                       const double spread_ratio,const bool has_peak,const int peak_offset,const string cluster_key,
+                       const string event_label,const int be_before,const int be_hit)
+  {
+   h.total++;
+   int s=-1;
+   for(int i=0;i<h.symbol_count;i++) if(h.symbol[i]==symbol) { s=i; break; }
+   if(s<0 && h.symbol_count<EEA_NH_MAX_SYMBOLS)
+     { s=h.symbol_count++; h.symbol[s]=symbol; h.symbol_total[s]=0; h.symbol_incomplete[s]=0; }
+   if(s>=0) { h.symbol_total[s]++; if(quality!="OK") h.symbol_incomplete[s]++; }
+   h.be_before_news+=be_before; h.be_would_have_hit_sl+=be_hit;
+   if(quality!="OK") return;
+   h.ok++;
+   if(spread_source=="M1") h.spread_m1++;
+   if(MathAbs(move15_atr)>10.0 || spread_ratio>30.0)
+     { h.outliers++; if(h.outlier_example=="") h.outlier_example=symbol+" "+event_label; }
+   if(impact=="DIRECT" && has_peak && MathAbs(move5_atr)>=1.0)
+     {
+      h.big_reactions++;
+      int a=MathAbs(peak_offset);
+      if(a>=55 && a<=65) h.offset_sixty++;
+     }
+   if(!move15_ok || cluster_key=="") return;
+   for(int i=h.cluster_count-1;i>=0;i--)
+      if(h.cluster_key[i]==cluster_key)
+        {
+         if(MathAbs(h.cluster_move15[i]-move15_atr)>0.05)
+           { h.cluster_conflicts++; if(h.cluster_example=="") h.cluster_example=symbol+" "+event_label; }
+         return;
+        }
+   if(h.cluster_count>=EEA_NH_MAX_CLUSTERS) return;
+   ArrayResize(h.cluster_key,h.cluster_count+1,256); ArrayResize(h.cluster_move15,h.cluster_count+1,256);
+   h.cluster_key[h.cluster_count]=cluster_key; h.cluster_move15[h.cluster_count]=move15_atr; h.cluster_count++;
+  }
+
 struct EEA_NewsReactionRuntime
   {
    bool   loaded;
@@ -36,6 +108,8 @@ struct EEA_NewsReactionRuntime
    string reason;
    int    recent_count;
    string recent[EEA_NR_RECENT];
+   long   cursor_changed_utc;              // last time the backfill cursor moved (stall check)
+   EEA_NewsHealth health;
   };
 
 string EEA_NrField(const string json,const string name)
@@ -97,6 +171,8 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
    rt.loaded=true; rt.key_count=0; rt.summary_count=0; rt.recent_count=0; rt.not_ready_attempts=0;
    rt.last_live_scan_utc=0; rt.reason="NEWS_REACTION_LOADED";
    ArrayResize(rt.keys,0); ArrayResize(rt.summaries,0);
+   EEA_NewsHealthDefaults(rt.health);
+   rt.cursor_changed_utc=(long)TimeGMT();
    for(int i=0;i<EEA_NR_RECENT;i++) rt.recent[i]="";
    string path=EEA_NrLogPath(root);
    if(FileIsExist(path,0))
@@ -123,6 +199,15 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
             s.replay_ok=EEA_NrField(line,"replay_ok")=="true";
             s.covered=EEA_NrField(line,"guard_covered")=="true";
             s.residual_atr=StringToDouble(EEA_NrField(line,"residual_after_block_atr"));
+            string peak=EEA_NrField(line,"peak_bar_offset_min");
+            EEA_NewsHealthAdd(rt.health,EEA_NrField(line,"symbol"),EEA_NrField(line,"quality"),EEA_NrField(line,"impact"),
+                              EEA_NrField(line,"spread_source"),StringToDouble(EEA_NrField(line,"move_5m_atr")),
+                              s.move15_atr,EEA_NrField(line,"move_15m_atr")!="null",s.spread_ratio,
+                              peak!="" && peak!="null",(int)StringToInteger(peak),
+                              EEA_NrField(line,"event_utc")+"|"+EEA_NrField(line,"symbol"),
+                              EEA_NrField(line,"currency")+" "+EEA_NrField(line,"event"),
+                              (int)StringToInteger(EEA_NrField(line,"be_before_news")),
+                              (int)StringToInteger(EEA_NrField(line,"be_would_have_hit_sl")));
             // Only the lead record of a cluster feeds the statistics (records before clusters count alone).
             EEA_NrRemember(rt,key,s,"",EEA_NrField(line,"cluster_lead")!="false");
            }
@@ -200,6 +285,7 @@ string EEA_NrJson(const EEA_Reaction &r)
       EEA_NrNum("pre_drift_scalp_atr",r.has_pre_drift,r.pre_drift_scalp_atr,3)+
       EEA_NrNum("pre_drift_swing_atr",r.has_pre_drift,r.pre_drift_swing_atr,3)+
       ",\"server_offset\":"+IntegerToString(r.server_offset)+",\"price_resolution\":\""+r.price_resolution+"\""+
+      (r.has_peak_offset ? ",\"peak_bar_offset_min\":"+IntegerToString(r.peak_bar_offset_min) : ",\"peak_bar_offset_min\":null")+
       ",\"quality\":\""+r.quality+"\",\"recorded_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
    return json;
   }
@@ -379,6 +465,11 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    s.recovery_min=EEA_NewsReactionRecoveryMin(r);
    s.reversal=r.reversal_60;
    s.replay_ok=r.replay_ok; s.covered=r.guard_covered; s.residual_atr=r.residual_after_block_atr;
+   EEA_NewsHealthAdd(rt.health,canonical,r.quality,r.impact,r.spread_source,
+                     (r.move_ok[1] && r.atr_ref>0.0) ? r.move[1]/r.atr_ref : 0.0,s.move15_atr,r.move_ok[2],
+                     r.spread_peak_ratio,r.has_peak_offset,r.peak_bar_offset_min,
+                     IntegerToString(r.event_utc)+"|"+canonical,currency+" "+r.event_name,
+                     r.be_before_news,r.be_would_have_hit_sl);
    EEA_NrRemember(rt,key,s,EEA_NrRecentText(r),r.cluster_lead);
    return 1;
   }
@@ -466,11 +557,12 @@ void EEA_NewsReactionUpdate(EEA_NewsReactionRuntime &rt,CAuditLog &audit,const s
       // History not ready: retry; after several attempts skip a day so the backfill moves on.
       rt.not_ready_attempts++;
       if(rt.not_ready_attempts>=EEA_NR_MAX_NOT_READY)
-        { rt.backfill_cursor_utc+=86400; rt.not_ready_attempts=0; EEA_NrWriteBackfill(rt,root); }
+        { rt.backfill_cursor_utc+=86400; rt.not_ready_attempts=0; rt.cursor_changed_utc=now; EEA_NrWriteBackfill(rt,root); }
       rt.reason="NEWS_REACTION_BACKFILL_WAITING_HISTORY";
       return;
      }
    rt.not_ready_attempts=0;
+   if(result!=rt.backfill_cursor_utc) rt.cursor_changed_utc=now;
    rt.backfill_cursor_utc=result;
    if(rt.backfill_cursor_utc>=backfill_end) { rt.backfill_done=true; rt.reason="NEWS_REACTION_BACKFILL_DONE"; }
    else rt.reason="NEWS_REACTION_BACKFILL_RUNNING";
@@ -489,6 +581,101 @@ bool EEA_NewsReactionStatsForCluster(const EEA_NewsReactionRuntime &rt,const str
   {
    EEA_NewsReactionStats(rt.summaries,rt.summary_count,EEA_NewsReactionGroup(cluster_label,symbol),stats);
    return stats.n>0;
+  }
+
+// ---------------------------------------------------------------------------
+// Health evaluation: findings with severity, written to current/news_data_health.json.
+// Deterministic and display/audit only; it never changes the guard or a trade.
+// ---------------------------------------------------------------------------
+#define EEA_NH_MAX_FINDINGS 16
+
+struct EEA_NewsHealthReport
+  {
+   long   evaluated_at_utc;
+   int    warn;
+   int    info;
+   int    count;
+   string code[EEA_NH_MAX_FINDINGS];
+   string severity[EEA_NH_MAX_FINDINGS];
+   string detail[EEA_NH_MAX_FINDINGS];
+   string warn_signature;   // changes when the WARN set changes (audit trigger)
+  };
+
+void EEA_NewsHealthFinding(EEA_NewsHealthReport &r,const string code,const string severity,const string detail)
+  {
+   if(r.count>=EEA_NH_MAX_FINDINGS) return;
+   r.code[r.count]=code; r.severity[r.count]=severity; r.detail[r.count]=detail; r.count++;
+   if(severity=="WARN") { r.warn++; r.warn_signature+=code+";"; } else r.info++;
+  }
+
+void EEA_NewsHealthEvaluate(const EEA_NewsReactionRuntime &rt,const EEA_NewsRuntime &news,EEA_NewsHealthReport &rep)
+  {
+   rep.evaluated_at_utc=(long)TimeGMT(); rep.warn=0; rep.info=0; rep.count=0; rep.warn_signature="";
+   const EEA_NewsHealth h=rt.health;
+   for(int i=0;i<h.symbol_count;i++)
+      if(h.symbol_total[i]>=10 && h.symbol_incomplete[i]*10>h.symbol_total[i])
+         EEA_NewsHealthFinding(rep,"NDH_INCOMPLETE_RATE","WARN",h.symbol[i]+": "+IntegerToString(h.symbol_incomplete[i])+"/"+
+                               IntegerToString(h.symbol_total[i])+" records incomplete");
+   if(h.big_reactions>=5 && h.offset_sixty*10>=h.big_reactions*3)
+      EEA_NewsHealthFinding(rep,"NDH_TIME_ALIGNMENT","WARN",IntegerToString(h.offset_sixty)+"/"+IntegerToString(h.big_reactions)+
+                            " strong reactions peak 60 minutes away from the event time: check the server time offset");
+   if(h.ok>=10 && h.spread_m1*2>h.ok)
+      EEA_NewsHealthFinding(rep,"NDH_SPREAD_SOURCE","INFO",IntegerToString(h.spread_m1)+"/"+IntegerToString(h.ok)+
+                            " records use bar spread (no tick history): spread recovery is approximate");
+   if(h.outliers>0)
+      EEA_NewsHealthFinding(rep,"NDH_OUTLIER","WARN",IntegerToString(h.outliers)+" outliers (move > 10 ATR or spread > x30), e.g. "+
+                            h.outlier_example);
+   if(h.cluster_conflicts>0)
+      EEA_NewsHealthFinding(rep,"NDH_CLUSTER_CONSISTENCY","WARN",IntegerToString(h.cluster_conflicts)+
+                            " cluster members disagree on the price path, e.g. "+h.cluster_example);
+   if(!rt.backfill_done && (long)TimeGMT()-rt.cursor_changed_utc>2*3600)
+      EEA_NewsHealthFinding(rep,"NDH_BACKFILL_STALL","WARN","backfill cursor has not moved for "+
+                            IntegerToString((int)(((long)TimeGMT()-rt.cursor_changed_utc)/3600))+"h");
+   if(h.be_before_news>0)
+      EEA_NewsHealthFinding(rep,"NDH_GUARD_EFFECT","INFO","break-even before news: "+IntegerToString(h.be_before_news)+
+                            " trades, original SL hit afterwards in "+IntegerToString(h.be_would_have_hit_sl));
+   // Upcoming clusters on each selected symbol: coverage and suggestion gaps.
+   int thin=0, gaps=0; string gap_example="";
+   const long now=(long)TimeGMT();
+   for(int s=0;s<news.symbol_count;s++)
+      for(int e=0;e<news.count;e++)
+        {
+         if(news.events[e].time_utc<now || news.events[e].time_utc>now+7*86400) continue;
+         if(e>0 && news.events[e-1].time_utc==news.events[e].time_utc) continue;
+         string labels[]; int n=0;
+         for(int j=e;j<news.count && news.events[j].time_utc==news.events[e].time_utc;j++)
+            if(EEA_NewsAffects(news.symbols[s].currencies,news.events[j].currency) ||
+               EEA_NewsIndirectAffects(news.symbols[s].currencies,news.events[j].currency,news.events[j].sector))
+              { ArrayResize(labels,n+1); labels[n++]=news.events[j].currency+" "+news.events[j].name; }
+         if(n==0) continue;
+         EEA_ReactionStats st;
+         EEA_NewsReactionStatsForCluster(rt,EEA_NewsClusterLabel(labels,n),news.symbols[s].canonical,st);
+         if(st.n<EEA_NR_MIN_SAMPLES_FOR_SUGGESTION) { thin++; continue; }
+         if(MathAbs(st.suggested_post_min-news.cfg.max_normalize_min)>30 || st.suggested_pre=="REDUCE")
+           {
+            gaps++;
+            if(gap_example=="")
+               gap_example=news.symbols[s].canonical+" "+labels[0]+": suggest post "+IntegerToString(st.suggested_post_min)+
+                           "m, pre "+st.suggested_pre;
+           }
+        }
+   if(thin>0)
+      EEA_NewsHealthFinding(rep,"NDH_SAMPLE_COVERAGE","INFO",IntegerToString(thin)+" upcoming event x symbol pairs have fewer than "+
+                            IntegerToString(EEA_NR_MIN_SAMPLES_FOR_SUGGESTION)+" samples");
+   if(gaps>0)
+      EEA_NewsHealthFinding(rep,"NDH_SUGGESTION_GAP","INFO",IntegerToString(gaps)+" upcoming clusters differ from the applied window, e.g. "+
+                            gap_example);
+  }
+
+void EEA_NewsHealthWrite(const EEA_NewsHealthReport &rep,const string root)
+  {
+   string json="{\"document_version\":\"news-data-health-v1.0.0\",\"evaluated_at_utc\":"+IntegerToString(rep.evaluated_at_utc)+
+      ",\"warn\":"+IntegerToString(rep.warn)+",\"info\":"+IntegerToString(rep.info)+",\"findings\":[";
+   for(int i=0;i<rep.count;i++)
+      json+=(i>0 ? "," : "")+"{\"code\":\""+rep.code[i]+"\",\"severity\":\""+rep.severity[i]+"\",\"detail\":\""+
+            EEA_JsonEscape(rep.detail[i])+"\"}";
+   json+="]}";
+   EEA_WriteAtomicText(root+"/current/news_data_health.json",json);
   }
 
 #endif

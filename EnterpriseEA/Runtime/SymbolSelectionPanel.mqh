@@ -210,6 +210,8 @@ struct EEA_SymbolPanelEngineView
    int news_recent_count;
    string news_recent[3];
    string news_reaction_reason;
+   string news_health_line;
+   int news_health_warn;
    string recovery_detail;        // the blocked entry: intent, ticket, retcode
    string recovery_message;       // last re-check / resolve outcome
    bool active_risk_valid;
@@ -258,6 +260,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.news_reason="NEWS_GUARD_NOT_PUBLISHED"; view.news_last_success_utc=0; view.news_policy="";
    view.news_symbol_count=0; view.news_event_count=0;
    view.news_focus=""; view.news_recent_count=0; view.news_reaction_reason="";
+   view.news_health_line=""; view.news_health_warn=0;
    for(int i=0;i<3;i++) view.news_recent[i]="";
    for(int i=0;i<EEA_PANEL_NEWS_ROWS;i++) view.news_event_stats[i]="";
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++) view.news_watch[i]="";
@@ -2054,8 +2057,11 @@ void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx
                           EEA_SymbolPanelSep()+g_panel_engine.news_reason,
                           unknown ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsPolicy",EEA_PANEL_CONTENT_X,y+44,
-                          g_panel_engine.news_policy,EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,
-                          ANCHOR_LEFT_UPPER,100);
+                          g_panel_engine.news_health_line!="" ? g_panel_engine.news_health_line : g_panel_engine.news_policy,
+                          g_panel_engine.news_health_warn>0 ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_FAINT_COLOR,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,100);
+   ObjectSetString(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsPolicy",OBJPROP_TOOLTIP,
+                   g_panel_engine.news_policy=="" ? "\n" : g_panel_engine.news_policy);
    int sy=y+70;
    for(int i=0;i<8;i++)
      {

@@ -46,12 +46,12 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 
 | Goal | Nội dung | Trạng thái |
 |---|---|---|
-| G1 | Replay News Guard từ 01/01/2026 (P1) | ✅ Đã deploy `e1a8677`; backfill đang chạy trên terminal |
-| G2 | Market sentiment, chỉ giảm rủi ro (P1b, M1–M6) | ✅ Code + test xong; deploy cùng đợt này |
+| G1 | Replay News Guard từ 01/01/2026 (P1) | ✅ Đang backfill; tin tháng 1–5 dùng nến M5 do MaxBars=100000 (`497fcc3`) |
+| G2 | Market sentiment, chỉ giảm rủi ro (P1b, M1–M6) | ✅ Đã deploy `a7d7591`; 13/13 cặp tham chiếu, broker không có chỉ số chứng khoán Mỹ |
 | G3 | Kiểm chứng trên tin thật: cụm PMI/ISM thứ Hai 05/10, NFP tháng 11 | ⏳ Chờ thị trường |
 | G4 | Kiểm chứng lệnh thật: lệnh chờ REQ-021 (TC-046..051), Trade Manager, sentiment khi vào lệnh | ⏳ Chờ FX mở cửa thứ Hai |
 | G5 | Đánh giá tuần chạy thử S02 (forward 1 tuần) | ⏳ Cuối tuần 10–11/10 |
-| G6 | Tự động kiểm tra số liệu tin (P2) | ⬜ Tiếp theo |
+| G6 | Tự động kiểm tra số liệu tin (P2) | ✅ Deploy cùng `G6` (news data health) |
 | G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ⬜ |
 | G8 | Command queue + CLOSE / PARTIAL / BE / TRAIL (P4, đặc tả 9.2) | ⬜ |
 | G9 | S04 Failed Break (P5) | ⬜ |
