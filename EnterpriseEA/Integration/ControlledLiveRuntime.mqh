@@ -145,8 +145,8 @@ bool EEA_ControlledLiveAuditAuthorization(CAuditLog &audit,
                                           const string entry_reason)
   {
    EEAEvent event;
-   EEAEvent_Init(event,"LIVE_AUTHORIZATION_BOUND",TimeGMT(),"",decision.candidate_id,
-                 decision.symbol,"AUTHORIZED_CONTROLLED_LIVE","OK");
+   EEAEvent_Init(event,"LIVE_AUTHORIZATION_BOUND",TimeGMT(),decision.symbol,decision.candidate_id,
+                 "","AUTHORIZED_CONTROLLED_LIVE","OK");
    event.details_json="{\"authorization_id\":\""+EEA_JsonEscape(authorization.authorization_id)+
       "\",\"intent_id\":\""+EEA_JsonEscape(authorization.intent_id)+
       "\",\"candidate_id\":\""+EEA_JsonEscape(decision.candidate_id)+
@@ -841,8 +841,10 @@ void EEA_PendingApplyNews(EEA_PendingRuntime &rt,const EEA_NewsRuntime &news,CAu
       if(t.state.status=="CANCEL_REQUIRED")
         {
          EEAEvent event;
-         EEAEvent_Init(event,"NEWS_PENDING_CANCEL",TimeGMT(),"",t.state.candidate_id,t.state.canonical_symbol,
-                       "CANCEL_REQUIRED",reason);
+         EEAEvent_Init(event,"NEWS_PENDING_CANCEL",TimeGMT(),t.state.canonical_symbol,t.state.candidate_id,
+                       "WORKING","CANCEL_REQUIRED","OK");
+         event.config_version=t.state.config_version;
+         EEAEvent_AddReason(event,reason);
          event.details_json="{\"order_ticket\":\""+EEA_JsonEscape(t.state.order_ticket)+"\",\"reason\":\""+reason+"\"}";
          audit.Append(event,"EA_NEWS_GUARD");
         }
@@ -917,8 +919,10 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
            {
             state.news_blocked_candidate[i]=candidate_id;
             EEAEvent event;
-            EEAEvent_Init(event,"NEWS_ENTRY_BLOCKED",TimeGMT(),"",candidate_id,strategy.engines[i].canonical_symbol,
-                          EEA_NewsStateFor(news,strategy.engines[i].canonical_symbol),news_block);
+            EEAEvent_Init(event,"NEWS_ENTRY_BLOCKED",TimeGMT(),strategy.engines[i].canonical_symbol,candidate_id,
+                          "",EEA_NewsStateFor(news,strategy.engines[i].canonical_symbol),"OK");
+            event.config_version=observer.config_version;
+            EEAEvent_AddReason(event,news_block);
             event.details_json="{\"profile\":\""+news_profile+"\",\"reason\":\""+news_block+"\"}";
             audit.Append(event,"EA_NEWS_GUARD");
            }

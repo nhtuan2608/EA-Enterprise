@@ -332,7 +332,9 @@ bool EEA_TradeManagerAuthorization(const EEA_ManagedTrade &t,const string accoun
 bool EEA_TradeManagerAudit(CAuditLog &audit,const EEA_ManagedTrade &t,const string event_type,const string reason)
   {
    EEAEvent event;
-   EEAEvent_Init(event,event_type,TimeGMT(),"",t.intent.candidate_id,t.intent.canonical_symbol,t.state,reason);
+   EEAEvent_Init(event,event_type,TimeGMT(),t.intent.canonical_symbol,t.intent.candidate_id,"",t.state,"OK");
+   event.config_version=t.intent.config_version;
+   EEAEvent_AddReason(event,reason);
    event.details_json="{\"position_id\":\""+EEA_JsonEscape(t.position_id)+"\",\"profile\":\""+EEA_JsonEscape(t.profile)+
       "\",\"bars\":"+IntegerToString(t.bars)+",\"mfe_r\":"+DoubleToString(t.mfe_r,3)+
       ",\"mae_r\":"+DoubleToString(t.mae_r,3)+",\"bar_05r\":"+IntegerToString(t.bar_05r)+

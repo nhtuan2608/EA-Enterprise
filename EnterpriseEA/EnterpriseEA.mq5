@@ -210,8 +210,9 @@ string EEA_LiveSessionStateText(string &reason)
 bool EEA_LiveSessionAudit(const string event_type,const string reason)
   {
    EEAEvent event;
-   EEAEvent_Init(event,event_type,TimeGMT(),"","","","",reason);
+   EEAEvent_Init(event,event_type,TimeGMT(),"","","","",reason=="OK" ? "OK" : "DEGRADED");
    event.config_version=g_config.config_version;
+   if(reason!="OK") EEAEvent_AddReason(event,reason);
    event.details_json="{\"session_id\":\""+EEA_JsonEscape(g_live_session.session.session_id)+
       "\",\"operator_id\":\""+EEA_JsonEscape(g_live_session.session.operator_id)+
       "\",\"valid_until_utc\":"+IntegerToString(g_live_session.session.valid_until_utc)+

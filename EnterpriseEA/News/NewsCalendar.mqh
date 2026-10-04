@@ -160,7 +160,7 @@ bool EEA_NewsMarketStable(const string broker_symbol)
 bool EEA_NewsAudit(CAuditLog &audit,const string event_type,const string symbol,const string details)
   {
    EEAEvent event;
-   EEAEvent_Init(event,event_type,TimeGMT(),"","",symbol,"","OK");
+   EEAEvent_Init(event,event_type,TimeGMT(),symbol,"","","","OK");
    event.details_json=details;
    return audit.Append(event,"EA_NEWS_GUARD");
   }

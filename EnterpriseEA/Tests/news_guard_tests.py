@@ -128,5 +128,21 @@ class NewsIntegrationTests(unittest.TestCase):
         self.assertNotIn("NEWS_CLOSE", tm)  # D5: never close because of news
 
 
+class AuditFieldOrderTests(unittest.TestCase):
+    """EEAEvent_Init(e,type,now,symbol,entity,before,after,quality): symbols go in the symbol field."""
+
+    def test_new_audit_events_put_the_symbol_in_the_symbol_field(self):
+        cases = {
+            "News/NewsCalendar.mqh": "EEAEvent_Init(event,event_type,TimeGMT(),symbol,",
+            "Runtime/TradeManagerRuntime.mqh": "EEAEvent_Init(event,event_type,TimeGMT(),t.intent.canonical_symbol,",
+            "Integration/ControlledLiveRuntime.mqh": 'EEAEvent_Init(event,"NEWS_ENTRY_BLOCKED",TimeGMT(),strategy.engines[i].canonical_symbol,',
+        }
+        for path, call in cases.items():
+            self.assertIn(call, read(path), path)
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        self.assertIn('EEAEvent_Init(event,"LIVE_AUTHORIZATION_BOUND",TimeGMT(),decision.symbol,', live)
+        self.assertIn('EEAEvent_Init(event,"NEWS_PENDING_CANCEL",TimeGMT(),t.state.canonical_symbol,', live)
+
+
 if __name__ == "__main__":
     unittest.main()
