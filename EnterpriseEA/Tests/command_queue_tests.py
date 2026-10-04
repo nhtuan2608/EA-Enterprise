@@ -90,6 +90,8 @@ class CommandQueueSourceTests(unittest.TestCase):
         self.assertIn('EEA_IdempotencyMarkerPath(root,"cmd-"+c.id)', process)
         self.assertIn('EEA_IdempotencyMarkerWrite(root,"cmd-"+c.id)', process)
         self.assertIn('"/done/"', process)
+        self.assertIn('FolderCreate(EEA_CommandDir(root)+"/done",0);', process)
+        self.assertIn("FileDelete(path,0);", process)              # never processed twice
         action = section(self.cq, "string EEA_CommandPositionAction")
         self.assertIn('"COMMAND_STATE_CHANGED"', action)
         self.assertIn('"COMMAND_NOT_EA_POSITION"', action)                 # C1 / TC-CQ-08

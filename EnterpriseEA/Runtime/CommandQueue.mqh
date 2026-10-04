@@ -272,7 +272,10 @@ int EEA_CommandProcessQueue(EEA_TradeManagerRuntime &trades,EEA_PendingRuntime &
       event.details_json="{\"ticket\":"+IntegerToString(c.ticket)+",\"source\":\""+c.source+"\",\"detail\":\""+
                          EEA_JsonEscape(detail)+"\"}";
       audit.Append(event,"EA_COMMAND");
-      FileMove(path,0,EEA_CommandDir(root)+"/done/"+files[f],FILE_REWRITE);
+      // FileMove does not create folders: make done/ first; a file that still cannot move is
+      // deleted (its outcome is already journaled) so it is never processed twice.
+      FolderCreate(EEA_CommandDir(root)+"/done",0);
+      if(!FileMove(path,0,EEA_CommandDir(root)+"/done/"+files[f],FILE_REWRITE)) FileDelete(path,0);
       last_result=c.action+" "+(c.ticket>0 ? "#"+IntegerToString(c.ticket)+" " : "")+outcome+(reason=="" ? "" : ": "+reason);
       processed++;
      }
