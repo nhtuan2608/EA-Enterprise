@@ -162,6 +162,7 @@ Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH của các đồ
 | `InpNewsBreakEvenBeforeMin` | 15 | Mốc dời SL hòa vốn trước tin |
 | `InpNewsBreakEvenMinR` | 0,3 | Lời tối thiểu (R) để dời SL hòa vốn |
 | `InpNewsAllowWhenUnknown` | `false` | `false` = chặn lệnh mới khi không đọc được lịch; bật `true` để vẫn cho vào lệnh |
+| `InpNewsIgnoreKeywords` | (trống) | Danh sách từ khóa cách nhau bằng dấu phẩy; tin HIGH có tên chứa từ khóa thì bỏ qua. Mặc định trống: người dùng giữ mọi tin HIGH, kể cả đấu giá trái phiếu và tồn kho dầu EIA (04/10/2026). |
 
 Mức độ tin cố định là HIGH (D4).
 

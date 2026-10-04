@@ -133,7 +133,7 @@ class AuditFieldOrderTests(unittest.TestCase):
 
     def test_new_audit_events_put_the_symbol_in_the_symbol_field(self):
         cases = {
-            "News/NewsCalendar.mqh": "EEAEvent_Init(event,event_type,TimeGMT(),symbol,",
+            "News/NewsCalendar.mqh": "EEAEvent_Init(event,event_type,TimeGMT(),symbol,\"\",before,after,\"OK\");",
             "Runtime/TradeManagerRuntime.mqh": "EEAEvent_Init(event,event_type,TimeGMT(),t.intent.canonical_symbol,",
             "Integration/ControlledLiveRuntime.mqh": 'EEAEvent_Init(event,"NEWS_ENTRY_BLOCKED",TimeGMT(),strategy.engines[i].canonical_symbol,',
         }
@@ -142,6 +142,24 @@ class AuditFieldOrderTests(unittest.TestCase):
         live = read("Integration/ControlledLiveRuntime.mqh")
         self.assertIn('EEAEvent_Init(event,"LIVE_AUTHORIZATION_BOUND",TimeGMT(),decision.symbol,', live)
         self.assertIn('EEAEvent_Init(event,"NEWS_PENDING_CANCEL",TimeGMT(),t.state.canonical_symbol,', live)
+
+
+class NewsIgnoreListTests(unittest.TestCase):
+    def test_ignore_list_is_empty_by_default_and_case_insensitive(self):
+        state = read("News/NewsState.mqh")
+        self.assertIn('c.ignore_keywords="";', state)
+        ignored = section(state, "bool EEA_NewsEventIgnored")
+        self.assertIn('if(keywords=="") return false;', ignored)
+        self.assertIn("StringToLower(lowered);", ignored)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn('input string InpNewsIgnoreKeywords      = "";', shell)
+        cal = read("News/NewsCalendar.mqh")
+        self.assertIn("EEA_NewsEventIgnored(ev.name,rt.cfg.ignore_keywords)", cal)
+
+    def test_state_changes_fill_before_after_and_config(self):
+        cal = read("News/NewsCalendar.mqh")
+        self.assertIn('"NEWS_STATE_CHANGED",s.canonical,before,s.state,', cal)
+        self.assertIn("event.config_version=config_version;", cal)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ struct EEA_NewsRuntime
   {
    bool   initialized;
    bool   disabled;
+   string config_version;
    EEA_NewsConfig cfg;
    EEA_NewsEvent events[EEA_NEWS_MAX_EVENTS];
    int    count;
@@ -47,9 +48,9 @@ struct EEA_NewsRuntime
    EEA_NewsSymbol symbols[EEA_NEWS_MAX_SYMBOLS];
   };
 
-void EEA_NewsRuntimeInit(EEA_NewsRuntime &rt,const EEA_NewsConfig &cfg)
+void EEA_NewsRuntimeInit(EEA_NewsRuntime &rt,const EEA_NewsConfig &cfg,const string config_version)
   {
-   rt.initialized=true; rt.cfg=cfg; rt.count=0; rt.last_attempt_utc=0; rt.last_success_utc=0;
+   rt.initialized=true; rt.config_version=config_version; rt.cfg=cfg; rt.count=0; rt.last_attempt_utc=0; rt.last_success_utc=0;
    rt.change_id=0; rt.calendar_ok=false; rt.symbol_count=0;
    rt.disabled=!cfg.enabled || MQLInfoInteger(MQL_TESTER)!=0 || MQLInfoInteger(MQL_OPTIMIZATION)!=0;
    rt.reason=!cfg.enabled ? "NEWS_GUARD_DISABLED" :
@@ -89,6 +90,7 @@ bool EEA_NewsRefreshCalendar(EEA_NewsRuntime &rt,const long now,string &reason)
       if(!CalendarEventById(values[i].event_id,ev) || ev.importance!=CALENDAR_IMPORTANCE_HIGH) continue;
       MqlCalendarCountry country;
       if(!CalendarCountryById(ev.country_id,country) || !EEA_NewsCurrencyTracked(country.currency)) continue;
+      if(EEA_NewsEventIgnored(ev.name,rt.cfg.ignore_keywords)) continue;
       ArrayResize(fresh,n+1);
       fresh[n].time_utc=(long)values[i].time-offset;
       fresh[n].currency=country.currency;
@@ -157,10 +159,12 @@ bool EEA_NewsMarketStable(const string broker_symbol)
    return median>0.0 && spread<=1.5*median && atr>0.0 && last_range<=2.0*atr;
   }
 
-bool EEA_NewsAudit(CAuditLog &audit,const string event_type,const string symbol,const string details)
+bool EEA_NewsAudit(CAuditLog &audit,const string config_version,const string event_type,const string symbol,
+                   const string before,const string after,const string details)
   {
    EEAEvent event;
-   EEAEvent_Init(event,event_type,TimeGMT(),symbol,"","","","OK");
+   EEAEvent_Init(event,event_type,TimeGMT(),symbol,"",before,after,"OK");
+   event.config_version=config_version;
    event.details_json=details;
    return audit.Append(event,"EA_NEWS_GUARD");
   }
@@ -202,7 +206,7 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
          bool ok=EEA_NewsRefreshCalendar(rt,now,reason);
          if(ok!=rt.calendar_ok || rt.reason!=reason)
            {
-            EEA_NewsAudit(audit,ok ? "NEWS_CALENDAR_REFRESHED" : "NEWS_CALENDAR_UNAVAILABLE","",
+            EEA_NewsAudit(audit,rt.config_version,ok ? "NEWS_CALENDAR_REFRESHED" : "NEWS_CALENDAR_UNAVAILABLE","","","",
                           "{\"reason\":\""+EEA_JsonEscape(reason)+"\",\"events\":"+IntegerToString(rt.count)+"}");
             changed=true;
            }
@@ -239,12 +243,12 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
          s.next_event_utc=phase.next_event_utc; s.next_label=phase.next_label;
          if(before=="NORMALIZING" && s.state=="NORMAL" && prev>=0 &&
             s.normalized_event_utc<rt.symbols[prev].event_utc)
-            EEA_NewsAudit(audit,"NEWS_NORMALIZE_TIMEOUT",s.canonical,
+            EEA_NewsAudit(audit,rt.config_version,"NEWS_NORMALIZE_TIMEOUT",s.canonical,"NORMALIZING","NORMAL",
                           "{\"event\":\""+EEA_JsonEscape(rt.symbols[prev].event_label)+"\"}");
         }
       if(before!=s.state)
         {
-         EEA_NewsAudit(audit,"NEWS_STATE_CHANGED",s.canonical,
+         EEA_NewsAudit(audit,rt.config_version,"NEWS_STATE_CHANGED",s.canonical,before,s.state,
                        "{\"from\":\""+before+"\",\"to\":\""+s.state+"\",\"event\":\""+EEA_JsonEscape(s.event_label)+
                        "\",\"event_utc\":"+IntegerToString(s.event_utc)+"}");
          changed=true;

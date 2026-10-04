@@ -63,6 +63,7 @@ input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait fo
 input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
+input string InpNewsIgnoreKeywords      = "";     // News Guard: comma list of HIGH event names to ignore (empty = none)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -396,7 +397,8 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
       IntegerToString(g_news.cfg.swing_block_before_min/60)+"h"+(g_news.cfg.swing_block_before_min%60>0 ?
       IntegerToString(g_news.cfg.swing_block_before_min%60)+"m" : "")+" before; break-even "+
       IntegerToString(g_news.cfg.be_before_min)+"m before at "+DoubleToString(g_news.cfg.be_min_r,1)+
-      "R; unknown calendar: "+(g_news.cfg.allow_when_unknown ? "ALLOW" : "BLOCK");
+      "R; unknown calendar: "+(g_news.cfg.allow_when_unknown ? "ALLOW" : "BLOCK")+
+      (g_news.cfg.ignore_keywords=="" ? "" : "; ignoring: "+g_news.cfg.ignore_keywords);
    long now=(long)TimeGMT();
    view.news_symbol_count=MathMin(g_news.symbol_count,EEA_PANEL_MAX_ROWS);
    for(int i=0;i<view.news_symbol_count;i++)
@@ -659,7 +661,8 @@ int OnInit()
    news_config.max_normalize_min=InpNewsMaxNormalizeMin;
    news_config.be_before_min=InpNewsBreakEvenBeforeMin; news_config.be_min_r=InpNewsBreakEvenMinR;
    news_config.allow_when_unknown=InpNewsAllowWhenUnknown;
-   EEA_NewsRuntimeInit(g_news,news_config);
+   news_config.ignore_keywords=InpNewsIgnoreKeywords;
+   EEA_NewsRuntimeInit(g_news,news_config,g_config.config_version);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
                      g_runtime.symbol_count);

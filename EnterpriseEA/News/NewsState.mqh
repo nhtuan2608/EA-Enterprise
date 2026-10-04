@@ -37,12 +37,14 @@ struct EEA_NewsConfig
    int    be_before_min;            // D2: 15
    double be_min_r;                 // D2: 0.3
    bool   allow_when_unknown;       // D3: false = block
+   string ignore_keywords;          // comma list matched against event names; empty = keep every HIGH event
   };
 
 void EEA_NewsConfigDefaults(EEA_NewsConfig &c)
   {
    c.enabled=true; c.scalp_block_before_min=60; c.swing_block_before_min=180; c.active_min=5;
    c.post_min=15; c.max_normalize_min=60; c.be_before_min=15; c.be_min_r=0.3; c.allow_when_unknown=false;
+   c.ignore_keywords="";
   }
 
 bool EEA_NewsConfigValid(const EEA_NewsConfig &c)
@@ -50,6 +52,24 @@ bool EEA_NewsConfigValid(const EEA_NewsConfig &c)
    return c.scalp_block_before_min>=0 && c.swing_block_before_min>=c.scalp_block_before_min &&
           c.active_min>0 && c.post_min>=c.active_min && c.max_normalize_min>=c.post_min &&
           c.be_before_min>=0 && c.be_min_r>=0.0;
+  }
+
+// True when the event name contains one of the operator's ignore keywords (case-insensitive).
+// The default list is empty: every HIGH impact event counts.
+bool EEA_NewsEventIgnored(const string name,const string keywords)
+  {
+   if(keywords=="") return false;
+   string lowered=name;
+   StringToLower(lowered);
+   string parts[];
+   int n=StringSplit(keywords,',',parts);
+   for(int i=0;i<n;i++)
+     {
+      string key=parts[i];
+      StringTrimLeft(key); StringTrimRight(key); StringToLower(key);
+      if(key!="" && StringFind(lowered,key)>=0) return true;
+     }
+   return false;
   }
 
 // Currencies published by the MT5 economic calendar that the guard follows.
