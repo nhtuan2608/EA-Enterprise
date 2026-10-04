@@ -1,6 +1,15 @@
 # Bộ ghi phản ứng giá sau tin (News Reaction Recorder)
 
-Ngày 04/10/2026. Trạng thái: **DESIGN — chưa sửa source**. Chờ người dùng chốt các quyết định ở mục 12.
+Ngày 04/10/2026. Trạng thái: **IMPLEMENTED** (`News/NewsReaction.mqh`, `News/NewsReactionRecorder.mqh`). Người dùng đồng ý R1–R6 ở mục 12 theo đề xuất.
+
+**Bổ sung khi triển khai (04/10/2026):**
+- **Mức ảnh hưởng.** Mỗi bản ghi có trường `impact`, theo yêu cầu của người dùng:
+  - `DIRECT` (đỏ): tin của chính đồng tiền trong cặp.
+  - `INDIRECT` (vàng): tin HIGH của một đồng tiền lớn khác thuộc nhóm lãi suất, lạm phát, việc làm hoặc GDP (sector `MONEY`, `PRICES`, `JOBS`, `GDP` của MT5). Ví dụ lãi suất ECB với XAUUSD và USDJPY. Nhờ vậy có số liệu đo được mức ảnh hưởng gián tiếp, trong đó có ảnh hưởng tới vàng.
+- **Khác bản thiết kế:**
+  - Tác động lên lệnh ghi số lệnh thoát trong [T, T+60] (`exits_in_window`), chưa có trượt giá chi tiết từng SL.
+  - Số tín hiệu bị chặn và số lệnh chờ bị hủy chỉ được đếm khi EA chạy liên tục trong cửa sổ tin; nếu gỡ EA giữa chừng thì phần này không đầy đủ.
+  - Backfill dùng độ lệch giờ server hiện tại. Vì vậy các tin trước lần đổi giờ của broker có thể lệch 1 giờ, cần lưu ý khi đọc số liệu cũ.
 
 Nguồn: master specification v1.4 mục 6.3 (dữ liệu quản lý lệnh), 7.1 (Surprise Calculator), 7.3 (Surprise), REQ-007, REQ-012, TC-020; thiết kế News Guard (`2026-10-04-market-information-and-news-guard-design.md`).
 

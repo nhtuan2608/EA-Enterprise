@@ -67,6 +67,7 @@ struct EEA_ManagedTrade
    double zone_high;
    long   registered_at_utc;
    long   opened_at_utc;
+   long   exited_at_utc;
    long   last_bar_time;
    int    bars;
    double mfe_r;
@@ -117,6 +118,7 @@ bool EEA_TradeManagerWrite(const string root,const EEA_ManagedTrade &t)
       EEA_PendingN("initial_tp",t.initial_tp)+EEA_PendingN("initial_volume",t.initial_volume)+
       EEA_PendingN("zone_low",t.zone_low)+EEA_PendingN("zone_high",t.zone_high)+
       EEA_PendingL("registered_at_utc",t.registered_at_utc)+EEA_PendingL("opened_at_utc",t.opened_at_utc)+
+      EEA_PendingL("exited_at_utc",t.exited_at_utc)+
       EEA_PendingL("last_bar_time",t.last_bar_time)+EEA_PendingL("bars",t.bars)+
       EEA_PendingN("mfe_r",t.mfe_r)+EEA_PendingN("mae_r",t.mae_r)+EEA_PendingL("bar_05r",t.bar_05r)+
       EEA_PendingL("bar_1r",t.bar_1r)+EEA_PendingL("bar_2r",t.bar_2r)+EEA_PendingS("state",t.state)+
@@ -165,6 +167,7 @@ bool EEA_TradeManagerParse(const string json,EEA_ManagedTrade &t)
    t.zone_high=StringToDouble(EEA_RiskLedgerField(json,"zone_high"));
    t.registered_at_utc=StringToInteger(EEA_RiskLedgerField(json,"registered_at_utc"));
    t.opened_at_utc=StringToInteger(EEA_RiskLedgerField(json,"opened_at_utc"));
+   t.exited_at_utc=StringToInteger(EEA_RiskLedgerField(json,"exited_at_utc"));
    t.last_bar_time=StringToInteger(EEA_RiskLedgerField(json,"last_bar_time"));
    t.bars=(int)StringToInteger(EEA_RiskLedgerField(json,"bars"));
    t.mfe_r=StringToDouble(EEA_RiskLedgerField(json,"mfe_r"));
@@ -263,7 +266,7 @@ bool EEA_TradeManagerRegister(EEA_TradeManagerRuntime &rt,const string root,cons
    t.entry_ticket_kind=ticket_kind; t.entry_ticket=ticket; t.position_id=""; t.position_ticket=0;
    t.direction=EEA_OrderTypeDirection(intent.order_type);
    t.entry_price=intent.price; t.initial_sl=intent.sl; t.initial_tp=intent.tp; t.initial_volume=intent.volume;
-   t.zone_low=zone_low; t.zone_high=zone_high; t.registered_at_utc=(long)TimeGMT(); t.opened_at_utc=0;
+   t.zone_low=zone_low; t.zone_high=zone_high; t.registered_at_utc=(long)TimeGMT(); t.opened_at_utc=0; t.exited_at_utc=0;
    t.last_bar_time=0; t.bars=0; t.mfe_r=0.0; t.mae_r=0.0; t.bar_05r=-1; t.bar_1r=-1; t.bar_2r=-1;
    t.state="ENTERED"; t.be_done=false; t.partial_done=false; t.trail_active=false; t.underperforming=false;
    t.action_seq=0; t.last_reason="REGISTERED"; t.exit_request=""; t.intent=intent;
@@ -516,7 +519,7 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
          int prow=EEA_TradeManagerFindPosition(t,observer.reconciliation);
          if(prow<0)
            {
-            t.active=false; t.state="EXITED"; t.last_reason="POSITION_CLOSED";
+            t.active=false; t.state="EXITED"; t.last_reason="POSITION_CLOSED"; t.exited_at_utc=(long)TimeGMT();
             EEA_TradeManagerAudit(audit,t,"TRADE_EXITED","POSITION_CLOSED");
            }
          else

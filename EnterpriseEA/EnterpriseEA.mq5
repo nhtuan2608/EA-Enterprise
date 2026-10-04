@@ -26,6 +26,7 @@
 #include "Risk/RiskLimitsProfile.mqh"
 #include "Runtime/AccountAutoProfile.mqh"
 #include "Storage/RiskLedgerStore.mqh"
+#include "News/NewsReactionRecorder.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -126,6 +127,7 @@ EEA_PendingRuntime g_pending_runtime;
 EEA_LiveSessionRuntime g_live_session;
 EEA_TradeManagerRuntime g_trade_manager;
 EEA_NewsRuntime g_news;
+EEA_NewsReactionRuntime g_news_reaction;
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
 
@@ -416,6 +418,18 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
          detail=g_news.symbols[i].currencies=="" ? "no calendar currency" : "no HIGH event in 7 days ("+g_news.symbols[i].currencies+")";
       view.news_detail[i]=detail;
      }
+   // Focus symbol for reaction statistics: the chart symbol when selected, else the first.
+   string focus=g_news.symbol_count>0 ? g_news.symbols[0].canonical : "";
+   for(int i=0;i<g_news.symbol_count;i++) if(g_news.symbols[i].broker==_Symbol) focus=g_news.symbols[i].canonical;
+   view.news_focus=focus;
+   for(int i=0;i<view.news_symbol_count;i++)
+      view.news_watch[i]=g_news.symbols[i].watch_event_utc>0 ?
+         "watch: "+g_news.symbols[i].watch_label+(g_news.symbols[i].watch_event_utc>now ? "  in " : "  ")+
+         EEA_SymbolPanelDurationText(MathAbs(g_news.symbols[i].watch_event_utc-now))+
+         (g_news.symbols[i].watch_event_utc>now ? "" : " ago") : "";
+   view.news_recent_count=g_news_reaction.recent_count;
+   for(int i=0;i<g_news_reaction.recent_count && i<3;i++) view.news_recent[i]=g_news_reaction.recent[i];
+   view.news_reaction_reason=g_news_reaction.reason;
    view.news_event_count=0;
    for(int i=0;i<g_news.count && view.news_event_count<EEA_PANEL_NEWS_ROWS;i++)
      {
@@ -426,6 +440,14 @@ void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
       view.news_event_values[k]="A "+(g_news.events[i].actual=="" ? "-" : g_news.events[i].actual)+
          "  F "+(g_news.events[i].forecast=="" ? "-" : g_news.events[i].forecast)+
          "  P "+(g_news.events[i].previous=="" ? "-" : g_news.events[i].previous);
+      // History of this event on the focus symbol (R3: suggestions are display only).
+      EEA_ReactionStats stats;
+      if(focus!="" && EEA_NewsReactionStatsFor(g_news_reaction,g_news.events[i].currency,g_news.events[i].name,focus,stats))
+         view.news_event_stats[k]=focus+" n="+IntegerToString(stats.n)+"  15m "+DoubleToString(stats.median_move15_atr,1)+
+            "A  sp x"+DoubleToString(stats.median_spread_ratio,1)+"  ~"+DoubleToString(stats.median_recovery_min,0)+"m"+
+            (stats.has_suggestion ? "  suggest post "+IntegerToString(stats.suggested_post_min)+"m, pre "+stats.suggested_pre : "");
+      else
+         view.news_event_stats[k]="";
       view.news_event_count++;
      }
   }
@@ -775,6 +797,7 @@ void OnTimer()
           EEA_TradeManagerUpdate(g_trade_manager,g_audit,g_config.data_root,g_runtime,
                                  g_live_config.enabled && g_live_config.armed,
                                  !g_pending_runtime.entry_permission_revoked,g_news);
+          EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager);
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,

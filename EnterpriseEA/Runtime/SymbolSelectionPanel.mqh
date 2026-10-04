@@ -193,6 +193,12 @@ struct EEA_SymbolPanelEngineView
    long news_event_utc[EEA_PANEL_NEWS_ROWS];
    string news_event_text[EEA_PANEL_NEWS_ROWS];
    string news_event_values[EEA_PANEL_NEWS_ROWS];
+   string news_event_stats[EEA_PANEL_NEWS_ROWS];   // reaction history on the focus symbol
+   string news_watch[EEA_PANEL_MAX_ROWS];          // indirect (yellow) event per symbol
+   string news_focus;
+   int news_recent_count;
+   string news_recent[3];
+   string news_reaction_reason;
    string recovery_detail;        // the blocked entry: intent, ticket, retcode
    string recovery_message;       // last re-check / resolve outcome
    bool active_risk_valid;
@@ -237,6 +243,10 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.recovery_detail=""; view.recovery_message="";
    view.news_reason="NEWS_GUARD_NOT_PUBLISHED"; view.news_last_success_utc=0; view.news_policy="";
    view.news_symbol_count=0; view.news_event_count=0;
+   view.news_focus=""; view.news_recent_count=0; view.news_reaction_reason="";
+   for(int i=0;i<3;i++) view.news_recent[i]="";
+   for(int i=0;i<EEA_PANEL_NEWS_ROWS;i++) view.news_event_stats[i]="";
+   for(int i=0;i<EEA_PANEL_MAX_ROWS;i++) view.news_watch[i]="";
    view.active_risk_valid=false; view.active_risk_money=0.0; view.active_risk_capital=0.0;
    for(int i=0;i<EEA_PANEL_MAX_ROWS;i++)
      { view.setup_symbol[i]=""; view.setup_state[i]=""; view.setup_detail[i]=""; view.universe[i]=""; }
@@ -2005,19 +2015,28 @@ void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx
       EEA_SymbolPanelSetText(chart_id,row+"_Name",EEA_PANEL_CONTENT_X,sy+i*24+4,g_panel_engine.news_symbol[i],
                              EEA_PANEL_TEXT_COLOR,EEA_PANEL_BODY_FONT_SIZE,EEA_PANEL_FONT_BOLD);
       EEA_SymbolPanelSetPill(chart_id,row+"_Pill",EEA_PANEL_CONTENT_X+76,sy+i*24,124,g_panel_engine.news_state[i],fill,text_color);
-      EEA_SymbolPanelSetText(chart_id,row+"_Detail",EEA_PANEL_CONTENT_X+210,sy+i*24+5,g_panel_engine.news_detail[i],
-                             EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,52);
+      bool watch=(g_panel_engine.news_state[i]=="NORMAL" && g_panel_engine.news_watch[i]!="");
+      if(watch)
+         EEA_SymbolPanelSetPill(chart_id,row+"_Pill",EEA_PANEL_CONTENT_X+76,sy+i*24,124,"WATCH (indirect)",
+                                EEA_PANEL_WARNING_FILL_COLOR,EEA_PANEL_WARNING_COLOR);
+      EEA_SymbolPanelSetText(chart_id,row+"_Detail",EEA_PANEL_CONTENT_X+210,sy+i*24+5,
+                             watch ? g_panel_engine.news_watch[i] : g_panel_engine.news_detail[i],
+                             watch ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,52);
      }
    int ey=sy+MathMin(g_panel_engine.news_symbol_count,8)*24+8;
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsEvents",EEA_PANEL_CONTENT_X,ey,
                              "UPCOMING HIGH IMPACT"+EEA_SymbolPanelSep()+EEA_SymbolPanelLocalZoneLabel());
-   int max_rows=MathMax(0,MathMin(EEA_PANEL_NEWS_ROWS,(EEA_PANEL_STATUSBAR_Y-ey-24)/18));
+   int recent_rows=g_panel_engine.news_recent_count;
+   int recent_h=recent_rows>0 ? 22+recent_rows*16 : 0;
+   int max_rows=MathMax(0,MathMin(EEA_PANEL_NEWS_ROWS,(EEA_PANEL_STATUSBAR_Y-ey-24-recent_h)/26));
    for(int i=0;i<EEA_PANEL_NEWS_ROWS;i++)
      {
       string row=EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_"+IntegerToString(i);
       if(i>=g_panel_engine.news_event_count || i>=max_rows)
-        { ObjectDelete(chart_id,row+"_Time"); ObjectDelete(chart_id,row+"_Name"); ObjectDelete(chart_id,row+"_Val"); continue; }
-      int ry=ey+18+i*18;
+        { ObjectDelete(chart_id,row+"_Time"); ObjectDelete(chart_id,row+"_Name"); ObjectDelete(chart_id,row+"_Val");
+          ObjectDelete(chart_id,row+"_Stats"); continue; }
+      int ry=ey+18+i*26;
       EEA_SymbolPanelSetText(chart_id,row+"_Time",EEA_PANEL_CONTENT_X,ry,
                              TimeToString((datetime)(g_panel_engine.news_event_utc[i]+offset),TIME_DATE|TIME_MINUTES),
                              EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
@@ -2025,6 +2044,9 @@ void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx
                              EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,40);
       EEA_SymbolPanelSetText(chart_id,row+"_Val",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X,ry,g_panel_engine.news_event_values[i],
                              EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER,30);
+      EEA_SymbolPanelSetText(chart_id,row+"_Stats",EEA_PANEL_CONTENT_X+120,ry+12,
+                             g_panel_engine.news_event_stats[i]=="" ? "no reaction history yet" : g_panel_engine.news_event_stats[i],
+                             EEA_PANEL_FAINT_COLOR,7,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,90);
      }
    if(g_panel_engine.news_event_count==0)
       EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_None",EEA_PANEL_CONTENT_X,ey+20,
@@ -2033,6 +2055,21 @@ void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx
                              unknown ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
    else
       ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"NewsEvt_None");
+   // Latest recorded reactions (measurement only).
+   int ry0=ey+18+MathMin(max_rows,g_panel_engine.news_event_count)*26+6;
+   if(g_panel_engine.news_event_count==0) ry0=ey+42;
+   if(recent_rows>0)
+      EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsRecent",EEA_PANEL_CONTENT_X,ry0,
+                                "RECENT REACTIONS"+EEA_SymbolPanelSep()+g_panel_engine.news_reaction_reason);
+   else
+      ObjectDelete(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_NewsRecent");
+   for(int i=0;i<3;i++)
+     {
+      string name=EEA_PANEL_OVERLAY_PREFIX+"NewsRecent_"+IntegerToString(i);
+      if(i>=recent_rows) { ObjectDelete(chart_id,name); continue; }
+      EEA_SymbolPanelSetText(chart_id,name,EEA_PANEL_CONTENT_X,ry0+18+i*16,g_panel_engine.news_recent[i],
+                             EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,96);
+     }
   }
 
 void EEA_SymbolPanelDashPlaceholder(const long chart_id,const string title,const string state,const string subtitle,

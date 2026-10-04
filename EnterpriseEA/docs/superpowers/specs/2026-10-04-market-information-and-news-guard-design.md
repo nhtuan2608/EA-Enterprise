@@ -104,6 +104,17 @@ Theo mục 7.4 của đặc tả, với T là giờ ra tin HIGH của các đồ
 - Các mốc là seed PROPOSED, cấu hình bằng input (mục 10).
 - Mỗi lần đổi trạng thái được ghi audit `NEWS_STATE_CHANGED` kèm symbol, tin, T (UTC) và trạng thái trước → sau.
 
+### 6.1 Mức ảnh hưởng gián tiếp (vàng) — yêu cầu người dùng 04/10/2026
+
+- **Đỏ (trực tiếp):** tin HIGH của chính đồng tiền trong cặp. Áp toàn bộ máy trạng thái ở trên.
+- **Vàng (gián tiếp):** tin HIGH của một đồng tiền lớn **khác**, thuộc nhóm làm đổi sức mạnh của đồng tiền đó: lãi suất và ngân hàng trung ương, lạm phát, việc làm, GDP (sector MT5 `MONEY`, `PRICES`, `JOBS`, `GDP`). Ví dụ:
+  - ECB/BoE/BoJ công bố lãi suất làm USD mạnh hay yếu đi, nên ảnh hưởng tới XAUUSD và các cặp USD khác;
+  - tin USD ảnh hưởng tới một cặp chéo không có USD.
+- **Hiện trạng:**
+  - Dashboard hiện `WATCH (indirect)` màu vàng cho symbol có tin gián tiếp trong cửa sổ SWING.
+  - Bộ ghi phản ứng đo riêng các trường hợp `INDIRECT`.
+  - **Hành vi giao dịch ở mức vàng chờ người dùng chốt.**
+
 ## 7. Tác động lên vào lệnh, lệnh chờ và lệnh đang mở
 
 ### 7.1 Vào lệnh mới (đường live)

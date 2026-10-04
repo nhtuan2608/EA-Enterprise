@@ -21,6 +21,7 @@ struct EEA_NewsEvent
    long   time_utc;
    string currency;
    string name;
+   int    sector;                   // ENUM_CALENDAR_EVENT_SECTOR
    string actual;
    string forecast;
    string previous;
@@ -70,6 +71,21 @@ bool EEA_NewsEventIgnored(const string name,const string keywords)
       if(key!="" && StringFind(lowered,key)>=0) return true;
      }
    return false;
+  }
+
+// Indirect impact (yellow): a HIGH event of another major currency in a sector that moves
+// that currency's strength (rates, inflation, labour, growth) still moves USD pairs and gold
+// through the dollar. Direct impact (red) is the symbol's own currency.
+bool EEA_NewsStrengthSector(const int sector)
+  {
+   return sector==CALENDAR_SECTOR_MONEY || sector==CALENDAR_SECTOR_PRICES ||
+          sector==CALENDAR_SECTOR_JOBS || sector==CALENDAR_SECTOR_GDP;
+  }
+
+bool EEA_NewsIndirectAffects(const string currencies,const string event_currency,const int sector)
+  {
+   return currencies!="" && event_currency!="" && EEA_NewsCurrencyTracked(event_currency) &&
+          !EEA_NewsAffects(currencies,event_currency) && EEA_NewsStrengthSector(sector);
   }
 
 // Currencies published by the MT5 economic calendar that the guard follows.

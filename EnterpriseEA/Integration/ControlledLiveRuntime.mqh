@@ -822,7 +822,7 @@ bool EEA_ControlledLiveApplyNewsExpiry(const EEA_NewsRuntime &news,const string 
 
 // News Guard on working EA pending orders: when the order's profile is blocked, a
 // non-bar guard observation requires the cancel at once (REQ-021 + design 7.2).
-void EEA_PendingApplyNews(EEA_PendingRuntime &rt,const EEA_NewsRuntime &news,CAuditLog &audit,const string root)
+void EEA_PendingApplyNews(EEA_PendingRuntime &rt,EEA_NewsRuntime &news,CAuditLog &audit,const string root)
   {
    const long now=(long)TimeGMT();
    for(int i=0;i<rt.count;i++)
@@ -847,6 +847,7 @@ void EEA_PendingApplyNews(EEA_PendingRuntime &rt,const EEA_NewsRuntime &news,CAu
          EEAEvent_AddReason(event,reason);
          event.details_json="{\"order_ticket\":\""+EEA_JsonEscape(t.state.order_ticket)+"\",\"reason\":\""+reason+"\"}";
          audit.Append(event,"EA_NEWS_GUARD");
+         EEA_NewsNoteEffect(news,t.state.canonical_symbol,"PENDING_CANCEL");
         }
       EEA_PendingWrite(root,t);
       rt.items[i]=t;
@@ -864,7 +865,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                EEA_PendingRuntime &pending,
                                EEA_LiveSessionRuntime &session,
                                EEA_TradeManagerRuntime &trades,
-                               const EEA_NewsRuntime &news)
+                               EEA_NewsRuntime &news)
   {
    state.last_attempt_utc=TimeGMT();
    if(!config.enabled || !config.armed) { state.last_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
@@ -925,6 +926,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
             EEAEvent_AddReason(event,news_block);
             event.details_json="{\"profile\":\""+news_profile+"\",\"reason\":\""+news_block+"\"}";
             audit.Append(event,"EA_NEWS_GUARD");
+            EEA_NewsNoteEffect(news,strategy.engines[i].canonical_symbol,"ENTRY_BLOCKED");
            }
          continue;
         }

@@ -29,6 +29,19 @@ struct EEA_NewsSymbol
    long   next_event_utc;
    string next_label;
    long   normalized_event_utc;
+   long   normal_at_utc;          // last time the state returned to NORMAL (recorder timing)
+   long   timeout_event_utc;      // event whose normalization timed out
+   long   watch_event_utc;        // next indirect (yellow) event, display only
+   string watch_label;
+  };
+
+// Recent News Guard effects (entry blocks, pending cancels) for the reaction recorder.
+#define EEA_NEWS_MAX_EFFECTS 256
+struct EEA_NewsEffect
+  {
+   long   t;
+   string symbol;
+   string kind;
   };
 
 struct EEA_NewsRuntime
@@ -46,12 +59,32 @@ struct EEA_NewsRuntime
    string reason;
    int    symbol_count;
    EEA_NewsSymbol symbols[EEA_NEWS_MAX_SYMBOLS];
+   int    effect_count;
+   int    effect_next;
+   EEA_NewsEffect effects[EEA_NEWS_MAX_EFFECTS];
   };
+
+void EEA_NewsNoteEffect(EEA_NewsRuntime &rt,const string symbol,const string kind)
+  {
+   rt.effects[rt.effect_next].t=(long)TimeGMT();
+   rt.effects[rt.effect_next].symbol=symbol;
+   rt.effects[rt.effect_next].kind=kind;
+   rt.effect_next=(rt.effect_next+1)%EEA_NEWS_MAX_EFFECTS;
+   rt.effect_count=MathMin(rt.effect_count+1,EEA_NEWS_MAX_EFFECTS);
+  }
+
+int EEA_NewsEffectCount(const EEA_NewsRuntime &rt,const string symbol,const string kind,const long from,const long to)
+  {
+   int n=0;
+   for(int i=0;i<rt.effect_count;i++)
+      if(rt.effects[i].symbol==symbol && rt.effects[i].kind==kind && rt.effects[i].t>=from && rt.effects[i].t<to) n++;
+   return n;
+  }
 
 void EEA_NewsRuntimeInit(EEA_NewsRuntime &rt,const EEA_NewsConfig &cfg,const string config_version)
   {
    rt.initialized=true; rt.config_version=config_version; rt.cfg=cfg; rt.count=0; rt.last_attempt_utc=0; rt.last_success_utc=0;
-   rt.change_id=0; rt.calendar_ok=false; rt.symbol_count=0;
+   rt.change_id=0; rt.calendar_ok=false; rt.symbol_count=0; rt.effect_count=0; rt.effect_next=0;
    rt.disabled=!cfg.enabled || MQLInfoInteger(MQL_TESTER)!=0 || MQLInfoInteger(MQL_OPTIMIZATION)!=0;
    rt.reason=!cfg.enabled ? "NEWS_GUARD_DISABLED" :
              (rt.disabled ? "NEWS_GUARD_TESTER_DISABLED" : "NEWS_CALENDAR_PENDING");
@@ -95,6 +128,7 @@ bool EEA_NewsRefreshCalendar(EEA_NewsRuntime &rt,const long now,string &reason)
       fresh[n].time_utc=(long)values[i].time-offset;
       fresh[n].currency=country.currency;
       fresh[n].name=ev.name;
+      fresh[n].sector=(int)ev.sector;
       fresh[n].actual=EEA_NewsValueText(values[i].HasActualValue(),values[i].GetActualValue());
       fresh[n].forecast=EEA_NewsValueText(values[i].HasForecastValue(),values[i].GetForecastValue());
       fresh[n].previous=EEA_NewsValueText(values[i].HasPreviousValue(),values[i].GetPreviousValue());
@@ -223,6 +257,9 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
       EEA_NewsSymbol s;
       s.canonical=canonicals[i]; s.broker=brokers[i];
       s.normalized_event_utc=prev>=0 ? rt.symbols[prev].normalized_event_utc : 0;
+      s.normal_at_utc=prev>=0 ? rt.symbols[prev].normal_at_utc : 0;
+      s.timeout_event_utc=prev>=0 ? rt.symbols[prev].timeout_event_utc : 0;
+      s.watch_event_utc=0; s.watch_label="";
       string before=prev>=0 ? rt.symbols[prev].state : "";
       s.currencies=brokers[i]=="" ? "" :
          EEA_NewsSymbolCurrencies(SymbolInfoString(brokers[i],SYMBOL_CURRENCY_BASE),
@@ -241,11 +278,21 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
            }
          s.state=phase.state; s.event_utc=phase.event_utc; s.event_label=phase.event_label;
          s.next_event_utc=phase.next_event_utc; s.next_label=phase.next_label;
+         // Next indirect (yellow) event within the SWING window, display only.
+         for(int e=0;e<rt.count;e++)
+            if(rt.events[e].time_utc>=now-rt.cfg.post_min*60 &&
+               rt.events[e].time_utc<=now+rt.cfg.swing_block_before_min*60 &&
+               EEA_NewsIndirectAffects(s.currencies,rt.events[e].currency,rt.events[e].sector))
+              { s.watch_event_utc=rt.events[e].time_utc; s.watch_label=rt.events[e].currency+" "+rt.events[e].name; break; }
          if(before=="NORMALIZING" && s.state=="NORMAL" && prev>=0 &&
             s.normalized_event_utc<rt.symbols[prev].event_utc)
+           {
+            s.timeout_event_utc=rt.symbols[prev].event_utc;
             EEA_NewsAudit(audit,rt.config_version,"NEWS_NORMALIZE_TIMEOUT",s.canonical,"NORMALIZING","NORMAL",
                           "{\"event\":\""+EEA_JsonEscape(rt.symbols[prev].event_label)+"\"}");
+           }
         }
+      if(before!="" && before!="NORMAL" && s.state=="NORMAL") s.normal_at_utc=now;
       if(before!=s.state)
         {
          EEA_NewsAudit(audit,rt.config_version,"NEWS_STATE_CHANGED",s.canonical,before,s.state,
