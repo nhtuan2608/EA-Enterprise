@@ -1,0 +1,30 @@
+# G10: nghiên cứu tham số S02/S04 (05/10/2026)
+
+## Phương pháp
+- Dữ liệu: nến M5/H1/H4 của EURUSD, GBPUSD, XAUUSD, BTCUSD, USDJPY xuất từ MT5 (`research/bars_*.csv`), 01/01–04/10/2026.
+- Công cụ: `research/g10` (Python). Bộ replay Python khớp với replay của EA: S02 497/497 candidate, S04 352/353; trạng thái và kết quả trùng khớp.
+- Mô hình đánh giá "tm": spread ask/bid khi vào và thoát, Trade Manager như live (chốt 50% tại 1R, dời SL hòa vốn, trailing, thoát khi đóng xuyên vùng, time stop).
+- Walk-forward: chọn tham số chỉ trên **train 01–06/2026**, báo cáo trên **test 07–10/2026**.
+- Lưới: 54 biến thể engine × 72 biến thể lệnh cho mỗi setup/profile (tổng 15.552 tổ hợp). Biến thể lệnh gồm SL buffer, RR tối thiểu, TP cấu trúc hoặc cố định, lọc HTF, lọc giờ 07–20 UTC.
+
+## Kết quả
+
+| Nhóm | Tham số hiện tại (train / test, R mỗi lệnh) | Tốt nhất trên train → kết quả test |
+|---|---|---|
+| S02 SCALP | −0,15 / −0,36 (n 207 / 115) | −0,04 → **−0,30** (n 50) |
+| S02 SWING | −0,31 / −0,60 (n 8 / 6) | +0,15 → **−0,30** (n 12) |
+| S04 SCALP | −0,14 / −0,17 (n 130 / 70) | +0,04 → **−0,08** (n 67) |
+| S04 SWING | +0,37 / +0,07 (n 5 / 3) | +0,80 → +1,36 (**chỉ 4 lệnh**) |
+
+- S02 SCALP: 0/3.676 biến thể dương ở cả train và test. Biến thể tốt nhất trên test (không được phép chọn theo test) vẫn −0,15R.
+- S04 SCALP: 3/2.511 biến thể dương ở cả hai giai đoạn, mức gần 0. Đó là nhiễu, không phải lợi thế.
+- S04 SWING dương nhưng chỉ có 15 lệnh train và 4–5 lệnh test, không đủ để kết luận.
+- Cửa sổ "quay lại trong vùng" của S04 (2/3/4 nến) không đổi kết quả: giá gần như luôn quay lại ngay nến kế tiếp hoặc phá vỡ được chấp nhận.
+
+## Kết luận
+Chỉnh tham số trong khuôn thiết kế hiện tại không tạo được lợi thế dương ngoài mẫu cho S02 và S04 khung SCALP. SWING có quá ít lệnh để đánh giá.
+
+## Giới hạn
+- Chưa mô phỏng lệnh LIMIT tại mép vùng của S02 (vào khi ARMED, cùng chiều HTF). Live S02 có dùng nhánh này.
+- Chưa áp News Guard, sentiment, giới hạn phiên; chưa tính commission.
+- Mô phỏng theo nến: trong một nến, chạm SL được tính trước TP.
