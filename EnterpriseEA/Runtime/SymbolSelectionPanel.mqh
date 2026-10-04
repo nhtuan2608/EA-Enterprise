@@ -140,6 +140,8 @@ struct EEA_SymbolPanelState
    string edit_rendered_value;
    string session_request;        // consumed by the EA shell: SIGN_24H | SIGN_7D | REVOKE
    string recovery_request;       // consumed by the EA shell: RECHECK | RESOLVE
+   string ai_request;             // consumed by the EA shell: ASK | REVIEW
+   uint ai_request_tick;          // one AI request per minute from the panel
    uint recovery_confirm_tick;    // RESOLVE needs a second click within 10 seconds
    string session_confirm_action; // the first click arms a confirmation for 10 seconds
    uint session_confirm_tick;
@@ -182,6 +184,11 @@ struct EEA_SymbolPanelEngineView
    string session_message;
    bool session_real_account;
    string trade_manager_reason;
+   string ai_status;              // AI Bridge: ONLINE | BRIDGE OFFLINE | CIRCUIT OPEN | DISABLED
+   string ai_status_line;
+   string ai_title[4];
+   int ai_line_count[4];
+   string ai_lines[32];
    bool sentiment_ok;             // market sentiment (cross-pair flow)
    string sentiment_reason;
    string sentiment_regime;
@@ -254,6 +261,9 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.session_max_entries=0; view.session_swing_entries_today=0; view.session_max_swing_entries=0; view.session_reason=""; view.session_message=""; view.session_real_account=false;
    view.trade_manager_reason="";
    view.recovery_detail=""; view.recovery_message="";
+   view.ai_status="DISABLED"; view.ai_status_line="";
+   for(int i=0;i<4;i++) { view.ai_title[i]=""; view.ai_line_count[i]=0; }
+   for(int i=0;i<32;i++) view.ai_lines[i]="";
    view.sentiment_ok=false; view.sentiment_reason="SENTIMENT_NOT_PUBLISHED"; view.sentiment_regime="UNKNOWN";
    view.sentiment_bar_time=0; view.sentiment_summary=""; view.sentiment_symbol_count=0;
    for(int i=0;i<8;i++) { view.sentiment_ccy[i]=""; view.sentiment_s4[i]=0.0; view.sentiment_s24[i]=0.0; }
@@ -1623,11 +1633,7 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
    else if(g_panel_state.dashboard_tab=="TRADES") EEA_SymbolPanelDashTrades(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="RISK") EEA_SymbolPanelDashRisk(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="NEWS") EEA_SymbolPanelDashNews(chart_id,ctx);
-   else if(g_panel_state.dashboard_tab=="AI")
-      EEA_SymbolPanelDashPlaceholder(chart_id,"MCP AI BRIDGE","OFFLINE","Not built yet  "+EEA_SymbolPanelGlyph(0x00B7)+"  spec section 8, Phase 7",
-         "Deterministic EA logic runs without AI; nothing waits on a provider.",
-         "Planned: provider, last review, warnings with TTL, ASK AI / REFRESH / DETAIL.",
-         "AI may report, warn or recommend reducing risk only. It never sends orders.");
+   else if(g_panel_state.dashboard_tab=="AI") EEA_SymbolPanelDashAi(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="CALENDAR") EEA_SymbolPanelDashCalendar(chart_id,ctx);
    else EEA_SymbolPanelDashOverview(chart_id,ctx);
    ChartRedraw(chart_id);
@@ -2127,6 +2133,46 @@ void EEA_SymbolPanelDashNews(const long chart_id,EEA_ObserverRuntimeContext &ctx
       if(i>=recent_rows) { ObjectDelete(chart_id,name); continue; }
       EEA_SymbolPanelSetText(chart_id,name,EEA_PANEL_CONTENT_X,ry0+18+i*16,g_panel_engine.news_recent[i],
                              EEA_PANEL_TEXT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,96);
+     }
+  }
+
+// AI Bridge v1 (Level 0/1): bridge status, buttons and the latest report of each type.
+// AI only reports and recommends; the EA never acts on it.
+void EEA_SymbolPanelDashAi(const long chart_id,EEA_ObserverRuntimeContext &ctx)
+  {
+   int y=EEA_PANEL_CONTENT_Y;
+   string p=EEA_PANEL_OVERLAY_PREFIX+"Ai_";
+   bool online=(g_panel_engine.ai_status=="ONLINE");
+   EEA_SymbolPanelSetSurface(chart_id,p+"Surface",EEA_PANEL_INNER_X,y,EEA_PANEL_INNER_WIDTH,62,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetCaption(chart_id,p+"Title",EEA_PANEL_CONTENT_X,y+8,
+                             "AI BRIDGE"+EEA_SymbolPanelSep()+"LEVEL 0/1: REPORTS ONLY, NEVER TRADES");
+   EEA_SymbolPanelSetPill(chart_id,p+"Pill",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-150,y+5,150,g_panel_engine.ai_status,
+                          online ? EEA_PANEL_OK_FILL_COLOR : EEA_PANEL_WARNING_FILL_COLOR,
+                          online ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+   EEA_SymbolPanelSetText(chart_id,p+"Status",EEA_PANEL_CONTENT_X,y+28,g_panel_engine.ai_status_line,
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,100);
+   EEA_SymbolPanelSetButtonEx(chart_id,p+"BtnAsk",EEA_PANEL_CONTENT_X,y+68,150,26,"Ask AI (status)",EEA_PANEL_BUTTON_PRIMARY);
+   EEA_SymbolPanelSetButtonEx(chart_id,p+"BtnReview",EEA_PANEL_CONTENT_X+158,y+68,170,26,"Review news data now",
+                              EEA_PANEL_BUTTON_SECONDARY);
+   int ry=y+104;
+   for(int t=0;t<4;t++)
+     {
+      EEA_SymbolPanelSetCaption(chart_id,p+"RT_"+IntegerToString(t),EEA_PANEL_CONTENT_X,ry,g_panel_engine.ai_title[t]);
+      ry+=16;
+      int shown=MathMin(g_panel_engine.ai_line_count[t],t==0 ? 5 : 3);
+      for(int i=0;i<5;i++)
+        {
+         string n=p+"RL_"+IntegerToString(t)+"_"+IntegerToString(i);
+         if(i>=shown) { ObjectDelete(chart_id,n); continue; }
+         string line=g_panel_engine.ai_lines[t*8+i];
+         color tone=StringFind(line,"[WARN]")==0 ? EEA_PANEL_WARNING_COLOR : (StringFind(line,">")==0 ? EEA_PANEL_ACCENT_COLOR :
+                    EEA_PANEL_TEXT_COLOR);
+         EEA_SymbolPanelSetText(chart_id,n,EEA_PANEL_CONTENT_X+8,ry,line,tone,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,
+                                ANCHOR_LEFT_UPPER,96);
+         ObjectSetString(chart_id,n,OBJPROP_TOOLTIP,line);
+         ry+=15;
+        }
+      ry+=6;
      }
   }
 
@@ -2675,6 +2721,14 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       else
         { g_panel_state.session_confirm_action=action; g_panel_state.session_confirm_tick=GetTickCount(); }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnAsk" || sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnReview")
+     {
+      if(g_panel_state.ai_request_tick>0 && GetTickCount()-g_panel_state.ai_request_tick<60000)
+        { EEA_SymbolPanelToast("AI: one request per minute",EEA_PANEL_WARNING_COLOR); return; }
+      g_panel_state.ai_request_tick=GetTickCount();
+      g_panel_state.ai_request=(sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnAsk") ? "ASK" : "REVIEW";
+      return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_RecoveryRecheck")
      {

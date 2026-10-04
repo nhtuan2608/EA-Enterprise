@@ -109,6 +109,8 @@ struct EEA_NewsReactionRuntime
    int    recent_count;
    string recent[EEA_NR_RECENT];
    long   cursor_changed_utc;              // last time the backfill cursor moved (stall check)
+   int    live_event_count;                // LIVE cluster-lead records waiting for an AI review
+   string live_event_lines[8];
    EEA_NewsHealth health;
   };
 
@@ -173,6 +175,7 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
    ArrayResize(rt.keys,0); ArrayResize(rt.summaries,0);
    EEA_NewsHealthDefaults(rt.health);
    rt.cursor_changed_utc=(long)TimeGMT();
+   rt.live_event_count=0;
    for(int i=0;i<EEA_NR_RECENT;i++) rt.recent[i]="";
    string path=EEA_NrLogPath(root);
    if(FileIsExist(path,0))
@@ -446,8 +449,12 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
       r.entries_blocked=EEA_NewsEffectCount(news,canonical,"ENTRY_BLOCKED",T-4*3600,T+4*3600);
       r.pending_cancelled=EEA_NewsEffectCount(news,canonical,"PENDING_CANCEL",T-4*3600,T+4*3600);
      }
-   if(!EEA_WriteAtomicAppendText(EEA_NrLogPath(root),EEA_NrJson(r)+"\r\n"))
+   string record_json=EEA_NrJson(r);
+   if(!EEA_WriteAtomicAppendText(EEA_NrLogPath(root),record_json+"\r\n"))
      { rt.reason="NEWS_REACTION_PERSISTENCE_FAILED"; return 0; }
+   // A settled LIVE cluster becomes a NEWS_EVENT_REVIEW for the AI bridge (lead records only).
+   if(source=="LIVE" && r.cluster_lead && r.quality=="OK" && rt.live_event_count<8)
+      rt.live_event_lines[rt.live_event_count++]=record_json;
    EEAEvent event;
    EEAEvent_Init(event,r.quality=="OK" ? "NEWS_REACTION_RECORDED" : "NEWS_REACTION_INCOMPLETE",TimeGMT(),canonical,key,"",
                  r.quality,r.quality=="OK" ? "OK" : "DEGRADED");

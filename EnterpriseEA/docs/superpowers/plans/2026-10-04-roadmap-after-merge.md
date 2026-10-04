@@ -52,7 +52,7 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 | G4 | Kiểm chứng lệnh thật: lệnh chờ REQ-021 (TC-046..051), Trade Manager, sentiment khi vào lệnh | ⏳ Chờ FX mở cửa thứ Hai |
 | G5 | Đánh giá tuần chạy thử S02 (forward 1 tuần) | ⏳ Cuối tuần 10–11/10 |
 | G6 | Tự động kiểm tra số liệu tin (P2) | ✅ Deploy cùng `G6` (news data health) |
-| G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ⬜ |
+| G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ✅ Đã deploy; bridge chạy tay bằng `run_bridge.ps1` (Windows) hoặc systemd (Ubuntu) |
 | G8 | Command queue + CLOSE / PARTIAL / BE / TRAIL (P4, đặc tả 9.2) | ⬜ |
 | G9 | S04 Failed Break (P5) | ⬜ |
 | G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | ⬜ |

@@ -27,6 +27,7 @@
 #include "Runtime/AccountAutoProfile.mqh"
 #include "Storage/RiskLedgerStore.mqh"
 #include "News/NewsReactionRecorder.mqh"
+#include "Runtime/AiBridgeClient.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -67,6 +68,11 @@ input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries w
 input string InpNewsIgnoreKeywords      = "";     // News Guard: comma list of HIGH event names to ignore (empty = none)
 input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
 input bool   InpSentimentEnabled        = true;   // Market sentiment: reduce-only filter from cross-pair flow
+input bool   InpAiEnabled               = true;   // AI Bridge v1 (Level 0/1: reports only, never trades)
+input int    InpAiMaxCallsPerDay        = 30;     // AI Bridge: requests per local day
+input string InpAiAnalysisProvider      = "claude"; // AI Bridge: provider for news/status analysis (claude or codex)
+input string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data review (operator local time)
+input string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 input double InpLiveSafetyBufferMoney   = 0.0;
@@ -454,6 +460,246 @@ void EEA_PublishSentimentView(EEA_SymbolPanelEngineView &view)
      }
   }
 
+// ---------------------------------------------------------------------------
+// AI Bridge v1 (G7): schedule, allowlisted contexts, panel requests. Level 0/1 only:
+// AI answers are shown, stored and audited; nothing here changes orders, risk or inputs.
+// ---------------------------------------------------------------------------
+EEA_AiClient g_ai;
+bool g_ai_backfill_done_seen=false;
+
+int EEA_AiParseHm(const string hm)
+  {
+   string parts[];
+   if(StringSplit(hm,':',parts)!=2) return -1;
+   int h=(int)StringToInteger(parts[0]), m=(int)StringToInteger(parts[1]);
+   return (h<0 || h>23 || m<0 || m>59) ? -1 : h*60+m;
+  }
+
+string EEA_AiNum(const double v,const int digits) { return DoubleToString(v,digits); }
+
+string EEA_AiContextNewsData()
+  {
+   string json="{\"guard\":{\"scalp_block_before_min\":"+IntegerToString(g_news.cfg.scalp_block_before_min)+
+      ",\"swing_block_before_min\":"+IntegerToString(g_news.cfg.swing_block_before_min)+
+      ",\"post_min\":"+IntegerToString(g_news.cfg.post_min)+",\"max_normalize_min\":"+IntegerToString(g_news.cfg.max_normalize_min)+
+      ",\"be_before_min\":"+IntegerToString(g_news.cfg.be_before_min)+",\"be_min_r\":"+EEA_AiNum(g_news.cfg.be_min_r,2)+
+      ",\"unknown\":\""+(g_news.cfg.allow_when_unknown ? "ALLOW" : "BLOCK")+"\",\"indirect\":\"SWING blocked, SCALP x0.5\"}";
+   json+=",\"health\":{\"warn\":"+IntegerToString(g_news_health.warn)+",\"info\":"+IntegerToString(g_news_health.info)+",\"findings\":[";
+   for(int i=0;i<g_news_health.count;i++)
+      json+=(i>0 ? "," : "")+"{\"code\":\""+g_news_health.code[i]+"\",\"severity\":\""+g_news_health.severity[i]+
+            "\",\"detail\":\""+EEA_JsonEscape(g_news_health.detail[i])+"\"}";
+   json+="]},\"backfill\":{\"cursor_utc\":"+IntegerToString(g_news_reaction.backfill_cursor_utc)+
+      ",\"done\":"+(g_news_reaction.backfill_done ? "true" : "false")+",\"records\":"+IntegerToString(g_news_reaction.key_count)+"}";
+   // Statistics of the 40 best-sampled cluster x symbol groups.
+   string groups[]; int counts[]; int g=0;
+   for(int i=0;i<g_news_reaction.summary_count && g<300;i++)
+     {
+      string name=g_news_reaction.summaries[i].group;
+      int found=-1;
+      for(int j=0;j<g;j++) if(groups[j]==name) { found=j; break; }
+      if(found<0) { ArrayResize(groups,g+1); ArrayResize(counts,g+1); groups[g]=name; counts[g]=1; g++; }
+      else counts[found]++;
+     }
+   json+=",\"groups\":[";
+   int written=0;
+   bool used[];
+   ArrayResize(used,g);
+   for(int i=0;i<g;i++) used[i]=false;
+   while(written<40)
+     {
+      int best=-1;
+      for(int j=0;j<g;j++) if(!used[j] && (best<0 || counts[j]>counts[best])) best=j;
+      if(best<0) break;
+      used[best]=true;
+      EEA_ReactionStats st;
+      EEA_NewsReactionStats(g_news_reaction.summaries,g_news_reaction.summary_count,groups[best],st);
+      if(st.n==0) continue;
+      json+=(written>0 ? "," : "")+"{\"group\":\""+EEA_JsonEscape(groups[best])+"\",\"n\":"+IntegerToString(st.n)+
+            ",\"median_move15_atr\":"+EEA_AiNum(st.median_move15_atr,2)+",\"p80_move60_atr\":"+EEA_AiNum(st.p80_move60_atr,2)+
+            ",\"median_spread_ratio\":"+EEA_AiNum(st.median_spread_ratio,2)+",\"median_recovery_min\":"+EEA_AiNum(st.median_recovery_min,0)+
+            ",\"reversal_rate\":"+EEA_AiNum(st.reversal_rate,2)+",\"guard_covered_rate\":"+EEA_AiNum(st.covered_rate,2)+
+            ",\"median_residual_atr\":"+EEA_AiNum(st.median_residual_atr,2)+
+            (st.has_suggestion ? ",\"suggested_post_min\":"+IntegerToString(st.suggested_post_min)+",\"suggested_pre\":\""+st.suggested_pre+"\"" : "")+"}";
+      written++;
+     }
+   json+="]}";
+   return json;
+  }
+
+string EEA_AiContextNewsEvent()
+  {
+   string json="{\"records\":[";
+   for(int i=0;i<g_news_reaction.live_event_count;i++) json+=(i>0 ? "," : "")+g_news_reaction.live_event_lines[i];
+   json+="],\"history\":[";
+   for(int i=0;i<g_news_reaction.live_event_count;i++)
+     {
+      string group=EEA_AiField(g_news_reaction.live_event_lines[i],"group");
+      EEA_ReactionStats st;
+      EEA_NewsReactionStats(g_news_reaction.summaries,g_news_reaction.summary_count,group,st);
+      json+=(i>0 ? "," : "")+"{\"group\":\""+EEA_JsonEscape(group)+"\",\"n\":"+IntegerToString(st.n)+
+            ",\"median_move15_atr\":"+EEA_AiNum(st.median_move15_atr,2)+",\"p80_move60_atr\":"+EEA_AiNum(st.p80_move60_atr,2)+
+            ",\"median_spread_ratio\":"+EEA_AiNum(st.median_spread_ratio,2)+"}";
+     }
+   json+="]}";
+   return json;
+  }
+
+// Last 24 hours of the audit log, summarised: counts per event type and the latest non-OK events.
+string EEA_AiContextDiagnostics()
+  {
+   string path=g_config.data_root+"/logs/audit.jsonl";
+   string types[]; int counts[]; int nt=0;
+   string issues[]; int ni=0;
+   int h=FileOpen(path,FILE_READ|FILE_BIN|FILE_SHARE_READ|FILE_SHARE_WRITE);
+   int scanned=0;
+   if(h!=INVALID_HANDLE)
+     {
+      ulong size=FileSize(h);
+      ulong from=size>786432 ? size-786432 : 0;
+      FileSeek(h,(long)from,SEEK_SET);
+      uchar bytes[];
+      int len=(int)(size-from);
+      ArrayResize(bytes,len);
+      int read=(int)FileReadArray(h,bytes,0,len);
+      FileClose(h);
+      string text=CharArrayToString(bytes,0,read,CP_UTF8);
+      string lines[];
+      int n=StringSplit(text,'\n',lines);
+      string cutoff=EEA_IsoUtc((datetime)((long)TimeGMT()-86400));
+      for(int i=0;i<n;i++)
+        {
+         string at=EEA_AiField(lines[i],"occurred_at_utc");
+         if(at=="" || StringCompare(at,cutoff)<0) continue;
+         scanned++;
+         string type=EEA_AiField(lines[i],"event_type");
+         if(type=="RUNTIME_REFRESHED") { }
+         int f=-1;
+         for(int j=0;j<nt;j++) if(types[j]==type) { f=j; break; }
+         if(f<0 && nt<60) { ArrayResize(types,nt+1); ArrayResize(counts,nt+1); types[nt]=type; counts[nt]=1; nt++; }
+         else if(f>=0) counts[f]++;
+         string quality=EEA_AiField(lines[i],"data_quality");
+         if(quality!="OK" && quality!="")
+           {
+            int rc=StringFind(lines[i],"\"reason_codes\":[");
+            string reasons=rc>=0 ? StringSubstr(lines[i],rc+16,MathMax(0,StringFind(lines[i],"]",rc)-rc-16)) : "";
+            string item="{\"at\":\""+at+"\",\"type\":\""+type+"\",\"symbol\":\""+EEA_AiField(lines[i],"symbol")+
+                        "\",\"quality\":\""+quality+"\",\"reasons\":\""+EEA_JsonEscape(StringSubstr(reasons,0,160))+"\"}";
+            if(ni<15) { ArrayResize(issues,ni+1); issues[ni++]=item; }
+            else { for(int k=0;k<14;k++) issues[k]=issues[k+1]; issues[14]=item; }
+           }
+        }
+     }
+   string json="{\"window_hours\":24,\"scanned_events\":"+IntegerToString(scanned)+",\"runtime\":{\"state\":\""+
+      g_runtime.status.runtime_state+"\",\"reason\":\""+g_runtime.status.reason_code+"\",\"refresh_failures\":"+
+      IntegerToString(g_runtime.status.refresh_failure_count)+"},\"live\":{\"last_reason\":\""+EEA_JsonEscape(g_live_runtime.last_reason)+
+      "\",\"recovery_blocked\":"+(g_live_runtime.recovery_blocked ? "true" : "false")+"},\"event_counts\":{";
+   for(int i=0;i<nt;i++) json+=(i>0 ? "," : "")+"\""+EEA_JsonEscape(types[i])+"\":"+IntegerToString(counts[i]);
+   json+="},\"recent_issues\":[";
+   for(int i=0;i<ni;i++) json+=(i>0 ? "," : "")+issues[i];
+   json+="]}";
+   return json;
+  }
+
+string EEA_AiContextStatus()
+  {
+   string session_reason;
+   string json="{\"runtime\":{\"state\":\""+g_runtime.status.runtime_state+"\",\"reason\":\""+g_runtime.status.reason_code+
+      "\"},\"session\":\""+EEA_LiveSessionStateText(session_reason)+"\",\"kill_switch\":"+(g_controller.kill_active ? "true" : "false")+
+      ",\"positions\":"+IntegerToString(g_runtime.reconciliation.position_count)+",\"orders\":"+IntegerToString(g_runtime.reconciliation.order_count)+
+      ",\"equity\":"+EEA_AiNum(g_runtime.account.equity,2)+",\"balance\":"+EEA_AiNum(g_runtime.account.balance,2)+
+      ",\"live_last_decision\":\""+EEA_JsonEscape(g_live_runtime.last_reason)+"\",\"trade_manager\":\""+g_trade_manager.reason+
+      "\",\"news\":[";
+   for(int i=0;i<g_news.symbol_count;i++)
+      json+=(i>0 ? "," : "")+"{\"symbol\":\""+g_news.symbols[i].canonical+"\",\"state\":\""+g_news.symbols[i].state+
+            "\",\"next\":\""+EEA_JsonEscape(g_news.symbols[i].next_label)+"\",\"next_utc\":"+IntegerToString(g_news.symbols[i].next_event_utc)+
+            ",\"indirect_swing_blocked\":"+(g_news.symbols[i].indirect_swing_blocked ? "true" : "false")+"}";
+   json+="],\"sentiment\":{\"ok\":"+(g_sentiment.snap.ok ? "true" : "false")+",\"regime\":\""+g_sentiment.snap.regime+"\",\"strength_h4\":{";
+   for(int c=0;c<EEA_SENT_CCY;c++) json+=(c>0 ? "," : "")+"\""+EEA_SentCurrency(c)+"\":"+EEA_AiNum(g_sentiment.snap.s4[c],2);
+   json+="},\"strength_h24\":{";
+   for(int c=0;c<EEA_SENT_CCY;c++) json+=(c>0 ? "," : "")+"\""+EEA_SentCurrency(c)+"\":"+EEA_AiNum(g_sentiment.snap.s24[c],2);
+   json+="}},\"setups\":[";
+   int w=0;
+   for(int i=0;i<g_strategy_runtime.symbol_count;i++)
+      json+=(w++>0 ? "," : "")+"{\"symbol\":\""+g_strategy_runtime.engines[i].canonical_symbol+"\",\"profile\":\""+
+            g_strategy_runtime.profile[i]+"\",\"state\":\""+EEA_S02StateName(g_strategy_runtime.engines[i].state)+
+            "\",\"htf\":\""+g_strategy_runtime.htf_structure[i]+"\"}";
+   json+="],\"news_data_health\":{\"warn\":"+IntegerToString(g_news_health.warn)+",\"info\":"+IntegerToString(g_news_health.info)+"}}";
+   return json;
+  }
+
+string EEA_AiAnalysisProvider() { return InpAiAnalysisProvider=="codex" ? "codex" : "claude"; }
+
+void EEA_AiEnqueueReport(const string type,string &reason)
+  {
+   if(type=="NEWS_DATA_REVIEW")
+      EEA_AiEnqueue(g_ai,g_audit,type,EEA_AiAnalysisProvider(),"[\"REPORT\",\"WARN\",\"RECOMMEND_WINDOW_CHANGE\",\"RECOMMEND_REVIEW\"]",
+                    EEA_AiContextNewsData(),reason);
+   else if(type=="EA_DIAGNOSTICS")
+      EEA_AiEnqueue(g_ai,g_audit,type,"codex","[\"REPORT\",\"WARN\",\"RECOMMEND_REVIEW\"]",EEA_AiContextDiagnostics(),reason);
+   else if(type=="ASK_AI")
+      EEA_AiEnqueue(g_ai,g_audit,type,EEA_AiAnalysisProvider(),"[\"REPORT\",\"WARN\",\"RECOMMEND_REVIEW\"]",EEA_AiContextStatus(),reason);
+   else if(type=="NEWS_EVENT_REVIEW")
+      EEA_AiEnqueue(g_ai,g_audit,type,EEA_AiAnalysisProvider(),"[\"REPORT\",\"WARN\",\"RECOMMEND_REVIEW\"]",EEA_AiContextNewsEvent(),reason);
+  }
+
+void EEA_AiTimer()
+  {
+   if(!g_ai.enabled) return;
+   EEA_AiPoll(g_ai,g_audit);
+   long day; int minute;
+   EEA_AiLocalClock(EEA_SymbolPanelLocalOffsetSeconds(),day,minute);
+   EEA_AiRollDay(g_ai,day);
+   string reason;
+   int review_at=EEA_AiParseHm(InpAiNewsReviewLocal), diag_at=EEA_AiParseHm(InpAiDiagnosticsLocal);
+   bool backfill_finished=(g_news_reaction.backfill_done && !g_ai_backfill_done_seen);
+   if(g_news_reaction.loaded) g_ai_backfill_done_seen=g_news_reaction.backfill_done;
+   if(g_news_reaction.loaded && ((review_at>=0 && minute>=review_at && g_ai.last_news_review_day!=day) || backfill_finished))
+     {
+      EEA_AiEnqueueReport("NEWS_DATA_REVIEW",reason);
+      if(reason=="AI_REQUEST_QUEUED") { g_ai.last_news_review_day=day; EEA_AiSaveState(g_ai); }
+     }
+   if(diag_at>=0 && minute>=diag_at && g_ai.last_diag_day!=day)
+     {
+      EEA_AiEnqueueReport("EA_DIAGNOSTICS",reason);
+      if(reason=="AI_REQUEST_QUEUED") { g_ai.last_diag_day=day; EEA_AiSaveState(g_ai); }
+     }
+   if(g_news_reaction.live_event_count>0 && !EEA_AiHasPending(g_ai,"NEWS_EVENT_REVIEW"))
+     {
+      EEA_AiEnqueueReport("NEWS_EVENT_REVIEW",reason);
+      if(reason=="AI_REQUEST_QUEUED" || reason=="AI_DISABLED") g_news_reaction.live_event_count=0;
+     }
+  }
+
+void EEA_AiHandlePanelRequest()
+  {
+   string request=g_panel_state.ai_request;
+   if(request=="") return;
+   g_panel_state.ai_request="";
+   string reason;
+   EEA_AiEnqueueReport(request=="REVIEW" ? "NEWS_DATA_REVIEW" : "ASK_AI",reason);
+   g_ai.last_reason=reason;
+   EEA_SymbolPanelToast(reason=="AI_REQUEST_QUEUED" ? "AI request queued" : "AI: "+reason,
+                        reason=="AI_REQUEST_QUEUED" ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+  }
+
+void EEA_PublishAiView(EEA_SymbolPanelEngineView &view)
+  {
+   bool online=EEA_AiBridgeOnline(g_ai);
+   view.ai_status=!g_ai.enabled ? "DISABLED" : (EEA_AiCircuitOpen(g_ai) ? "CIRCUIT OPEN" : (online ? "ONLINE" : "BRIDGE OFFLINE"));
+   view.ai_status_line="Bridge "+(online ? "online "+g_ai.bridge_version : "offline (start bridge/ai_bridge.py)")+
+      EEA_SymbolPanelSep()+"calls today "+IntegerToString(g_ai.calls_today)+"/"+IntegerToString(g_ai.max_calls_per_day)+
+      EEA_SymbolPanelSep()+"pending "+IntegerToString(g_ai.pending_count)+EEA_SymbolPanelSep()+g_ai.last_reason;
+   long offset=EEA_SymbolPanelLocalOffsetSeconds();
+   for(int t=0;t<EEA_AI_TYPES;t++)
+     {
+      EEA_AiReport r=g_ai.reports[t];
+      view.ai_title[t]=EEA_AiType(t)+(r.present ? "  "+TimeToString((datetime)(r.created_at_utc+offset),TIME_DATE|TIME_MINUTES)+
+                       "  "+r.provider+(r.status=="ERROR" ? "  ERROR "+r.error : "") : "  no report yet");
+      view.ai_line_count[t]=r.present ? r.line_count : 0;
+      for(int i=0;i<8;i++) view.ai_lines[t*8+i]=(i<r.line_count ? r.lines[i] : "");
+     }
+  }
+
 // News Guard facts for the dashboard News tab.
 void EEA_PublishNewsView(EEA_SymbolPanelEngineView &view)
   {
@@ -558,6 +804,7 @@ void EEA_PublishPanelEngineView()
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
    EEA_PublishSentimentView(view);
+   EEA_PublishAiView(view);
    view.recovery_message=g_recovery_message;
    if(g_live_runtime.recovery_blocked)
       view.recovery_detail="intent "+g_live_runtime.recovery_result.intent_id+"  ticket "+
@@ -776,6 +1023,7 @@ int OnInit()
    EEA_SentConfig sentiment_config; EEA_SentConfigDefaults(sentiment_config);
    sentiment_config.enabled=InpSentimentEnabled;
    EEA_SentimentRuntimeInit(g_sentiment,sentiment_config);
+   EEA_AiClientInit(g_ai,g_config.data_root,InpAiEnabled,InpAiMaxCallsPerDay);
    if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
@@ -892,6 +1140,7 @@ void OnTimer()
                                  !g_pending_runtime.entry_permission_revoked,g_news);
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
+          EEA_AiTimer();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
@@ -922,8 +1171,9 @@ void OnChartEvent(const int id,
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
-      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="")
+      if(g_panel_state.session_request!="" || g_panel_state.recovery_request!="" || g_panel_state.ai_request!="")
         {
+         EEA_AiHandlePanelRequest();
          EEA_LiveSessionHandlePanelRequest();
          EEA_RecoveryHandlePanelRequest();
          EEA_PublishPanelEngineView();
