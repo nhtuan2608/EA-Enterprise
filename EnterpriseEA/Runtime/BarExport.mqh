@@ -62,7 +62,7 @@ void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const 
    rt.reason="EXPORT_RUNNING";
   }
 
-bool EEA_BarExportJob(EEA_BarExportRuntime &rt,const int j,const bool final)
+bool EEA_BarExportJob(EEA_BarExportRuntime &rt,const int j,const bool last_try)
   {
    const long offset=EEA_NewsServerOffsetSeconds();
    const long start=(rt.tf[j]==PERIOD_M5 ? rt.from_utc : rt.swing_from_utc);
@@ -74,7 +74,7 @@ bool EEA_BarExportJob(EEA_BarExportRuntime &rt,const int j,const bool final)
                    (datetime)((long)TimeTradeServer()-PeriodSeconds((ENUM_TIMEFRAMES)rt.tf[j])),rates);
    if(n<=0) return false;
    // The terminal downloads older history on demand; wait until it covers the start.
-   if(!final && (long)rates[0].time>from_server+7*86400) return false;
+   if(!last_try && (long)rates[0].time>from_server+7*86400) return false;
    const int digits=(int)SymbolInfoInteger(rt.broker[j],SYMBOL_DIGITS);
    string path=rt.root+"/research/bars_"+rt.canonical[j]+"_"+EEA_BarExportTfName(rt.tf[j])+".csv";
    int h=FileOpen(path,FILE_WRITE|FILE_TXT|FILE_ANSI);
