@@ -2,3 +2,4 @@ data/
 .cache/
 results/
 __pycache__/
+results_*.log
