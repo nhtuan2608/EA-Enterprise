@@ -147,6 +147,35 @@ class SupervisorCase(unittest.TestCase):
         self.assertTrue(all(p.terminated for p in procs))
 
 
+class NotifyTests(unittest.TestCase):
+    def test_alerts_do_not_block_supervision(self):
+        import time
+        import telegram_gateway as tg
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "telegram.json"
+            cfg.write_text(json.dumps({"operators": [1]}), encoding="utf-8")
+            calls = []
+
+            def slow_call(self, method, params, timeout=35):
+                time.sleep(0.5)
+                calls.append(params["text"])
+                return {"ok": True}
+            original = tg.TelegramApi.call
+            tg.TelegramApi.call = slow_call
+            try:
+                notify = sv.make_notify(str(cfg), "123:abc")
+                started = time.time()
+                notify("hello")
+                self.assertLess(time.time() - started, 0.2)       # returned before the send finished
+                time.sleep(0.8)
+                self.assertEqual(calls, ["hello"])
+                sv.make_notify(str(cfg), "")("no token")          # no token: nothing is sent
+                time.sleep(0.1)
+                self.assertEqual(calls, ["hello"])
+            finally:
+                tg.TelegramApi.call = original
+
+
 class ServiceListTests(unittest.TestCase):
     def test_three_services_with_queue_root(self):
         specs = sv.services(Path("Q"), "cfg.json")

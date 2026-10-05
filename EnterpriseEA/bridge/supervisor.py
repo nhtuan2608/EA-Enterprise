@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -178,14 +179,22 @@ def make_notify(config_path: str, token: str):
     except (OSError, ValueError):
         operators = []
 
-    def notify(text: str):
-        if not token:
-            return
+    def send(text: str):
         sys.path.insert(0, str(HERE))
         import telegram_gateway as tg
         api = tg.TelegramApi(token)
         for chat in operators:
-            api.call("sendMessage", {"chat_id": int(chat), "text": text}, timeout=20)
+            for attempt in range(3):          # Telegram is sometimes slow to answer the TLS handshake
+                try:
+                    api.call("sendMessage", {"chat_id": int(chat), "text": text}, timeout=10)
+                    break
+                except ConnectionError:
+                    time.sleep(5 * (attempt + 1))
+
+    def notify(text: str):
+        # Alerts go out on a background thread: a slow network never delays a restart.
+        if token and operators:
+            threading.Thread(target=send, args=(text,), daemon=True).start()
     return notify
 
 
@@ -210,16 +219,17 @@ def main(argv=None) -> int:
         sup.log("TAKEOVER", stopped=take_over([s["script"] for s in specs]))
     sup.log("SUPERVISOR_STARTED", version=VERSION, pid=os.getpid(), services=[s["name"] for s in specs])
     try:
-        sup.notify("SUPERVISOR: đã khởi động, giám sát " + ", ".join(s["name"] for s in specs))
+        sup.tick()                               # services first, then the start-up message
     except Exception as exc:
-        sup.log("ALERT_FAILED", detail=redact(exc, token)[:160])
+        sup.log("SUPERVISOR_ERROR", detail=redact(exc, token)[:200])
+    sup.notify("SUPERVISOR: đã khởi động, giám sát " + ", ".join(s["name"] for s in specs))
     try:
         while True:
+            time.sleep(CHECK_SECONDS)
             try:
                 sup.tick()
             except Exception as exc:  # supervision itself must keep going
                 sup.log("SUPERVISOR_ERROR", detail=redact(exc, token)[:200])
-            time.sleep(CHECK_SECONDS)
     except KeyboardInterrupt:
         sup.stop_all()
         sup.log("SUPERVISOR_STOPPED")
