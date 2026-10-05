@@ -42,6 +42,22 @@ void EEA_BarExportInit(EEA_BarExportRuntime &rt,const string root,const bool ena
 string EEA_BarExportTfName(const int tf) { return tf==PERIOD_M5 ? "M5" : tf==PERIOD_H1 ? "H1" : "H4"; }
 
 string EEA_BarExportMetaPath(const string root) { return root+"/research/bars_meta.json"; }
+string EEA_BarExportProgressPath(const string root) { return root+"/research/bars_progress.json"; }
+
+string EEA_BarExportSignature(const EEA_BarExportRuntime &rt)
+  {
+   string sig=IntegerToString(rt.from_utc)+"|"+IntegerToString(rt.swing_from_utc);
+   for(int j=0;j<rt.count;j++) sig+="|"+rt.canonical[j]+EEA_BarExportTfName(rt.tf[j]);
+   return sig;
+  }
+
+// A restart (chart timeframe change, re-attach) resumes after the jobs already written
+// by the same export within the last day instead of starting over.
+void EEA_BarExportWriteProgress(const EEA_BarExportRuntime &rt)
+  {
+   EEA_WriteAtomicText(EEA_BarExportProgressPath(rt.root),"{\"signature\":\""+EEA_BarExportSignature(rt)+
+      "\",\"next\":"+IntegerToString(rt.next)+",\"written_at_utc\":"+IntegerToString((long)TimeGMT())+"}");
+  }
 
 void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count)
   {
@@ -59,6 +75,11 @@ void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const 
       for(int k=0;k<3 && broker[i]!="" && rt.count<EEA_BAR_EXPORT_MAX_JOBS;k++)
         { rt.canonical[rt.count]=canonical[i]; rt.broker[rt.count]=broker[i]; rt.tf[rt.count]=tfs[k]; rt.count++; }
    rt.next=0;
+   string progress;
+   if(EEA_StrategyCandidateStoreReadText(EEA_BarExportProgressPath(rt.root),progress) &&
+      EEA_StrategyCandidateStoreField(progress,"signature")==EEA_BarExportSignature(rt) &&
+      (long)TimeGMT()-StringToInteger(EEA_StrategyCandidateStoreField(progress,"written_at_utc"))<86400)
+      rt.next=(int)MathMax(0,MathMin(rt.count,StringToInteger(EEA_StrategyCandidateStoreField(progress,"next"))));
    rt.reason="EXPORT_RUNNING";
   }
 
@@ -115,7 +136,8 @@ void EEA_BarExportUpdate(EEA_BarExportRuntime &rt,const string &canonical[],cons
    if(!rt.loaded) { EEA_BarExportLoad(rt,canonical,broker,count); return; }
    if(rt.next<rt.count)
      {
-      if(EEA_BarExportJob(rt,rt.next,rt.retries>=10) || rt.retries>=10) { rt.next++; rt.retries=0; }
+      if(EEA_BarExportJob(rt,rt.next,rt.retries>=10) || rt.retries>=10)
+        { rt.next++; rt.retries=0; EEA_BarExportWriteProgress(rt); }
       else rt.retries++;
      }
    if(rt.next>=rt.count) { EEA_BarExportWriteMeta(rt); rt.done=true; rt.reason="EXPORT_DONE"; }
