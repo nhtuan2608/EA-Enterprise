@@ -1,0 +1,4 @@
+
+# Bridge runs on Ubuntu too: keep LF line endings
+EnterpriseEA/bridge/*.py text eol=lf
+EnterpriseEA/bridge/*.service text eol=lf

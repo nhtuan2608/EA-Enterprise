@@ -58,7 +58,7 @@ def evaluate(ctx):
     if c.get("canonical_symbol") != ctx["canonical_symbol"] or c.get("config_version") != ctx["setup_config_version"]:
         return finish("BLOCKED", "CANDIDATE_IDENTITY_OR_CONFIG_MISMATCH")
     stable_candidate_id = c.get("candidate_id", "")
-    if (c.get("state") != "TRIGGERED" or c.get("setup_id") != "S02" or not c.get("candidate_id") or
+    if (c.get("state") != "TRIGGERED" or c.get("setup_id") not in {"S02", "S04"} or not c.get("candidate_id") or
             not c.get("timeframe") or c.get("expires_after_bars", 0) <= 0 or
             c.get("age_after_trigger_bars", -1) < 0 or
             c.get("age_after_trigger_bars", -1) >= c["expires_after_bars"] or

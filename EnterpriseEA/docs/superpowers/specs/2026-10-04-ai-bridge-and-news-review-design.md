@@ -1,6 +1,12 @@
 # AI Bridge v1 và tự động kiểm tra số liệu tin
 
-Ngày 04/10/2026. Trạng thái: **DESIGN — chưa sửa source**. Chờ người dùng chốt các quyết định ở mục 11.
+Ngày 04/10/2026. Trạng thái: **IMPLEMENTED (G7)**. Gồm `Runtime/AiBridgeClient.mqh` (EA), `bridge/ai_bridge.py` (bridge), các test `Tests/ai_bridge_tests.py` và `Tests/ai_client_tests.py`. Q1–Q6 dùng theo đề xuất.
+
+Khác với Q3: người dùng **không** muốn tạo Task Scheduler vì có thể chuyển hệ thống lên VPS Ubuntu. Bridge vì vậy chạy được trên cả Windows và Linux:
+- Windows: chạy tay bằng `bridge/run_bridge.ps1`;
+- Ubuntu (MT5 chạy bằng Wine): file mẫu `bridge/ai-bridge.service` cho systemd.
+
+Mọi đường dẫn và lệnh CLI đều cấu hình được (`--queue-root`, `--config`). Provider cho phần phân tích chọn bằng input `InpAiAnalysisProvider` (`claude` hoặc `codex`); chẩn đoán EA luôn dùng `codex`.
 
 Nguồn: master specification v1.4 mục 8 (MCP AI Bridge), 8.3 (authority levels), 8.4 (policy flow), 8.5–8.6 (request/response contract), 8.7 (AI-SEC-01..06), 9.1 (tab AI/NEWS), mục 13 (AIG-01..07), REQ-008, REQ-012, TC-021 đến TC-024; News Guard và News Reaction Recorder (04/10/2026).
 
@@ -85,6 +91,13 @@ lưu report, hiển thị trên tab AI và tab News, ghi audit.
 | `ASK_AI` | Người dùng bấm trên tab AI | Trả lời theo loại câu hỏi đã chọn, cùng ngữ cảnh | theo loại |
 
 ## 7. Tự động kiểm tra số liệu tin (lớp xác định, chạy trong EA)
+
+**Trạng thái: IMPLEMENTED (G6, 04/10/2026).**
+- Tính trong `News/NewsReactionRecorder.mqh` (`EEA_NewsHealthEvaluate`), chạy lại mỗi 5 phút.
+- Kết quả lưu ở `current/news_data_health.json`. Tab News có dòng "Data health"; rê chuột vào dòng đó để xem policy.
+- Khi danh sách WARN thay đổi, EA ghi audit `NEWS_DATA_HEALTH`.
+- Để kiểm tra lệch giờ, mỗi bản ghi có thêm `peak_bar_offset_min`: số phút từ T tới nến có biên độ lớn nhất trong khoảng ±90 phút.
+- `NDH_SUGGESTION_GAP` so khoảng chặn gợi ý với mốc ổn định tối đa (`InpNewsMaxNormalizeMin`), và báo khi gợi ý rút ngắn khoảng chặn trước tin (`REDUCE`).
 
 Chạy mỗi khi có bản ghi mới và trước mỗi `NEWS_DATA_REVIEW`. Kết quả ghi ở `current/news_data_health.json` và hiển thị trên tab News. Không cần AI.
 

@@ -582,7 +582,7 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
                                                 "BREAK_EVEN",reason))
                      t.be_done=true;
                  }
-               else if(t.mfe_r>=p.trail_start_r)
+               else if(t.trail_active || t.mfe_r>=p.trail_start_r)       // manual TRAIL starts it early (C6)
                  {
                   t.trail_active=true;
                   double trail=0.0;

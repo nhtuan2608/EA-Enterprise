@@ -13,6 +13,15 @@ Ngày 04/10/2026. Trạng thái: **IMPLEMENTED** (`News/NewsReaction.mqh`, `News
   - `group`: tên cụm × symbol.
 
   Thống kê, khoảng chặn gợi ý và phần "Gần đây" chỉ dùng bản ghi **dẫn đầu** của cụm, nên mỗi cụm được tính một lần. Tab News gộp các tin cùng giờ thành một dòng (`+N`) và hiện thống kê của cả cụm.
+- **Replay News Guard từ 01/01/2026** (P1 trong roadmap, người dùng yêu cầu 04/10/2026). Backfill chạy từ `InpNewsReplayFrom` (mặc định 2026-01-01) thay vì chỉ 12 tuần. Mỗi bản ghi có thêm phần đánh giá "nếu News Guard đã chạy lúc đó":
+  - `guard_block_end_min`: số phút sau T thì lệnh mới được vào lại. Mức đỏ: hết `POST_NEWS` và đã hồi phục, giới hạn trong [15, 60] phút. Mức vàng: T + 15 phút;
+  - `guard_covered`: biến động và spread đã trở lại bình thường trước khi hết chặn hay chưa;
+  - `residual_after_block_atr`: biên độ lớn nhất trong 60 phút sau khi hết chặn, tính theo ATR;
+  - `pre_drift_scalp_atr` / `pre_drift_swing_atr`: giá đã chạy bao nhiêu trong khoảng chặn trước tin (60 phút và 3 giờ).
+
+  Thống kê theo cụm có thêm tỷ lệ "che được" (`guard cov`) và median residual.
+- **Giờ server theo mùa.** Broker theo giờ đóng cửa New York nên giờ server là GMT+2 vào mùa đông và GMT+3 vào mùa hè Mỹ. Bộ ghi tính độ lệch giờ đúng tại thời điểm của từng tin (`server_offset` có trong bản ghi), nên các tin tháng 1–3 không bị lệch 1 giờ. Các bản ghi tạo trước khi có phần replay được tự đo lại.
+- **Ngân sách mỗi lần timer:** tối đa 12 bản ghi hoặc 2,5 giây.
 - **Khác bản thiết kế:**
   - Tác động lên lệnh ghi số lệnh thoát trong [T, T+60] (`exits_in_window`), chưa có trượt giá chi tiết từng SL.
   - Số tín hiệu bị chặn và số lệnh chờ bị hủy chỉ được đếm khi EA chạy liên tục trong cửa sổ tin; nếu gỡ EA giữa chừng thì phần này không đầy đủ.
