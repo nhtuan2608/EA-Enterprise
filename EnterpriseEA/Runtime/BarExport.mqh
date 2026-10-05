@@ -7,12 +7,15 @@
 
 // G10 research export: closed M5/H1/H4 bars of the selected symbols to
 // research/bars_<SYMBOL>_<TF>.csv so that the setup parameters can be studied offline.
-// Read-only market access; one symbol/timeframe per timer pass. Runs again only when
-// the last export is older than a week or the start date changed.
+// Read-only market access; one symbol/timeframe per timer pass. Runs again when the
+// start date changed, the last export is older than a week, or (G18) on the weekend when
+// the last export predates that Saturday, so the weekly review has the whole week's bars.
+// A finished export re-checks once an hour.
 
 #define EEA_BAR_EXPORT_MAX_JOBS 96
 #define EEA_BAR_EXPORT_LEAD_DAYS 120   // level bars before the replay start (H4 swings, previous week)
 #define EEA_BAR_EXPORT_MAX_AGE 604800
+#define EEA_BAR_EXPORT_RECHECK_SECONDS 3600
 
 struct EEA_BarExportRuntime
   {
@@ -29,6 +32,7 @@ struct EEA_BarExportRuntime
    string broker[EEA_BAR_EXPORT_MAX_JOBS];
    int tf[EEA_BAR_EXPORT_MAX_JOBS];
    string reason;
+   long next_check_utc;   // a finished export re-checks staleness from this time
   };
 
 void EEA_BarExportInit(EEA_BarExportRuntime &rt,const string root,const bool enabled,const long from_utc,
@@ -37,6 +41,24 @@ void EEA_BarExportInit(EEA_BarExportRuntime &rt,const string root,const bool ena
    rt.enabled=enabled; rt.loaded=false; rt.done=false; rt.root=root; rt.from_utc=from_utc;
    rt.swing_from_utc=(swing_from_utc>0 && swing_from_utc<from_utc) ? swing_from_utc : from_utc;
    rt.count=0; rt.next=0; rt.retries=0; rt.reason=enabled ? "EXPORT_WAITING" : "EXPORT_DISABLED";
+   rt.next_check_utc=0;
+  }
+
+// 00:00 UTC of the Saturday of the current weekend, or 0 on a weekday.
+long EEA_BarExportWeekendStart(const long now_utc)
+  {
+   const long day=now_utc/86400;
+   const long weekday=(day+4)%7;   // 0 = Sunday (1970-01-01 was a Thursday)
+   if(weekday==6) return day*86400;
+   if(weekday==0) return (day-1)*86400;
+   return 0;
+  }
+
+bool EEA_BarExportStale(const long exported_at_utc,const long now_utc)
+  {
+   if(now_utc-exported_at_utc>=EEA_BAR_EXPORT_MAX_AGE) return true;
+   const long weekend=EEA_BarExportWeekendStart(now_utc);
+   return weekend>0 && exported_at_utc<weekend;
   }
 
 string EEA_BarExportTfName(const int tf) { return tf==PERIOD_M5 ? "M5" : tf==PERIOD_H1 ? "H1" : "H4"; }
@@ -66,7 +88,7 @@ void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const 
    if(EEA_StrategyCandidateStoreReadText(EEA_BarExportMetaPath(rt.root),json) &&
       StringToInteger(EEA_StrategyCandidateStoreField(json,"from_utc"))==rt.from_utc &&
       StringToInteger(EEA_StrategyCandidateStoreField(json,"swing_from_utc"))==rt.swing_from_utc &&
-      (long)TimeGMT()-StringToInteger(EEA_StrategyCandidateStoreField(json,"exported_at_utc"))<EEA_BAR_EXPORT_MAX_AGE)
+      !EEA_BarExportStale(StringToInteger(EEA_StrategyCandidateStoreField(json,"exported_at_utc")),(long)TimeGMT()))
      { rt.done=true; rt.reason="EXPORT_CURRENT"; return; }
    FolderCreate(rt.root+"/research",0);
    rt.count=0;
@@ -132,7 +154,14 @@ void EEA_BarExportWriteMeta(const EEA_BarExportRuntime &rt)
 
 void EEA_BarExportUpdate(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count)
   {
-   if(!rt.enabled || rt.done) return;
+   if(!rt.enabled) return;
+   if(rt.done)
+     {
+      const long now=(long)TimeGMT();
+      if(now<rt.next_check_utc) return;
+      rt.next_check_utc=now+EEA_BAR_EXPORT_RECHECK_SECONDS;
+      rt.loaded=false; rt.done=false;   // EEA_BarExportLoad marks it current again if nothing is due
+     }
    if(!rt.loaded) { EEA_BarExportLoad(rt,canonical,broker,count); return; }
    if(rt.next<rt.count)
      {
