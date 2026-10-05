@@ -2,7 +2,7 @@
 
   python convert_raw.py [--raw "D:\\Work\\Private\\AI APP\\Trading-with-AI\\input\\raw"]
 
-Writes research/long/data/bars_<SYMBOL>_<TF>.csv (time = server wall clock as epoch seconds,
+Writes research/long/data/bars_<SYMBOL>_<TF>.csv, tickvol_<SYMBOL>_H1.csv (time = server wall clock as epoch seconds,
 like the EA export) and bars_meta.json, and prints the bar count per year. A zero spread (early
 years of some exports) is replaced by that file's median non-zero spread so costs are not
 understated.
@@ -58,11 +58,33 @@ def convert(src: Path, dst: Path, start: int = 0) -> Counter:
     return years
 
 
+def convert_tickvol(src: Path, dst: Path, start: int = 0) -> int:
+    """G28: tick volume (MT5 <TICKVOL>) of each bar, kept apart from the bar files: time,tickvol."""
+    seen, n = set(), 0
+    with dst.open("w", encoding="utf-8", newline="") as fh:
+        fh.write("time,tickvol" + chr(10))
+        for line in sorted(src.read_text(encoding="utf-8", errors="replace").splitlines()):
+            r = parse_line(line)
+            if not r or r[0] < start or r[0] in seen:
+                continue
+            seen.add(r[0])
+            fh.write(f"{r[0]},{int(line.split(chr(9))[6])}" + chr(10))
+            n += 1
+    return n
+
+
 def time_year(t: int) -> int:
     return int(__import__("time").gmtime(t).tm_year)
 
 
 def main(argv: list[str]) -> None:
+    if "--tickvol" in argv:                 # only the tick volume files (G28)
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for sym in SYMBOLS:
+            files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+            if files:
+                print(f"{sym} H1 tickvol: {convert_tickvol(files[0], OUT / f'tickvol_{sym}_H1.csv', START.get(sym, 0))}")
+        return
     raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
     OUT.mkdir(parents=True, exist_ok=True)
     last_time = 0
@@ -78,6 +100,10 @@ def main(argv: list[str]) -> None:
             with dst.open(encoding="utf-8") as fh:
                 *_, tail = fh
             last_time = max(last_time, int(tail.split(",")[0]))
+    for sym in SYMBOLS:
+        files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+        if files:
+            print(f"{sym} H1 tickvol: {convert_tickvol(files[0], OUT / f'tickvol_{sym}_H1.csv', START.get(sym, 0))}")
     # G26 step 3: intermarket context (H1 only), same conversion; the folders use other file prefixes.
     for name, folder, prefix in (("DXY", "DXY", "USDX."), ("US10Y", "US10Y", "USNote10Y")):
         files = sorted((raw / folder).glob(f"{prefix}_H1_*.csv"))
