@@ -682,6 +682,10 @@ class Gateway:
                            f"Trạng thái: {ev.get('state_after', '')}  lý do: {','.join(reasons)}\n"
                            f"MFE {d.get('mfe_r', 0)}R  MAE {d.get('mae_r', 0)}R  ({ev.get('occurred_at_utc', '')})" + result)
             return
+        # Changing the symbol or timeframe of the EA's chart (DEINIT_REASON_3) re-initialises the EA
+        # by design; it is the operator's own action, not an incident.
+        if kind == "EA_STOPPED" and "DEINIT_REASON_3" in reasons:
+            return
         alert = kind in ALERT_EVENTS or any(any(k in r for k in ALERT_REASONS) for r in reasons)
         if alert and notify.get("alerts"):
             last = self.state["alerts_at"].get(kind, 0)

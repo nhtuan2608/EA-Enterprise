@@ -247,6 +247,12 @@ class NotifyTests(GatewayCase):
         self.assertTrue(any(t.startswith("VÀO LỆNH XAUUSD S06 SWING") for t in texts))
         self.assertEqual(sum("CẢNH BÁO EA_STOPPED" in t for t in texts), len(self.gw.operators | self.gw.viewers))
 
+    def test_chart_change_restart_is_not_an_alert(self):
+        self.gw.run_once(poll_timeout=0)
+        self.audit({"event_type": "EA_STOPPED", "reason_codes": ["DEINIT_REASON_3"]})
+        self.gw.run_once(poll_timeout=0)
+        self.assertFalse(any("EA_STOPPED" in t for t in self.texts()))
+
     def test_rotated_audit_is_read_from_start(self):
         self.audit(*[{"event_type": "RUNTIME_REFRESHED"} for _ in range(50)])
         self.gw.run_once(poll_timeout=0)
