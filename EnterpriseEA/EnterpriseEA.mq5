@@ -48,6 +48,8 @@ enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
 input EEA_S02ModeInput InpS02Mode       = S02_LIVE;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
 input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
+enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
+input EEA_S06ModeInput InpS06Mode       = S06_LIVE;   // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
@@ -878,6 +880,7 @@ void EEA_PublishPanelEngineView()
    if(g_strategy_runtime.zone_mode)
       view.strategy_reason+=" | S02 "+EEA_SetupModeName(g_strategy_runtime.s02_mode)+
                             " | S04 "+EEA_SetupModeName(g_strategy_runtime.s04_mode)+
+                            " | S06 "+EEA_SetupModeName(g_strategy_runtime.s06_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
@@ -931,9 +934,9 @@ void EEA_PublishPanelEngineView()
             g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction : state_name;
          if(g_strategy_runtime.zone_mode)
            {
-            // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; an idle S04 engine is left out of the row.
-            string tag=(setup=="S04" ? "S04-" : "")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
-            if(setup!="S04" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
+            // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; idle S04/S06 engines are left out of the row.
+            string tag=(setup=="S02" ? "" : setup+"-")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
+            if(setup=="S02" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
                view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+state_name;
             view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+setup+" "+g_strategy_runtime.profile[i]+" "+state+
                " zone "+g_strategy_runtime.zone_text[i]+" HTF "+g_strategy_runtime.htf_structure[i]+
@@ -1063,7 +1066,7 @@ int OnInit()
          EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                           strategy_config,InpStrategyRuntimeEnabled) :
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
-                                            (int)InpS02Mode);
+                                            (int)InpS02Mode,(int)InpS06Mode);
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",
@@ -1229,7 +1232,7 @@ void OnTimer()
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
-          // S04 SHADOW records would-be trades; the replay measures S02/S04 on history.
+          // SHADOW setups record would-be trades; the replay measures S02/S04 on history.
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
           EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);

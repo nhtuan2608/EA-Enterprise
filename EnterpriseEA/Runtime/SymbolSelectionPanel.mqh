@@ -1600,7 +1600,7 @@ void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContex
                            (g_panel_engine.execution_enabled ? "ENABLED" : "EXECUTION_DISABLED")+
                            (g_panel_engine.live_armed ? " / ARMED" : " / not armed"),
                            g_panel_engine.execution_enabled ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,"Strategy runtime (S02/S04)",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,"Strategy runtime (S02/S04/S06)",
                            g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED",
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_StrategyReason",right,y+140,"Strategy reason",

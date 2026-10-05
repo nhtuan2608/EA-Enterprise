@@ -122,7 +122,7 @@ class SourceTests(unittest.TestCase):
 
     def test_s04_never_uses_limit_and_target_beyond_far_edge(self):
         select = section(self.cl, "int EEA_S02SelectEntryMode")
-        self.assertIn('strategy.setup[index]!="S04"', select)
+        self.assertIn('engine.state==EEA_S02_ARMED && strategy.setup[index]=="S02"', select)
         plan = section(self.cl, "bool EEA_ControlledLiveResolveV1Plan")
         self.assertIn("far_edge", plan)
 

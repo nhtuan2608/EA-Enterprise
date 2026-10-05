@@ -325,8 +325,8 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
    const double price=(direction==1 ? tick.ask : tick.bid);
    const bool aligned=(strategy.htf_risk_modifier[index]>=1.0);
    const bool scalp=(strategy.profile[index]!="SWING");
-   // S04 has no LIMIT entry: its edge is the confirmed rejection, not the zone (design 4).
-   if(engine.state==EEA_S02_ARMED && strategy.setup[index]!="S04")
+   // Only S02 has the LIMIT entry: S04 and S06 enter on their confirmation bar (S04 design 4).
+   if(engine.state==EEA_S02_ARMED && strategy.setup[index]=="S02")
      {
       if(!aligned) { reason="ENTRY_AUTO_WAIT_TRIGGER_COUNTER_HTF"; return -1; }
       if(engine.zone_low<=0.0 || engine.zone_high<=engine.zone_low)
@@ -341,6 +341,15 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
    MqlRates trigger;
    if(!EEA_ControlledLiveTriggerBar(broker_symbol,engine.timeframe,engine.candidate.triggered_at_utc,trigger))
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
+   // S06 enters at market after the confirmation close (research), only while price is
+   // still outside the box and has not run more than the chase limit past that close.
+   if(strategy.setup[index]=="S06")
+     {
+      if(direction*(price-engine.key_level)<=0.0) { reason="ENTRY_AUTO_S06_BACK_INSIDE_BOX"; return -1; }
+      if(direction*(price-trigger.close)>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
+      reason="ENTRY_AUTO_MARKET_S06_CONFIRMED";
+      return EEA_S02_ENTRY_MARKET;
+     }
    const double extreme=(direction==1 ? trigger.high : trigger.low);
    const double chase=direction*(price-extreme);
    if(chase>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
@@ -499,20 +508,31 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    double stop=(direction==1 ? invalidation-buffer : invalidation+buffer);
    double risk_distance=MathAbs(entry-stop);
 
-   EEA_LevelPoint points[]; EEA_LevelBar bars[];
-   int point_count=0, level_count=0; double context_atr=0.0;
-   if(!EEA_StrategyRuntimeCollectLevels(symbol.broker_symbol,swing,points,point_count,bars,level_count,context_atr,reason))
-      return false;
    double target=0.0;
-   // S04 targets the other side of the zone: the target must also clear the far edge.
-   double min_target=risk_distance;
-   if(strategy.setup[index]=="S04")
+   const bool s06=(strategy.setup[index]=="S06");
+   if(s06)
      {
-      double far_edge=(direction==1 ? engine.zone_high : engine.zone_low);
-      min_target=MathMax(risk_distance,direction*(far_edge-entry));
+      // G10 part 3: S06 trades with the H4 structure only (NEUTRAL counts as aligned)
+      // and takes a fixed 3R target instead of a structural one.
+      if(strategy.htf_risk_modifier[index]<1.0) { reason="S06_COUNTER_HTF"; return false; }
+      target=entry+direction*EEA_S06_TARGET_R*risk_distance;
      }
-   if(!EEA_S02V1StructuralTarget(points,point_count,direction,entry,min_target,target))
-     { reason="NO_STRUCTURAL_TARGET"; return false; }
+   else
+     {
+      EEA_LevelPoint points[]; EEA_LevelBar bars[];
+      int point_count=0, level_count=0; double context_atr=0.0;
+      if(!EEA_StrategyRuntimeCollectLevels(symbol.broker_symbol,swing,points,point_count,bars,level_count,context_atr,reason))
+         return false;
+      // S04 targets the other side of the zone: the target must also clear the far edge.
+      double min_target=risk_distance;
+      if(strategy.setup[index]=="S04")
+        {
+         double far_edge=(direction==1 ? engine.zone_high : engine.zone_low);
+         min_target=MathMax(risk_distance,direction*(far_edge-entry));
+        }
+      if(!EEA_S02V1StructuralTarget(points,point_count,direction,entry,min_target,target))
+        { reason="NO_STRUCTURAL_TARGET"; return false; }
+     }
 
    double median_spread=EEA_MedianSpreadPoints(symbol.broker_symbol,EEA_S02_SPREAD_MEDIAN_BARS);
    if(median_spread<=0.0) { reason="LIVE_SPREAD_MEDIAN_UNAVAILABLE"; return false; }
@@ -914,7 +934,7 @@ bool EEA_ControlledLiveOppositeActive(const EEA_TradeManagerRuntime &trades,cons
    return false;
   }
 
-// SHADOW mode (S02 and S04): every triggered candidate of a setup in SHADOW is recorded once
+// SHADOW mode (S02, S04 and S06): every triggered candidate of a setup in SHADOW is recorded once
 // with the trade the live path would have planned (entry type, SL, TP, risk, volume,
 // filters). Nothing is sent. An S02 LIMIT at the zone (ARMED) is not recorded.
 void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_StrategyCandidateRuntime &strategy,
@@ -988,7 +1008,8 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
       EEAEvent_AddReason(event,reason);
       event.details_json=details;
       audit.Append(event,"EA_"+setup+"_SHADOW");
-      EEA_WriteAtomicAppendText(observer.root+(setup=="S04" ? "/logs/s04_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
+      EEA_WriteAtomicAppendText(observer.root+(setup=="S04" ? "/logs/s04_shadow.jsonl" :
+                                               setup=="S06" ? "/logs/s06_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
                                 details+"\r\n");
      }
   }
