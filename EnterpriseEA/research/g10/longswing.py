@@ -1,5 +1,5 @@
 """SWING (H1 entry, H4 levels) study on long history with three periods:
-  TRAIN    2023-01-01 .. 2024-12-31   parameters are chosen here only
+  TRAIN    2024 (history starts 2024-02-20; zones need ~2.5 months)   parameters are chosen here only
   VALIDATE 2025-01-01 .. 2025-12-31   first out-of-sample check
   TEST     2026-01-01 .. now          held out until the end
 
@@ -23,10 +23,10 @@ import replay
 import setups
 import sweep
 
-FROM = int(datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp())
+FROM = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
 VALIDATE = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
 TEST = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp())
-MIN_TRAIN = 40
+MIN_TRAIN = 25
 PROFILE = "SWING"
 _CTX = {}
 

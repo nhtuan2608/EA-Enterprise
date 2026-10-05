@@ -66,3 +66,30 @@ Bổ sung vào replay: nhánh LIMIT tại mép vùng của S02 (như live), comm
 ## Hướng tiếp theo đề xuất
 - Không dùng M5 cho vào lệnh. Nghiên cứu SWING H1/H4 trên lịch sử dài hơn (2023–2026) để đủ mẫu.
 - Thêm `InpS02Mode` (OFF/SHADOW/LIVE) để chuyển S02 sang chỉ ghi nhận khi cần.
+
+## Phần 3: SWING trên lịch sử dài (H1, vùng từ H4)
+
+- Dữ liệu: H1/H4 của 5 symbol từ 20/02/2024 (giới hạn lịch sử của broker) tới 05/10/2026.
+- Ba giai đoạn: chọn tham số trên 2024, kiểm tra trên 2025, kiểm chứng cuối trên 2026.
+- Chi phí (spread + commission ước tính) và Trade Manager SWING có áp dụng. News Guard không áp (lịch tin chỉ có từ 2026).
+- Đối chứng vào lệnh ngẫu nhiên (SL 1,5 ATR, TP 2R): −0,01 / −0,07 / −0,03 R mỗi lệnh.
+
+| Setup | Biến thể dương ở cả 3 giai đoạn | Tốt nhất trên 2024 → 2025 / 2026 |
+|---|---|---|
+| S02 Break Retest | 0 / 453 | +0,06 → −0,19 / −0,14 |
+| S03 PDH/PDL Break | 0 / 48 | −0,05 → +0,02 / −0,03 |
+| S04 Failed Break | 0 / 66 | −0,07 → +0,00 / +0,37 (n ~30 mỗi giai đoạn) |
+| S05 Trend Pullback | 16 / 192 | +0,22 → −0,05 / −0,01 |
+| **S06 Compression Expansion** | **8 / 96** | **+0,12 → +0,02 / +0,21** |
+
+### S06 SWING: cấu hình box 12 nến H1, box ≤ 3 ATR, ATR ≤ 0,85 × ATR 48 nến trước, vào lệnh ở nến xác nhận, SL ở mép xa của box, chỉ cùng chiều HTF, TP cố định 3R
+- 550 lệnh, +0,10R mỗi lệnh (2024 +0,09 / 2025 +0,06 / 2026 +0,15), tỷ lệ thắng 51%, sụt giảm tối đa 22R. t ≈ 1,8: chưa có ý nghĩa thống kê chắc chắn.
+- Theo symbol: EURUSD +0,14, GBPUSD +0,04, XAUUSD +0,42, USDJPY +0,16, **BTCUSD −0,07**.
+- Lân cận tham số (box 8/12/16, box ≤ 2,5/3/4 ATR, co hẹp 0,75/0,85/0,95): **tất cả dương**, từ +0,06 đến +0,19R. Đây là dấu hiệu bền, không phải một điểm tối ưu cô lập.
+- Theo quý: 7/11 quý dương.
+- Bỏ lọc HTF: +0,09R. Không tính chi phí: +0,11R.
+
+## Kết luận phần 3
+- S02, S03, S04, S05 SWING không có lợi thế ổn định.
+- S06 Compression Expansion trên H1 là ứng viên duy nhất: dương ở cả ba giai đoạn, ổn định quanh tham số lân cận, vượt đối chứng ngẫu nhiên khoảng 0,15R mỗi lệnh. Mức lợi thế nhỏ (+0,1R) và chưa chắc chắn về thống kê.
+- Đề xuất: đưa S06 SWING vào EA ở chế độ SHADOW để kiểm chứng tiến tới (forward), không bật LIVE ngay.
