@@ -25,6 +25,7 @@
 Chỉnh tham số trong khuôn thiết kế hiện tại không tạo được lợi thế dương ngoài mẫu cho S02 và S04 khung SCALP. SWING có quá ít lệnh để đánh giá.
 
 ## Giới hạn
+- Ghi chú 05/10: sweep chạy lại sau khi replay có commission (`f15915d`) và chỉ tính lệnh MARKET (`5eecfb1`) cho kết quả thấp hơn bảng trên 0,04–0,06R ở mọi nhóm (ví dụ S02 SCALP tốt nhất trên train −0,08 → test −0,36; S04 SCALP 0,00 → −0,11). Kết luận không đổi.
 - Chưa mô phỏng lệnh LIMIT tại mép vùng của S02 (vào khi ARMED, cùng chiều HTF). Live S02 có dùng nhánh này.
 - Chưa áp News Guard, sentiment, giới hạn phiên; chưa tính commission.
 - Mô phỏng theo nến: trong một nến, chạm SL được tính trước TP.
