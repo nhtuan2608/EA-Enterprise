@@ -126,7 +126,8 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(float(getattr(s06, name)), float(value))
 
     def test_one_swing_engine_per_symbol_when_enabled(self):
-        self.assertIn('setup="S06"; profile="SWING"; timeframe="H1";', self.runtime)
+        self.assertIn('profile="SWING"; timeframe="H1";', self.runtime)
+        self.assertIn('{ setup="S06"; EEA_S06V1Config(config); }', self.runtime)
         self.assertIn("(runtime.s06_mode==EEA_S04_MODE_OFF ? 0 : 1)", self.runtime)
         self.assertIn('runtime.setup[index]=="S06" ? "_s06"', self.runtime)
 
@@ -135,18 +136,20 @@ class SourceTests(unittest.TestCase):
         step = self.runtime.split("bool EEA_StrategyRuntimeS06Step", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("EEA_StrategyRuntimeAtrFromRates(rates,b-1,", step)
         self.assertIn("EEA_StrategyRuntimeAtrFromRates(rates,b-EEA_S06_CONTRACTION_LOOKBACK,", step)
-        self.assertIn("for(int k=b-EEA_S06_BOX_BARS+1;k<b;k++)", step)
+        self.assertIn("const int box_bars=EEA_S06BoxBars(runtime.profile_config[index]);", step)
+        self.assertIn("for(int k=b-box_bars+1;k<b;k++)", step)
 
     def test_live_plan_market_entry_htf_aligned_fixed_target(self):
         self.assertIn('reason="ENTRY_AUTO_MARKET_S06_CONFIRMED";', self.live)
         self.assertIn('reason="ENTRY_AUTO_S06_BACK_INSIDE_BOX"', self.live)
-        self.assertIn('if(strategy.htf_risk_modifier[index]<1.0) { reason="S06_COUNTER_HTF"; return false; }', self.live)
+        self.assertIn('if(strategy.setup[index]=="S06" && strategy.htf_risk_modifier[index]<1.0)', self.live)
+        self.assertIn('{ reason="S06_COUNTER_HTF"; return false; }', self.live)
         self.assertIn("target=entry+direction*EEA_S06_TARGET_R*risk_distance;", self.live)
         self.assertIn('setup=="S06" ? "/logs/s06_shadow.jsonl"', self.live)
 
     def test_input_and_dry_run_gate(self):
-        self.assertIn("input EEA_S06ModeInput InpS06Mode       = S06_LIVE;", self.shell)
-        self.assertIn("(int)InpS02Mode,(int)InpS06Mode)", self.shell)
+        self.assertIn("input EEA_S06ModeInput InpS06Mode       = S06_SHADOW;", self.shell)
+        self.assertIn("(int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode)", self.shell)
         gate = (ROOT / "Integration/DryRunCandidateGate.mqh").read_text(encoding="utf-8")
         self.assertIn('i.candidate.setup_id!="S06"', gate)
 

@@ -60,7 +60,7 @@ string EEA_S04StateName(const int state)
 
 string EEA_SetupStateName(const string setup,const int state)
   {
-   if(setup=="S06") return state==EEA_S02_DETECTED ? "RELEASED" : EEA_S02StateName(state);   // CompressionExpansion.mqh
+   if(setup=="S06" || setup=="S06B") return state==EEA_S02_DETECTED ? "RELEASED" : EEA_S02StateName(state);   // CompressionExpansion.mqh
    return setup=="S04" ? EEA_S04StateName(state) : EEA_S02StateName(state);
   }
 

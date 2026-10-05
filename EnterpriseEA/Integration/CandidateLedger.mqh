@@ -114,7 +114,7 @@ bool EEA_CandidateLedgerUpdate(EEA_CandidateLedger &l,const string root,const EE
    for(int k=0;k<l.count;k++) l.items[k].seen=false;
    for(int i=0;i<strategy.symbol_count;i++)
      {
-      const int mode=EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i]);
+      const int mode=EEA_StrategyRuntimeEngineMode(strategy,i);
       if(mode==EEA_S04_MODE_OFF) continue;
       const string id=strategy.engines[i].candidate.candidate_id;
       if(id=="" || EEA_CandidateLedgerWritten(l,id)) continue;

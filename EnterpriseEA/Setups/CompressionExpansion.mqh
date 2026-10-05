@@ -23,6 +23,11 @@
 //   signal_atr           ATR of the confirmation bar (stop buffer, entry chase limit)
 // The caller supplies the box (the S06_BOX_BARS closed bars before this bar) and the
 // ATR of the previous bar and of the bar S06_CONTRACTION_LOOKBACK bars earlier.
+//
+// S06B (G26, long-history study G23): same engine with a 24-bar box and entry on the release
+// bar itself (no confirmation bar): TRIGGERED straight from IDLE, signal ATR = ATR of the bar
+// before the release (research setups.s06 mode "immediate"). It is told apart by its config
+// version (s06b-...), so checkpoints and candidates never mix with S06.
 
 #define EEA_S06_BOX_BARS 12
 #define EEA_S06_MAX_BOX_ATR 3.0
@@ -32,6 +37,7 @@
 #define EEA_S06_RELEASE_BODY_RATIO 0.50
 #define EEA_S06_RELEASE_MIN_RANGE_ATR 1.0
 #define EEA_S06_TARGET_R 3.0
+#define EEA_S06B_BOX_BARS 24
 
 void EEA_S06V1Config(EEA_S02Config &c)
   {
@@ -43,7 +49,16 @@ void EEA_S06V1Config(EEA_S02Config &c)
    c.candidate_ttl_bars=1;           // research enters at the confirmation close only
   }
 
-bool EEA_S06IsConfig(const EEA_S02Config &c) { return StringFind(c.config_version,"s06-")==0; }
+void EEA_S06BV1Config(EEA_S02Config &c)
+  {
+   EEA_S06V1Config(c);
+   c.config_version="s06b-v1-swing-0.1.0";
+  }
+
+bool EEA_S06IsVariantB(const EEA_S02Config &c) { return StringFind(c.config_version,"s06b-")==0; }
+bool EEA_S06IsConfig(const EEA_S02Config &c) { return StringFind(c.config_version,"s06-")==0 || EEA_S06IsVariantB(c); }
+int EEA_S06BoxBars(const EEA_S02Config &c) { return EEA_S06IsVariantB(c) ? EEA_S06B_BOX_BARS : EEA_S06_BOX_BARS; }
+string EEA_S06SetupId(const EEA_S02Config &c) { return EEA_S06IsVariantB(c) ? "S06B" : "S06"; }
 
 string EEA_S06StateName(const int state)
   {
@@ -92,8 +107,9 @@ int EEA_S06ReleaseDirection(const EEA_S02Bar &b,const double box_low,const doubl
   }
 
 void EEA_S06StartRelease(EEA_S02Engine &e,const EEA_S02Bar &b,const double box_low,const double box_high,
-                         const int d,const double ref_atr,EEA_S02Event &ev)
+                         const int d,const double ref_atr,const EEA_S02Config &c,EEA_S02Event &ev)
   {
+   const string setup=EEA_S06SetupId(c);
    e.direction=d;
    e.zone_low=box_low;
    e.zone_high=box_high;
@@ -108,8 +124,8 @@ void EEA_S06StartRelease(EEA_S02Engine &e,const EEA_S02Bar &b,const double box_l
    e.candidate.canonical_symbol=e.canonical_symbol;
    e.candidate.timeframe=e.timeframe;
    e.candidate.config_version=e.config_version;
-   e.candidate.candidate_id=StringFormat("S06-%s-%s-%s-%I64d",e.canonical_symbol,e.timeframe,e.config_version,(long)b.closed_at_utc);
-   e.candidate.setup_id="S06";
+   e.candidate.candidate_id=StringFormat("%s-%s-%s-%s-%I64d",setup,e.canonical_symbol,e.timeframe,e.config_version,(long)b.closed_at_utc);
+   e.candidate.setup_id=setup;
    e.candidate.direction=(d>0 ? "LONG" : "SHORT");
    e.candidate.key_level=e.key_level;
    e.candidate.zone_low=box_low;
@@ -117,6 +133,17 @@ void EEA_S06StartRelease(EEA_S02Engine &e,const EEA_S02Bar &b,const double box_l
    e.candidate.invalidation_price=e.invalidation_price;
    e.candidate.detected_at_utc=b.closed_at_utc;
    e.candidate.expires_after_bars=1;
+   if(EEA_S06IsVariantB(c))
+     {
+      // S06B enters on the release bar: the candidate is ready at once.
+      e.candidate.triggered_at_utc=b.closed_at_utc;
+      e.candidate.retest_extreme=e.retest_extreme;
+      e.candidate.invalidation_price=e.invalidation_price;
+      e.candidate.age_after_trigger_bars=0;
+      EEA_S06Transition(e,ev,b.closed_at_utc,EEA_S02_TRIGGERED,"CANDIDATE_TRIGGERED",
+                        d>0 ? "RELEASE_ABOVE_BOX" : "RELEASE_BELOW_BOX");
+      return;
+     }
    EEA_S06Transition(e,ev,b.closed_at_utc,EEA_S02_DETECTED,"COMPRESSION_RELEASED",
                      d>0 ? "RELEASE_ABOVE_BOX" : "RELEASE_BELOW_BOX");
   }
@@ -152,7 +179,7 @@ bool EEA_S06ProcessClosedBar(EEA_S02Engine &e,const EEA_S02Bar &b,const double b
      {
       datetime last=e.last_processed_bar_utc;
       EEA_S02Reset(e);
-      e.candidate.setup_id="S06";
+      e.candidate.setup_id=EEA_S06SetupId(c);
       e.last_processed_bar_utc=last;
       ev.state_before=EEA_S06StateName(e.state);
       ev.state_after=ev.state_before;
@@ -188,7 +215,7 @@ bool EEA_S06ProcessClosedBar(EEA_S02Engine &e,const EEA_S02Bar &b,const double b
       EEA_S06SetEvent(ev,e,b.closed_at_utc,"NO_TRANSITION",e.state,"WAITING_FOR_RELEASE");
       return true;
      }
-   EEA_S06StartRelease(e,b,box_low,box_high,d,ref_atr,ev);
+   EEA_S06StartRelease(e,b,box_low,box_high,d,ref_atr,c,ev);
    return true;
   }
 

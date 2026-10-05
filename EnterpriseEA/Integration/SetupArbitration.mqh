@@ -7,7 +7,7 @@
 
 int EEA_SetupPriorityRank(const string setup,const string profile)
   {
-   const int setup_rank=(setup=="S06" ? 0 : setup=="S04" ? 1 : 2);
+   const int setup_rank=(setup=="S06" || setup=="S06B" ? 0 : setup=="S04" ? 1 : 2);
    return (profile=="SWING" ? 0 : 3)+setup_rank;
   }
 

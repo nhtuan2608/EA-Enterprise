@@ -13,6 +13,7 @@ RELEASE_BUFFER_ATR = 0.10
 RELEASE_BODY_RATIO = 0.50
 RELEASE_MIN_RANGE_ATR = 1.0
 TARGET_R = 3.0
+BOX_BARS_B = 24              # S06B: 24-bar box, entry on the release bar
 ATR_PERIOD = 14
 WARM = ATR_PERIOD + CONTRACTION_LOOKBACK
 
@@ -42,7 +43,8 @@ def release_direction(b, box_low, box_high, ref_atr):
 
 
 class Engine:
-    def __init__(self):
+    def __init__(self, immediate=False):
+        self.immediate = immediate
         self.state = "IDLE"
         self.direction = 0
         self.zone_low = self.zone_high = self.key_level = self.far_edge = 0.0
@@ -51,7 +53,7 @@ class Engine:
     def step(self, b, box_low, box_high, ref_atr, old_atr):
         """Returns the triggered candidate of this bar, or None."""
         if self.state in ("TRIGGERED", "EXPIRED"):
-            self.__init__()
+            self.__init__(self.immediate)
         if self.state == "RELEASED":
             if self.direction * (b["close"] - self.key_level) > 0:
                 self.state = "TRIGGERED"
@@ -70,13 +72,17 @@ class Engine:
         self.key_level = box_high if d > 0 else box_low
         self.far_edge = box_low if d > 0 else box_high
         self.signal_atr = ref_atr
+        if self.immediate:                       # S06B: the release bar is the entry bar
+            self.state = "TRIGGERED"
+            return {"time": b["time"], "direction": d, "anchor": self.far_edge,
+                    "zone_low": box_low, "zone_high": box_high, "signal_atr": ref_atr}
         return None
 
 
-def run(bars, first=WARM):
-    eng, out = Engine(), []
+def run(bars, first=WARM, box_bars=BOX_BARS, immediate=False):
+    eng, out = Engine(immediate), []
     for i in range(max(first, WARM), len(bars)):
-        box = bars[i - BOX_BARS:i]
+        box = bars[i - box_bars:i]
         hi, lo = max(x["high"] for x in box), min(x["low"] for x in box)
         c = eng.step(bars[i], lo, hi, bars[i - 1]["atr"], bars[i - CONTRACTION_LOOKBACK]["atr"])
         if c is not None:

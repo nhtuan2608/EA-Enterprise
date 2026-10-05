@@ -33,7 +33,7 @@ class PriorityTests(unittest.TestCase):
 
     def test_mql_matches_mirror(self):
         src = (ROOT / "Integration/SetupArbitration.mqh").read_text(encoding="utf-8")
-        self.assertIn('const int setup_rank=(setup=="S06" ? 0 : setup=="S04" ? 1 : 2);', src)
+        self.assertIn('const int setup_rank=(setup=="S06" || setup=="S06B" ? 0 : setup=="S04" ? 1 : 2);', src)
         self.assertIn('return (profile=="SWING" ? 0 : 3)+setup_rank;', src)
         # Stable: only strictly higher ranks move.
         self.assertIn("EEA_SetupPriorityRank(setup[order[j]],profile[order[j]])>rank", src)

@@ -348,7 +348,7 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
    // S06 enters at market after the confirmation close (research), only while price is
    // still outside the box and has not run more than the chase limit past that close.
-   if(strategy.setup[index]=="S06")
+   if(strategy.setup[index]=="S06" || strategy.setup[index]=="S06B")
      {
       if(direction*(price-engine.key_level)<=0.0) { reason="ENTRY_AUTO_S06_BACK_INSIDE_BOX"; return -1; }
       if(direction*(price-trigger.close)>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
@@ -514,12 +514,14 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    double risk_distance=MathAbs(entry-stop);
 
    double target=0.0;
-   const bool s06=(strategy.setup[index]=="S06");
+   const bool s06=(strategy.setup[index]=="S06" || strategy.setup[index]=="S06B");
    if(s06)
      {
       // G10 part 3: S06 trades with the H4 structure only (NEUTRAL counts as aligned)
-      // and takes a fixed 3R target instead of a structural one.
-      if(strategy.htf_risk_modifier[index]<1.0) { reason="S06_COUNTER_HTF"; return false; }
+      // and takes a fixed 3R target instead of a structural one. S06B (G23: 24-bar box,
+      // entry on the release) was validated without the HTF filter, so it keeps every side.
+      if(strategy.setup[index]=="S06" && strategy.htf_risk_modifier[index]<1.0)
+        { reason="S06_COUNTER_HTF"; return false; }
       target=entry+direction*EEA_S06_TARGET_R*risk_distance;
      }
    else
@@ -983,7 +985,7 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
    if(!strategy.enabled) return;
    for(int i=0;i<strategy.symbol_count;i++)
      {
-      if(EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_SHADOW ||
+      if(EEA_StrategyRuntimeEngineMode(strategy,i)!=EEA_S04_MODE_SHADOW ||
          !strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED) continue;
       const EEA_S02Engine engine=strategy.engines[i];
       const string candidate_id=engine.candidate.candidate_id;
@@ -1047,7 +1049,8 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
       event.details_json=details;
       audit.Append(event,"EA_"+setup+"_SHADOW");
       EEA_WriteAtomicAppendText(observer.root+(setup=="S04" ? "/logs/s04_shadow.jsonl" :
-                                               setup=="S06" ? "/logs/s06_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
+                                               setup=="S06" ? "/logs/s06_shadow.jsonl" :
+                                               setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
                                 details+"\r\n");
      }
   }
@@ -1098,7 +1101,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(observer.broker_symbols[row]=="")
         { state.last_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
       // A setup sends orders only in LIVE mode; SHADOW is recorded by EEA_S04ShadowOnTimer.
-      if(strategy.zone_mode && EEA_StrategyRuntimeSetupMode(strategy,strategy.setup[i])!=EEA_S04_MODE_LIVE) continue;
+      if(strategy.zone_mode && EEA_StrategyRuntimeEngineMode(strategy,i)!=EEA_S04_MODE_LIVE) continue;
       bool limit_ready=(strategy.zone_mode && strategy.setup[i]=="S02" && strategy.engines[i].state==EEA_S02_ARMED);
       if(!limit_ready && (!strategy.has_candidate[i] || strategy.engines[i].state!=EEA_S02_TRIGGERED)) continue;
       const string candidate_id=strategy.engines[i].candidate.candidate_id;

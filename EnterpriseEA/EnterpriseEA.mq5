@@ -47,11 +47,15 @@ input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented 
 input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
 input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
 enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
-input EEA_S02ModeInput InpS02Mode       = S02_LIVE;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
+input EEA_S02ModeInput InpS02Mode       = S02_SHADOW;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
 input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
 enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
-input EEA_S06ModeInput InpS06Mode       = S06_LIVE;   // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
+input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
+enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
+input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
+enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
+input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
@@ -489,6 +493,7 @@ void EEA_PublishSentimentView(EEA_SymbolPanelEngineView &view)
 // ---------------------------------------------------------------------------
 EEA_AiClient g_ai;
 bool g_ai_backfill_done_seen=false;
+bool g_ai_backfill_known=false;   // the backfill state seen at start-up is history, not a finish event
 
 int EEA_AiParseHm(const string hm)
   {
@@ -675,6 +680,10 @@ void EEA_AiTimer()
    EEA_AiRollDay(g_ai,day);
    string reason;
    int review_at=EEA_AiParseHm(InpAiNewsReviewLocal), diag_at=EEA_AiParseHm(InpAiDiagnosticsLocal);
+   // A backfill already finished before this start must not queue a review on every re-init
+   // (chart changes re-initialise the EA); only a finish observed while running does.
+   if(g_news_reaction.loaded && !g_ai_backfill_known)
+     { g_ai_backfill_done_seen=g_news_reaction.backfill_done; g_ai_backfill_known=true; }
    bool backfill_finished=(g_news_reaction.backfill_done && !g_ai_backfill_done_seen);
    if(g_news_reaction.loaded) g_ai_backfill_done_seen=g_news_reaction.backfill_done;
    if(g_news_reaction.loaded && ((review_at>=0 && minute>=review_at && g_ai.last_news_review_day!=day) || backfill_finished))
@@ -925,6 +934,8 @@ void EEA_PublishPanelEngineView()
       view.strategy_reason+=" | S02 "+EEA_SetupModeName(g_strategy_runtime.s02_mode)+
                             " | S04 "+EEA_SetupModeName(g_strategy_runtime.s04_mode)+
                             " | S06 "+EEA_SetupModeName(g_strategy_runtime.s06_mode)+
+                            " | S06B "+EEA_SetupModeName(g_strategy_runtime.s06b_mode)+
+                            " | SCALP max "+EEA_SetupModeName(g_strategy_runtime.scalp_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
@@ -1112,7 +1123,7 @@ int OnInit()
          EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                           strategy_config,InpStrategyRuntimeEnabled) :
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
-                                            (int)InpS02Mode,(int)InpS06Mode);
+                                            (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode);
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",

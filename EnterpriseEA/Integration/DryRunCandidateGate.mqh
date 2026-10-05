@@ -215,7 +215,7 @@ bool EEA_EvaluateDryRunCandidate(const EEA_DryRunContext &i,
       o.decision_status="BLOCKED"; o.evaluated=true; return false;
      }
    o.candidate_id=i.candidate.candidate_id;
-   if(i.candidate.state!="TRIGGERED" || (i.candidate.setup_id!="S02" && i.candidate.setup_id!="S04" && i.candidate.setup_id!="S06") ||
+   if(i.candidate.state!="TRIGGERED" || (i.candidate.setup_id!="S02" && i.candidate.setup_id!="S04" && i.candidate.setup_id!="S06" && i.candidate.setup_id!="S06B") ||
       i.candidate.candidate_id=="" || i.candidate.timeframe=="" ||
       i.candidate.expires_after_bars<=0 || i.candidate.age_after_trigger_bars<0 ||
       i.candidate.age_after_trigger_bars>=i.candidate.expires_after_bars ||

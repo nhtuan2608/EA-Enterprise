@@ -217,7 +217,7 @@ class RuntimeWiringTests(unittest.TestCase):
         for token in ("EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,runtime.profile_config[engine_count])",
                       "runtime.zone_mode=true", "count*stride>EEA_STRATEGY_RUNTIME_MAX_ENGINES", "runtime.symbol_count=engine_count"):
             self.assertIn(token, init)
-        self.assertIn("return 2+(runtime.s04_mode==EEA_S04_MODE_OFF ? 0 : 2)+(runtime.s06_mode==EEA_S04_MODE_OFF ? 0 : 1);", self.runtime)
+        self.assertIn("return 2+(runtime.s04_mode==EEA_S04_MODE_OFF ? 0 : 2)+(runtime.s06_mode==EEA_S04_MODE_OFF ? 0 : 1)+", self.runtime)
 
     def test_zone_scan_uses_profile_timeframes_closed_bars_and_qualified_zones_only(self):
         for token in ("swing ? PERIOD_H1 : PERIOD_M5", "swing ? PERIOD_H4 : PERIOD_H1",
