@@ -65,5 +65,6 @@ Cập nhật 05/10: `main` = `107b8db` (merge G7–G10), đã push GitHub. 469 t
 | G15 | NFR-07 xoay vòng log: `audit.jsonl` tăng ~1,3 MB/ngày (chủ yếu `RUNTIME_REFRESHED` mỗi 30 s), `news_reactions.jsonl` 5,8 MB | ✅ 05/10 (`582fcb4`): `audit.jsonl` > 20 MB → `audit-<UTC>.jsonl`, giữ 10 bản; `news_reactions.jsonl` là dữ liệu nên không xoay. Chờ deploy |
 | G16 | `news_state.json` chỉ ghi khi trạng thái tin đổi nên `last_success_utc` trên đĩa có thể cũ vài giờ; bên đọc ngoài EA (AI bridge) dễ hiểu nhầm là lịch tin cũ | ✅ 05/10 (`582fcb4`): ghi lại sau mỗi lần refresh thành công. Chờ deploy |
 | G17 | NFR-02 soak test, NFR-06 đo CPU/RAM | ⬜ |
+| G18 | Phân xử giữa các setup (TC-007) và sổ candidate (`2026-10-05-setup-arbitration-and-candidate-ledger-design.md`): ưu tiên S06 → S04 → S02, SWING trước SCALP; mỗi symbol + chiều + khung 1 lệnh; SCALP chồng lên SWING cùng chiều rủi ro × 0,5 (`InpScalpRiskWithSwingSameSide`); `logs/candidates.jsonl` + `research/g10/candidates_eval.py` cho kết quả ảo của candidate không vào lệnh | ✅ 05/10 code xong, chờ deploy cùng G12/G15/G16 |
 
 **Mốc chờ thị trường:** G3 S&P Services PMI 20:45 và ISM 21:00 tối 05/10 (giờ VN); G4 lệnh thật (TC-046..051, Trade Manager TC-012..015); G5 đánh giá tuần chạy thử 10–11/10.

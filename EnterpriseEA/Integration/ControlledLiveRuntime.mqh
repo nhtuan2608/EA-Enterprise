@@ -24,6 +24,7 @@
 #include "../Runtime/TradeManagerRuntime.mqh"
 #include "../News/NewsCalendar.mqh"
 #include "../Market/SentimentRuntime.mqh"
+#include "SetupArbitration.mqh"
 
 struct EEA_ControlledLiveConfig
   {
@@ -48,6 +49,7 @@ struct EEA_ControlledLiveConfig
    long magic;
    int deviation;
    int filling_mode;
+   double scalp_risk_with_swing_same_side;   // G18 A4: SCALP risk factor while a same-side SWING is open
   };
 
 struct EEA_ControlledLiveRuntimeState
@@ -58,6 +60,8 @@ struct EEA_ControlledLiveRuntimeState
    string news_blocked_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string sentiment_noted_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
    string shadow_noted_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];
+   string candidate_reason[EEA_STRATEGY_RUNTIME_MAX_ENGINES];   // G18: last reason of the candidate seen in this slot
+   string reason_candidate[EEA_STRATEGY_RUNTIME_MAX_ENGINES];   // candidate the reason belongs to
    bool recovery_blocked;
    EEA_ExecutionResult recovery_result;
   };
@@ -71,6 +75,7 @@ void EEA_ControlledLiveConfigDefaults(EEA_ControlledLiveConfig &c)
    c.minimum_net_rr=0.0; c.stop_buffer_ticks=0.0; c.target_r_multiple=0.0;
    c.max_spread_points=0.0; c.quote_freshness_seconds=30; c.release_ttl_seconds=20;
    c.magic=888888; c.deviation=20; c.filling_mode=0;
+   c.scalp_risk_with_swing_same_side=0.5;
   }
 
 void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
@@ -78,7 +83,7 @@ void EEA_ControlledLiveRuntimeStateDefaults(EEA_ControlledLiveRuntimeState &s)
    s.last_attempt_utc=0; s.last_reason="CONTROLLED_LIVE_IDLE";
    s.recovery_blocked=false;
    EEA_ExecutionResultDefaults(s.recovery_result);
-   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; s.sentiment_noted_candidate[i]=""; s.shadow_noted_candidate[i]=""; }
+   for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++) { s.last_candidate_id[i]=""; s.news_blocked_candidate[i]=""; s.sentiment_noted_candidate[i]=""; s.shadow_noted_candidate[i]=""; s.candidate_reason[i]=""; s.reason_candidate[i]=""; }
   }
 
 bool EEA_ControlledLiveLoadRecovery(EEA_ControlledLiveRuntimeState &state,const string root,string &reason)
@@ -934,6 +939,39 @@ bool EEA_ControlledLiveOppositeActive(const EEA_TradeManagerRuntime &trades,cons
    return false;
   }
 
+// G18 E2: at most one EA position or pending order per symbol, direction and profile,
+// whatever setup opened it. A pending order's profile follows its entry timeframe.
+bool EEA_ControlledLiveSameSideActive(const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,
+                                      const string canonical,const int direction,const string profile)
+  {
+   for(int i=0;i<trades.count;i++)
+      if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical &&
+         trades.items[i].direction==direction && trades.items[i].profile==profile) return true;
+   for(int i=0;i<pending.count;i++)
+     {
+      if(!pending.items[i].active || pending.items[i].state.canonical_symbol!=canonical) continue;
+      if((pending.items[i].timeframe=="H1" ? "SWING" : "SCALP")!=profile) continue;
+      int type=pending.items[i].intent.order_type;
+      int d=(type==ORDER_TYPE_BUY || type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_BUY_STOP ||
+             type==ORDER_TYPE_BUY_STOP_LIMIT) ? 1 : -1;
+      if(d==direction) return true;
+     }
+   return false;
+  }
+
+// G18 A4: a SCALP entry stacked on a same-side SWING of the same symbol takes reduced risk.
+bool EEA_ControlledLiveApplyStackRisk(const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,
+                                      const EEA_StrategyCandidateRuntime &strategy,const int index,
+                                      const double factor,EEA_ControlledLiveTradePlan &plan,string &reason)
+  {
+   if(strategy.profile[index]!="SCALP") return true;
+   if(!EEA_ControlledLiveSameSideActive(trades,pending,strategy.engines[index].canonical_symbol,
+                                        strategy.engines[index].direction,"SWING")) return true;
+   plan.base_risk_fraction*=MathMax(0.0,MathMin(1.0,factor));
+   if(plan.base_risk_fraction<=0.0) { reason="SCALP_STACKED_ON_SWING_RISK_ZERO"; return false; }
+   return true;
+  }
+
 // SHADOW mode (S02, S04 and S06): every triggered candidate of a setup in SHADOW is recorded once
 // with the trade the live path would have planned (entry type, SL, TP, risk, volume,
 // filters). Nothing is sent. An S02 LIMIT at the zone (ARMED) is not recorded.
@@ -1043,8 +1081,15 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
    // REQ-021: any pending order in review, awaiting cancel confirmation or unreadable
    // blocks every new entry until it is resolved against the broker.
    if(pending.entries_blocked) { state.last_reason=pending.reason; return false; }
-   for(int i=0;i<strategy.symbol_count;i++)
+   // G18 B: candidates are visited by evidence rank, not engine order (one entry per pass).
+   int order[];
+   EEA_SetupPriorityOrder(strategy.setup,strategy.profile,strategy.symbol_count,order);
+   int noted=-1;   // engine whose candidate is being evaluated: its reason is kept per candidate
+   for(int k=0;k<strategy.symbol_count;k++)
      {
+      if(noted>=0) state.candidate_reason[noted]=state.last_reason;
+      noted=-1;
+      const int i=order[k];
       // Bind the strategy engine to the observer row by canonical name; a row
       // index can differ after a selection change and must never be reused.
       const int row=EEA_ObserverRuntimeIndexOf(observer,strategy.engines[i].canonical_symbol);
@@ -1059,12 +1104,19 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       const string candidate_id=strategy.engines[i].candidate.candidate_id;
       if(candidate_id=="" || candidate_id==state.last_candidate_id[i]) continue;
       if(EEA_TradeManagerHasCandidate(trades,candidate_id) ||
-         EEA_PendingRuntimeHasCandidate(pending,candidate_id) ||
-         EEA_PendingRuntimeHasEngine(pending,strategy.engines[i].canonical_symbol,strategy.engines[i].timeframe))
+         EEA_PendingRuntimeHasCandidate(pending,candidate_id))
          continue;
+      noted=i;
+      state.reason_candidate[i]=candidate_id;
+      if(EEA_PendingRuntimeHasEngine(pending,strategy.engines[i].canonical_symbol,strategy.engines[i].timeframe))
+        { state.last_reason="PENDING_ORDER_ON_SYMBOL_TIMEFRAME"; continue; }
       if(strategy.zone_mode &&
          EEA_ControlledLiveOppositeActive(trades,pending,strategy.engines[i].canonical_symbol,strategy.engines[i].direction))
         { state.last_reason="OPPOSITE_SETUP_ACTIVE"; continue; }
+      if(strategy.zone_mode &&
+         EEA_ControlledLiveSameSideActive(trades,pending,strategy.engines[i].canonical_symbol,
+                                          strategy.engines[i].direction,strategy.profile[i]))
+        { state.last_reason="DUPLICATE_SAME_SIDE"; continue; }
       int entry_mode=EEA_S02_ENTRY_MARKET;
       string entry_reason="ENTRY_PROTOTYPE_MARKET";
       if(strategy.zone_mode)
@@ -1145,6 +1197,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                        EEA_ControlledLiveApplyNewsRisk(news,strategy.engines[i].canonical_symbol,news_profile,
                                                        plan,reason) &&
                        EEA_ControlledLiveApplySentiment(sentiment,news,strategy,i,plan,alignment,reason) &&
+                       EEA_ControlledLiveApplyStackRisk(trades,pending,strategy,i,config.scalp_risk_with_swing_same_side,
+                                                        plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],
                                                               observer.symbol_specs[row],policy,current,
                                                               evidence,quote,reason);
@@ -1254,10 +1308,12 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
          state.recovery_blocked=result.confirmation_state=="EXECUTION_UNKNOWN";
          state.last_candidate_id[i]=candidate_id;
          state.last_reason=result.confirmation_state;
+         state.candidate_reason[i]="EXECUTED";
          return true;
         }
       state.last_reason=result.reason_code;
      }
+   if(noted>=0) state.candidate_reason[noted]=state.last_reason;
    return state.last_reason=="";
   }
 

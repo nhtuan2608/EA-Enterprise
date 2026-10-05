@@ -21,6 +21,7 @@
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
+#include "Integration/CandidateLedger.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
@@ -104,6 +105,7 @@ input int    InpLiveReleaseTtlSec       = 20;
 input long   InpLiveMagic               = 888888;
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
+input double InpScalpRiskWithSwingSameSide = 0.5;  // G18: SCALP risk factor while a same-side SWING is open (1 = off)
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -119,6 +121,7 @@ EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISS
 bool g_controller_allows_market=false;
 EEA_ControlledLiveConfig g_live_config;
 EEA_ControlledLiveRuntimeState g_live_runtime;
+EEA_CandidateLedger g_candidate_ledger;
 
 bool EEA_LivePanelAllowed()
   {
@@ -964,6 +967,7 @@ int OnInit()
      }
    EEA_ControlledLiveConfigDefaults(g_live_config);
    EEA_ControlledLiveRuntimeStateDefaults(g_live_runtime);
+   EEA_CandidateLedgerInit(g_candidate_ledger);
    g_live_config.enabled=InpExecutionEnabled && !InpObserverOnly;
    g_live_config.armed=InpLiveTradeArmed;
    g_live_config.authorization_path=InpLiveAuthorizationPath;
@@ -985,6 +989,7 @@ int OnInit()
    g_live_config.magic=InpLiveMagic;
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
+   g_live_config.scalp_risk_with_swing_same_side=MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -1241,6 +1246,10 @@ void OnTimer()
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
                                        g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
+          // G18: every candidate's final outcome (entered or why not) for the virtual-result report.
+          EEA_CandidateLedgerUpdate(g_candidate_ledger,g_config.data_root,g_strategy_runtime,g_live_runtime,
+                                    g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked,
+                                    g_trade_manager,g_pending_runtime);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {
