@@ -1,3 +1,5 @@
+> Đã thay bằng `docs/superpowers/reports/2026-10-05-traceability-v1-4.md` (05/10/2026). Giữ lại làm lịch sử.
+
 # Phase 3 traceability and evidence boundary
 
 Source: `Dac_ta_tong_the_EA_MT5_MCP_AI_News_Dashboard_v1_1.docx`, Appendix B. This table records implemented offline slices and the evidence still needed before the Phase 3 gate can be marked complete.

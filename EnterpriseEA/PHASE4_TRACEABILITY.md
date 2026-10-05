@@ -1,3 +1,5 @@
+> Đã thay bằng `docs/superpowers/reports/2026-10-05-traceability-v1-4.md` (05/10/2026). Giữ lại làm lịch sử.
+
 # Phase 4 trade lifecycle evidence boundary
 
 Source: master specification v1.4 (Paper removed; see appendix D), section 6, plus pending-order addendum v1.3 [spec](PENDING_ORDER_LIFECYCLE_SPEC.md) and [plan](PENDING_ORDER_LIFECYCLE_PLAN.md). `TradeManager/ExpectedPath.mqh` observes an attested trade after fill. `TradeManager/PendingOrderLifecycle.mqh` proposes the earlier pending-order state machine. Both are isolated from the EA shell. The corresponding Python fixture/oracle checks are synthetic.
