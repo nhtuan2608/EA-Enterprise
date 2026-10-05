@@ -51,7 +51,8 @@ DEFAULT_CONFIG = {
     "ai_provider": "claude",
     "commands_per_minute": 20,
     "asks_per_hour": 6,
-    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True},
+    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True},
+    "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
 }
 
 TRADE_EVENTS = {"TRADE_ENTERED": "VÀO LỆNH", "TRADE_MANAGEMENT": "QUẢN LÝ LỆNH",
@@ -67,6 +68,7 @@ HELP_VIEWER = ("/status - trạng thái EA\n"
                "/week - báo cáo tuần (lệnh thật và kết quả ảo theo setup)\n"
                "/soak - tài nguyên MT5 và độ ổn định EA\n"
                "/ai - chất lượng vận hành AI 7 ngày và các cổng nâng AI\n"
+               "/today - tóm tắt hôm nay (lệnh, candidate, tin, cảnh báo)\n"
                "/ask <câu hỏi> - hỏi AI (chỉ đọc, không đặt lệnh)\n"
                "/help - danh sách lệnh")
 HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế đang có vẫn được quản lý)\n"
@@ -267,6 +269,9 @@ class Gateway:
             self.send(uid, self.soak_text(), mid)
         elif cmd == "/ai":
             self.send(uid, self.ai_text(), mid)
+        elif cmd == "/today":
+            start, end = self.local_day_bounds()
+            self.send(uid, self.digest_text(start, end), mid)
         elif cmd == "/week":
             self.cmd_week(uid, mid)
         elif cmd == "/ask":
@@ -491,6 +496,103 @@ class Gateway:
         except Exception as exc:  # a report must never stop the gateway
             return f"Không tính được số liệu AI: {type(exc).__name__}"
 
+    # -- daily summary (master specification 13.3, per session) --------------
+    def local_day_bounds(self) -> tuple[int, int]:
+        t = self.clock()
+        lt = time.localtime(t)
+        start = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
+        return start, t + 1
+
+    def _jsonl(self, rel: str) -> list[dict]:
+        path = self.root / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        out = []
+        for line in text.splitlines():
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                continue
+        return out
+
+    def digest_text(self, start: int, end: int) -> str:
+        day = time.strftime("%d/%m", time.localtime(start))
+        trades = [t for t in self._jsonl("logs/trades.jsonl") if start <= int(t.get("exit_utc") or 0) < end]
+        known = [float(t["realized_r"]) for t in trades if t.get("realized_r") is not None]
+        money = sum(float(t.get("realized_money", 0)) for t in trades if t.get("realized_known"))
+        lines = [f"TÓM TẮT NGÀY {day}"]
+        if trades:
+            wins = sum(1 for r in known if r > 0)
+            lines.append(f"Lệnh đóng: {len(trades)} ({wins} thắng), {sum(known):+.2f}R, {money:+.2f}")
+        else:
+            lines.append("Lệnh đóng: 0")
+        cands = [c for c in self._jsonl("logs/candidates.jsonl") if start <= int(c.get("closed_utc") or 0) < end]
+        if cands:
+            by: dict[str, int] = {}
+            for c in cands:
+                key = "EXECUTED" if c.get("disposition") == "EXECUTED" else str(c.get("reason", "")).split(":", 1)[0]
+                by[key] = by.get(key, 0) + 1
+            per_setup: dict[str, int] = {}
+            for c in cands:
+                k = f"{c.get('setup')}/{c.get('profile')}"
+                per_setup[k] = per_setup.get(k, 0) + 1
+            lines.append(f"Candidate: {len(cands)} (" + ", ".join(f"{k} {n}" for k, n in sorted(per_setup.items())) + ")")
+            lines.append("  Kết cục: " + ", ".join(f"{k} {n}" for k, n in sorted(by.items(), key=lambda x: -x[1])))
+        else:
+            lines.append("Candidate: 0")
+        counts: dict[str, int] = {}
+        for e in self._jsonl("logs/audit.jsonl"):
+            kind = e.get("event_type", "")
+            if kind not in ("NEWS_ENTRY_BLOCKED", "EA_STOPPED", "REMOTE_COMMAND_APPLIED", "SENTIMENT_APPLIED") and \
+                    not (kind in ALERT_EVENTS or any(any(k in r for k in ALERT_REASONS) for r in (e.get("reason_codes") or []))):
+                continue
+            try:
+                at = int(time.mktime(time.strptime(e.get("occurred_at_utc", ""), "%Y-%m-%dT%H:%M:%SZ")) - time.timezone)
+            except (ValueError, OverflowError):
+                continue
+            if start <= at < end:
+                counts[kind] = counts.get(kind, 0) + 1
+        lines.append(f"News Guard chặn vào lệnh: {counts.pop('NEWS_ENTRY_BLOCKED', 0)}; sentiment giảm/chặn: "
+                     f"{counts.pop('SENTIMENT_APPLIED', 0)}; lệnh từ xa: {counts.pop('REMOTE_COMMAND_APPLIED', 0)}")
+        lines.append("Sự kiện hệ thống: " + (", ".join(f"{k} {n}" for k, n in sorted(counts.items())) or "không có"))
+        d = self.status_data()
+        lines.append(f"Vào lệnh (theo EA): {d['operator_mode']}; EA: {d['runtime_state']}"
+                     + (" STALE" if d["stale"] else ""))
+        try:
+            import ai_metrics
+            av = ai_metrics.metrics(self._jsonl("logs/ai_bridge.jsonl"), [], [], start, end)["availability"]
+            lines.append(f"AI: {av['requests']} request, trả lời {av['answered']}")
+        except Exception:
+            pass
+        sup = d.get("supervisor_services") or {}
+        restarts = sum(int(re.search(r"chạy lại (\d+)", v).group(1)) for v in sup.values() if "chạy lại" in v)
+        lines.append(f"Supervisor: {self.supervisor_text(d)}" + (f" (tổng chạy lại {restarts})" if restarts else ""))
+        try:
+            import soak_monitor
+            r = soak_monitor.report(soak_monitor.load_samples(self.root / "logs" / "soak.jsonl"))
+            lines.append(f"Soak: {r['verdict']} {' '.join(r.get('flags', []))}".rstrip())
+        except Exception:
+            pass
+        return "\n".join(lines)
+
+    def notify_digest(self):
+        if not self.config["notify"].get("digest"):
+            return
+        try:
+            hh, mm = (int(x) for x in str(self.config.get("digest_local", "23:30")).split(":", 1))
+        except ValueError:
+            return
+        lt = time.localtime(self.clock())
+        today = time.strftime("%Y-%m-%d", lt)
+        if (lt.tm_hour, lt.tm_min) < (hh, mm) or self.state.get("digest_sent_day") == today:
+            return
+        self.state["digest_sent_day"] = today
+        start, end = self.local_day_bounds()
+        self.broadcast(self.digest_text(start, end))
+        self.log("DIGEST_SENT", day=today)
+
     def _spawn_week(self):
         script = HERE.parent / "research" / "g10" / "weekly_review.py"
         env = dict(os.environ, EEA_RESEARCH_DATA=str(self.root / "research"), PYTHONIOENCODING="utf-8")
@@ -639,6 +741,7 @@ class Gateway:
         self.notify_audit()
         self.notify_reports()
         self.notify_news()
+        self.notify_digest()
         self.flush()
         self.save()
 
@@ -647,7 +750,7 @@ def load_config(path: str | None) -> dict:
     config = json.loads(json.dumps(DEFAULT_CONFIG))
     if path:
         user = json.loads(Path(path).read_text(encoding="utf-8"))
-        notify = user.pop("notify", {})
+        notify = user.pop("notify", {}) or {}
         config.update(user)
         config["notify"].update(notify)
     return config

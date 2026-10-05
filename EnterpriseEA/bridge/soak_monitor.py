@@ -163,7 +163,8 @@ def report(samples: list[dict]) -> dict:
             "handles_per_day": round(handles, 1), "cpu_avg_pct": round(cpu_avg, 2), "cpu_max_pct": max(cpu) if cpu else 0.0,
             "max_refresh_ms": max((s.get("max_refresh_ms") or 0) for s in run), "logs_mb_last": run[-1]["logs_mb"],
             "logs_mb_per_day": round(logs, 2), "flags": flags,
-            "verdict": "OK" if not flags else "CHECK" if hours >= 12 else "PRELIMINARY"}
+            # Leak trends need at least 12 hours; before that every verdict is preliminary.
+            "verdict": "PRELIMINARY" if hours < 12 else "OK" if not flags else "CHECK"}
 
 
 def report_text(r: dict) -> str:
