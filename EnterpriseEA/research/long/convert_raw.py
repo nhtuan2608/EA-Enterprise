@@ -78,6 +78,12 @@ def main(argv: list[str]) -> None:
             with dst.open(encoding="utf-8") as fh:
                 *_, tail = fh
             last_time = max(last_time, int(tail.split(",")[0]))
+    # G26 step 3: intermarket context (H1 only), same conversion; the folders use other file prefixes.
+    for name, folder, prefix in (("DXY", "DXY", "USDX."), ("US10Y", "US10Y", "USNote10Y")):
+        files = sorted((raw / folder).glob(f"{prefix}_H1_*.csv"))
+        if files:
+            years = convert(files[0], OUT / f"bars_{name}_H1.csv")
+            print(f"{name} H1: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
     # Server offset at the end of the data (October: US summer time, broker UTC+3).
     meta = {"from_utc": 1262304000, "swing_from_utc": 1262304000, "exported_at_utc": last_time - 10800,
             "server_offset_now": 10800, "source": str(raw),
