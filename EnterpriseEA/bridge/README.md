@@ -63,7 +63,7 @@ Thiết kế: `docs/superpowers/specs/2026-10-05-telegram-gateway-v1-design.md`.
 
 Lệnh: `/status`, `/ask <câu hỏi>`, `/help` (operator và viewer); `/pause`, `/resume`, `/confirm <mã>` (chỉ operator). Trạng thái vào lệnh chỉ được báo theo `current/operator_mode.json` và kết quả EA, không theo ACK của gateway. `/ask` đi qua AI Bridge (cần `ai_bridge.py` đang chạy). Log: `logs/telegram.jsonl` (token luôn bị che). Trạng thái: `telegram/state.json`.
 
-Lệnh đọc thêm (G17/G20): `/trades` (10 lệnh đã đóng gần nhất kèm R), `/week` (báo cáo tuần từ `research/g10/weekly_review.py`, 1 lần mỗi 10 phút), `/soak` (tài nguyên MT5 và độ ổn định EA).
+Lệnh đọc thêm (G17/G20): `/trades` (10 lệnh đã đóng gần nhất kèm R), `/week` (báo cáo tuần từ `research/g10/weekly_review.py`, 1 lần mỗi 10 phút), `/soak` (tài nguyên MT5 và độ ổn định EA), `/ai` (số liệu vận hành AI 7 ngày theo REQ-012 và cổng AIG-01..07, từ `ai_metrics.py`).
 
 ## Soak monitor (G17)
 

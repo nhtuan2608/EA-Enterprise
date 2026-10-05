@@ -66,6 +66,7 @@ HELP_VIEWER = ("/status - trạng thái EA\n"
                "/trades - các lệnh đã đóng gần đây\n"
                "/week - báo cáo tuần (lệnh thật và kết quả ảo theo setup)\n"
                "/soak - tài nguyên MT5 và độ ổn định EA\n"
+               "/ai - chất lượng vận hành AI 7 ngày và các cổng nâng AI\n"
                "/ask <câu hỏi> - hỏi AI (chỉ đọc, không đặt lệnh)\n"
                "/help - danh sách lệnh")
 HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế đang có vẫn được quản lý)\n"
@@ -264,6 +265,8 @@ class Gateway:
             self.send(uid, self.trades_text(), mid)
         elif cmd == "/soak":
             self.send(uid, self.soak_text(), mid)
+        elif cmd == "/ai":
+            self.send(uid, self.ai_text(), mid)
         elif cmd == "/week":
             self.cmd_week(uid, mid)
         elif cmd == "/ask":
@@ -465,6 +468,13 @@ class Gateway:
         except ImportError:
             return "Không tìm thấy soak_monitor.py."
         return soak_monitor.report_text(soak_monitor.report(soak_monitor.load_samples(self.root / "logs" / "soak.jsonl")))
+
+    def ai_text(self) -> str:
+        try:
+            import ai_metrics
+            return ai_metrics.run(self.root, 7, now=self.clock())
+        except Exception as exc:  # a report must never stop the gateway
+            return f"Không tính được số liệu AI: {type(exc).__name__}"
 
     def _spawn_week(self):
         script = HERE.parent / "research" / "g10" / "weekly_review.py"

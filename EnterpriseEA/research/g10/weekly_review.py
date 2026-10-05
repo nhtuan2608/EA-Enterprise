@@ -95,6 +95,18 @@ def markdown(review: dict, since: int, until: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def ai_section(until: int) -> str:
+    """REQ-012 operational AI metrics for the same week (bridge/ai_metrics.py)."""
+    bridge_dir = Path(__file__).resolve().parents[2] / "bridge"
+    if str(bridge_dir) not in sys.path:
+        sys.path.insert(0, str(bridge_dir))
+    try:
+        import ai_metrics
+        return "\n## AI (REQ-012)\n\n```\n" + ai_metrics.run(context.DATA.parent, 7, now=until) + "\n```\n"
+    except Exception as exc:  # the trading review stands on its own
+        return f"\n## AI (REQ-012)\n\nKhông tính được: {type(exc).__name__}\n"
+
+
 def main(argv: list[str]) -> None:
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     until = today + timedelta(days=1)
@@ -112,7 +124,7 @@ def main(argv: list[str]) -> None:
         if key not in ctxs:
             ctxs[key] = context.build(row["symbol"], row["profile"], ce.FROM_UTC)
         evaluated.append(ce.evaluate_row(row, ctxs[key]))
-    text = markdown(build(trades, evaluated), s, u)
+    text = markdown(build(trades, evaluated), s, u) + ai_section(u)
     ce.OUT.mkdir(exist_ok=True)
     (ce.OUT / f"weekly_review_{until.strftime('%Y-%m-%d')}.md").write_text(text, encoding="utf-8")
     print(text)
