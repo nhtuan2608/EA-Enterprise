@@ -100,5 +100,14 @@ class SentimentSourceTests(unittest.TestCase):
             self.assertNotIn(forbidden, runtime)
 
 
+class SentimentOverviewTests(unittest.TestCase):
+    def test_overview_shows_summary_line(self):
+        panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")
+        overview = panel.split("void EEA_SymbolPanelDashOverview(", 1)[1].split("\nvoid ", 1)[0]
+        self.assertIn('"MARKET SENTIMENT"', overview)
+        self.assertIn("g_panel_engine.sentiment_summary", overview)
+        self.assertIn("int m=e+104;", overview)   # below EVIDENCE (e..e+96), inside the 600 px dashboard
+
+
 if __name__ == "__main__":
     unittest.main()
