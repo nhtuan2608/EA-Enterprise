@@ -1,0 +1,10 @@
+{
+  "operators": [123456789],
+  "viewers": [],
+  "token_file": "",
+  "poll_timeout": 25,
+  "ai_provider": "claude",
+  "commands_per_minute": 20,
+  "asks_per_hour": 6,
+  "notify": {"trades": true, "alerts": true, "ai_reports": true, "news": true}
+}

@@ -51,3 +51,14 @@ Dùng `--config bridge.json`. Mọi khóa đều tùy chọn, ví dụ:
 - **Giới hạn và ngắt:** tối đa 30 lần gọi mỗi ngày; 3 lỗi liên tiếp thì ngừng gọi 30 phút.
 - **Provider bị hạn chế:** `claude` chạy không có tool; `codex` chạy với sandbox chỉ đọc; cả hai chạy trong thư mục tạm trống.
 - **Log:** `logs/ai_bridge.jsonl`. Trạng thái: `ai/bridge_heartbeat.json`; EA hiện `ONLINE` khi heartbeat mới hơn 2 phút.
+
+## Telegram gateway (G19)
+
+Thiết kế: `docs/superpowers/specs/2026-10-05-telegram-gateway-v1-design.md`. Gateway chạy cùng máy MT5, long polling, không mở cổng vào. Chỉ chat riêng với bot; kiểm tra cả `chat.id` và `from.id`.
+
+1. Tạo bot bằng @BotFather, gửi `/start` cho bot.
+2. Đặt token (không đưa vào repo): `[Environment]::SetEnvironmentVariable('EEA_TELEGRAM_TOKEN','<token>','User')`.
+3. Chép `telegram.example.json` thành `telegram.json` (đã có trong `.gitignore`), điền `operators` (user id của bạn) và `viewers` nếu có.
+4. Chạy: `.\bridge\run_telegram.ps1`. Trên Ubuntu dùng `telegram-gateway.service`.
+
+Lệnh: `/status`, `/ask <câu hỏi>`, `/help` (operator và viewer); `/pause`, `/resume`, `/confirm <mã>` (chỉ operator). Trạng thái vào lệnh chỉ được báo theo `current/operator_mode.json` và kết quả EA, không theo ACK của gateway. `/ask` đi qua AI Bridge (cần `ai_bridge.py` đang chạy). Log: `logs/telegram.jsonl` (token luôn bị che). Trạng thái: `telegram/state.json`.
