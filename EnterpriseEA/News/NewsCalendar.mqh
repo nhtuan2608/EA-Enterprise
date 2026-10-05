@@ -240,6 +240,9 @@ void EEA_NewsUpdate(EEA_NewsRuntime &rt,CAuditLog &audit,const string root,
         {
          string reason;
          bool ok=EEA_NewsRefreshCalendar(rt,now,reason);
+         // Readers outside the EA (AI bridge, news health) judge freshness from
+         // last_success_utc, so every successful refresh is written, not only state changes.
+         if(ok) changed=true;
          if(ok!=rt.calendar_ok || rt.reason!=reason)
            {
             EEA_NewsAudit(audit,rt.config_version,ok ? "NEWS_CALENDAR_REFRESHED" : "NEWS_CALENDAR_UNAVAILABLE","","","",

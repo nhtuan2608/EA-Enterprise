@@ -59,7 +59,10 @@ string EEA_S04StateName(const int state)
   }
 
 string EEA_SetupStateName(const string setup,const int state)
-  { return setup=="S04" ? EEA_S04StateName(state) : EEA_S02StateName(state); }
+  {
+   if(setup=="S06") return state==EEA_S02_DETECTED ? "RELEASED" : EEA_S02StateName(state);   // CompressionExpansion.mqh
+   return setup=="S04" ? EEA_S04StateName(state) : EEA_S02StateName(state);
+  }
 
 void EEA_S04SetEvent(EEA_S02Event &ev,const EEA_S02Engine &e,const datetime at,
                      const string event_type,const int before,const string reason)

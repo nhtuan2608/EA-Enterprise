@@ -21,6 +21,7 @@
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
+#include "Integration/CandidateLedger.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
@@ -48,6 +49,8 @@ enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
 input EEA_S02ModeInput InpS02Mode       = S02_LIVE;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
 input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
+enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
+input EEA_S06ModeInput InpS06Mode       = S06_LIVE;   // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
@@ -102,6 +105,7 @@ input int    InpLiveReleaseTtlSec       = 20;
 input long   InpLiveMagic               = 888888;
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
+input double InpScalpRiskWithSwingSameSide = 0.5;  // G18: SCALP risk factor while a same-side SWING is open (1 = off)
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -117,6 +121,7 @@ EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISS
 bool g_controller_allows_market=false;
 EEA_ControlledLiveConfig g_live_config;
 EEA_ControlledLiveRuntimeState g_live_runtime;
+EEA_CandidateLedger g_candidate_ledger;
 
 bool EEA_LivePanelAllowed()
   {
@@ -878,6 +883,7 @@ void EEA_PublishPanelEngineView()
    if(g_strategy_runtime.zone_mode)
       view.strategy_reason+=" | S02 "+EEA_SetupModeName(g_strategy_runtime.s02_mode)+
                             " | S04 "+EEA_SetupModeName(g_strategy_runtime.s04_mode)+
+                            " | S06 "+EEA_SetupModeName(g_strategy_runtime.s06_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
    EEA_PublishNewsView(view);
@@ -931,9 +937,9 @@ void EEA_PublishPanelEngineView()
             g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction : state_name;
          if(g_strategy_runtime.zone_mode)
            {
-            // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; an idle S04 engine is left out of the row.
-            string tag=(setup=="S04" ? "S04-" : "")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
-            if(setup!="S04" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
+            // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; idle S04/S06 engines are left out of the row.
+            string tag=(setup=="S02" ? "" : setup+"-")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
+            if(setup=="S02" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
                view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+state_name;
             view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+setup+" "+g_strategy_runtime.profile[i]+" "+state+
                " zone "+g_strategy_runtime.zone_text[i]+" HTF "+g_strategy_runtime.htf_structure[i]+
@@ -961,6 +967,7 @@ int OnInit()
      }
    EEA_ControlledLiveConfigDefaults(g_live_config);
    EEA_ControlledLiveRuntimeStateDefaults(g_live_runtime);
+   EEA_CandidateLedgerInit(g_candidate_ledger);
    g_live_config.enabled=InpExecutionEnabled && !InpObserverOnly;
    g_live_config.armed=InpLiveTradeArmed;
    g_live_config.authorization_path=InpLiveAuthorizationPath;
@@ -982,6 +989,7 @@ int OnInit()
    g_live_config.magic=InpLiveMagic;
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
+   g_live_config.scalp_risk_with_swing_same_side=MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -1063,7 +1071,7 @@ int OnInit()
          EEA_StrategyCandidateRuntimeInit(g_strategy_runtime,canonical,count,
                                           strategy_config,InpStrategyRuntimeEnabled) :
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
-                                            (int)InpS02Mode);
+                                            (int)InpS02Mode,(int)InpS06Mode);
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",
@@ -1229,7 +1237,7 @@ void OnTimer()
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
-          // S04 SHADOW records would-be trades; the replay measures S02/S04 on history.
+          // SHADOW setups record would-be trades; the replay measures S02/S04 on history.
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
           EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
@@ -1238,6 +1246,10 @@ void OnTimer()
              EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                        g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
                                        g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
+          // G18: every candidate's final outcome (entered or why not) for the virtual-result report.
+          EEA_CandidateLedgerUpdate(g_candidate_ledger,g_config.data_root,g_strategy_runtime,g_live_runtime,
+                                    g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked,
+                                    g_trade_manager,g_pending_runtime);
          }
        if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
          {

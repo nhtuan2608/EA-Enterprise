@@ -58,12 +58,15 @@ Cập nhật 05/10: `main` = `107b8db` (merge G7–G10), đã push GitHub. 469 t
 | G8 | Command queue + CLOSE / PARTIAL / BE / TRAIL (P4, đặc tả 9.2) | ✅ Đã deploy; kiểm chứng với lệnh thật từ thứ Hai |
 | G9 | S04 Failed Break (P5) | ✅ LIVE cùng S02 theo yêu cầu người dùng 04/10 (InpS04Mode=S04_LIVE); replay S02/S04 từ 01/01 để theo dõi |
 | G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | 🔬 05/10: chỉ S06 SWING (H1) có lợi thế dương ổn định (+0,10R, 550 lệnh 2024–2026); đề xuất đưa vào EA ở SHADOW. Sweep chạy lại trên dữ liệu xuất 05/10 (`5eecfb1`: sweep chỉ tính MARKET), có phí: kết luận không đổi. **Người dùng giữ S02/S04 LIVE trên demo** dù kết quả nghiên cứu âm, để lấy số liệu tuần chạy thử (G5) |
-| G11 | Sentiment: dòng tóm tắt trên Overview + replay sentiment theo từng tin | ⬜ |
-| G12 | S01 / S03 / S05 / S06 (P7), Telegram (P8) | ⬜ S01/S03/S05/S06 mới có prototype trong `research/g10/setups.py`, chưa có trong EA |
+| G11 | Sentiment: dòng tóm tắt trên Overview + replay sentiment theo từng tin | 🟡 05/10: dòng tóm tắt trên Overview xong (`6c7ecd8`). Replay theo từng tin chưa làm: cần lịch sử 13 cặp tham chiếu, file xuất nghiên cứu mới có 5 symbol |
+| G12 | S01 / S03 / S05 / S06 (P7), Telegram (P8) | 🟡 05/10: **S06 Compression Expansion SWING đã code, LIVE theo yêu cầu người dùng** (`2026-10-05-s06-compression-expansion-v1-design.md`, `862db1e`), chờ deploy. S01/S03/S05 mới có prototype; Telegram chưa có |
 | G13 | Push `main` lên GitHub | ✅ 05/10 (`107b8db`) |
 | G14 | REQ-012 đánh giá AI: nhãn HELPFUL/HARMFUL/NEUTRAL/UNATTRIBUTABLE, báo cáo tuần, cổng AIG-01..07 | ⬜ Chưa có; cần trước khi xét AI Level 2 |
-| G15 | NFR-07 xoay vòng log: `audit.jsonl` tăng ~1,3 MB/ngày (chủ yếu `RUNTIME_REFRESHED` mỗi 30 s), `news_reactions.jsonl` 5,8 MB | ⬜ |
-| G16 | `news_state.json` chỉ ghi khi trạng thái tin đổi nên `last_success_utc` trên đĩa có thể cũ vài giờ; bên đọc ngoài EA (AI bridge) dễ hiểu nhầm là lịch tin cũ | ⬜ Lỗi nhỏ |
+| G15 | NFR-07 xoay vòng log: `audit.jsonl` tăng ~1,3 MB/ngày (chủ yếu `RUNTIME_REFRESHED` mỗi 30 s), `news_reactions.jsonl` 5,8 MB | ✅ 05/10 (`582fcb4`): `audit.jsonl` > 20 MB → `audit-<UTC>.jsonl`, giữ 10 bản; `news_reactions.jsonl` là dữ liệu nên không xoay. Chờ deploy |
+| G16 | `news_state.json` chỉ ghi khi trạng thái tin đổi nên `last_success_utc` trên đĩa có thể cũ vài giờ; bên đọc ngoài EA (AI bridge) dễ hiểu nhầm là lịch tin cũ | ✅ 05/10 (`582fcb4`): ghi lại sau mỗi lần refresh thành công. Chờ deploy |
 | G17 | NFR-02 soak test, NFR-06 đo CPU/RAM | ⬜ |
+| G18 | Phân xử giữa các setup (TC-007) và sổ candidate (`2026-10-05-setup-arbitration-and-candidate-ledger-design.md`): ưu tiên S06 → S04 → S02, SWING trước SCALP; mỗi symbol + chiều + khung 1 lệnh; SCALP chồng lên SWING cùng chiều rủi ro × 0,5 (`InpScalpRiskWithSwingSameSide`); `logs/candidates.jsonl` + `research/g10/candidates_eval.py` cho kết quả ảo của candidate không vào lệnh | ✅ 05/10 code xong, chờ deploy cùng G12/G15/G16 |
+
+**Deploy 05/10 12:49 và 13:01 (giờ VN):** `.ex5` trong terminal là bản `6c7ecd8` (G11, G12 S06 LIVE, G15, G16, G18, xuất nến lại cuối tuần); backup bản cũ ở `Terminal/EnterpriseEA-backup-20261005-124756`. **EA chưa được gắn lại**: bản đang chạy vẫn là `c3caba0` cho tới khi người dùng gắn lại EA hoặc MT5/chart khởi động lại. Sau khi gắn lại: kiểm tra log khởi động, 5 engine S06, `news_state.json` mỗi 15 phút; rồi merge `main` và push.
 
 **Mốc chờ thị trường:** G3 S&P Services PMI 20:45 và ISM 21:00 tối 05/10 (giờ VN); G4 lệnh thật (TC-046..051, Trade Manager TC-012..015); G5 đánh giá tuần chạy thử 10–11/10.

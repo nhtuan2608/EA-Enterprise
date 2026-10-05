@@ -1600,7 +1600,7 @@ void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContex
                            (g_panel_engine.execution_enabled ? "ENABLED" : "EXECUTION_DISABLED")+
                            (g_panel_engine.live_armed ? " / ARMED" : " / not armed"),
                            g_panel_engine.execution_enabled ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,"Strategy runtime (S02/S04)",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,"Strategy runtime (S02/S04/S06)",
                            g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED",
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_StrategyReason",right,y+140,"Strategy reason",
@@ -1781,7 +1781,7 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                            (g_panel_engine.recovery_blocked ? "  RECOVERY BLOCKED" : ""),
                            g_panel_engine.controller_kill_active || g_panel_engine.recovery_blocked ?
                            EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR,40);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02 / trade manager",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02/S04/S06 / trade manager",
                            (g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED")+
                            (g_panel_engine.trade_manager_reason=="" ? "" :
                             "  "+StringSubstr(g_panel_engine.trade_manager_reason,StringLen("TRADE_MANAGER_"))),
@@ -1816,6 +1816,18 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                           "last "+IntegerToString(ctx.status.last_refresh_duration_ms)+" ms"+EEA_SymbolPanelSep()+
                           "max "+IntegerToString(ctx.status.max_refresh_duration_ms)+" ms",
                           ctx.status.refresh_failure_count>0 ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_MUTED_COLOR,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+
+   // G11: one-line market sentiment (details on the Market tab). Reduce-only, never adds risk.
+   int m=e+104;
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"SentimentSurface",EEA_PANEL_INNER_X,m,
+                             EEA_PANEL_INNER_WIDTH,44,EEA_PANEL_SURFACE_COLOR);
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SentimentTitle",EEA_PANEL_CONTENT_X,m+8,
+                             "MARKET SENTIMENT"+EEA_SymbolPanelSep()+"reduce-only");
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SentimentSummary",EEA_PANEL_CONTENT_X,m+26,
+                          g_panel_engine.sentiment_ok ? g_panel_engine.sentiment_summary :
+                          "unavailable: neutral, no effect on entries ("+g_panel_engine.sentiment_reason+")",
+                          g_panel_engine.sentiment_ok ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR,
                           EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
   }
 
