@@ -477,6 +477,10 @@ class Gateway:
     def notify_reports(self):
         if not self.config["notify"].get("ai_reports"):
             return
+        # The reports already present on the first pass are history; any later report, of any
+        # kind (including a kind that did not exist yet), is forwarded once.
+        initial = not self.state.get("reports_initialized")
+        self.state["reports_initialized"] = True
         for kind, title in REPORT_TYPES.items():
             rep = read_json(self.root / "ai" / "reports" / f"{kind}.json")
             if not isinstance(rep, dict) or rep.get("status") != "OK":
@@ -484,9 +488,8 @@ class Gateway:
             rid = rep.get("request_id", "")
             if not rid or self.state["reports_seen"].get(kind) == rid:
                 continue
-            first = kind not in self.state["reports_seen"]
             self.state["reports_seen"][kind] = rid
-            if first:                       # the report present at start-up is not news
+            if initial:
                 continue
             lines = [str(rep.get("summary", ""))] + [f"[{f.get('severity')}] {f.get('detail')}"
                                                      for f in rep.get("findings", [])[:6]]

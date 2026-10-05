@@ -276,6 +276,12 @@ class NotifyTests(GatewayCase):
         self.assertEqual(len(reports), 2)
         self.assertIn("mới", reports[0])
 
+    def test_first_report_of_a_new_kind_is_forwarded(self):
+        self.gw.run_once(poll_timeout=0)                      # start-up pass: no reports yet
+        self.write("ai/reports/NEWS_DATA_REVIEW.json", {"status": "OK", "request_id": "eea-0-9", "summary": "review"})
+        self.gw.run_once(poll_timeout=0)
+        self.assertEqual(sum(t.startswith("Review dữ liệu tin") for t in self.texts()), 2)
+
 
 class BridgeAskTaskTests(unittest.TestCase):
     def test_bridge_answers_operator_question_as_data(self):
