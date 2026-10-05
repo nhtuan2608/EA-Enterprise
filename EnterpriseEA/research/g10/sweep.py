@@ -50,7 +50,10 @@ def grid(g: dict):
 def run_engine(job):
     setup, profile, over = job
     params = replay.engine_params(setup, profile, over)
-    cands = {s: replay.candidates(ctx(s, profile), setup, params) for s in SYMBOLS}
+    # MARKET entries only: S02 LIMIT opportunities overlap the MARKET trigger of the same
+    # breakout and are studied with evaluate_all (realistic), not in this grid.
+    cands = {s: [x for x in replay.candidates(ctx(s, profile), setup, params) if x.get("kind") != "LIMIT"]
+             for s in SYMBOLS}
     rows_by_trade = []
     for trade in grid(TRADE_GRID):
         t = dict(trade)
