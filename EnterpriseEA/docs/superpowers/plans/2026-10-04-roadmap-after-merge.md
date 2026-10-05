@@ -2,6 +2,8 @@
 
 Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo chạy `fc4ec26`; phiên ủy quyền 7 ngày đang ACTIVE; tuần chạy thử S02 bắt đầu từ thứ Hai 05/10.
 
+Cập nhật 05/10: `main` = `107b8db` (merge G7–G10), đã push GitHub. 469 test Python đạt, compile 0/0. Terminal demo (VTMarkets-Demo) chạy bản `c3caba0`; file `.ex5` trên đĩa đã là `main` (chỉ khác phần xuất nghiên cứu chạy tiếp), có hiệu lực khi gắn lại EA. Phiên ủy quyền ACTIVE tới 11/10 09:34 (giờ VN).
+
 ## 1. Hiện trạng theo đặc tả v1.4
 
 | Nhóm | Trạng thái |
@@ -42,7 +44,7 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 3. Deploy: kiểm tra target khớp bản đang chạy → backup → deploy → người dùng gắn lại EA → kiểm tra log.
 4. Commit trên `feature/ui-redesign-v2`; merge vào `main` theo từng mốc.
 
-## 5. Mục tiêu và trạng thái (cập nhật 04/10/2026)
+## 5. Mục tiêu và trạng thái (cập nhật 05/10/2026)
 
 | Goal | Nội dung | Trạng thái |
 |---|---|---|
@@ -52,10 +54,16 @@ Mốc: `main` đã có `9d0b9ea` (merge `feature/ui-redesign-v2`). Terminal demo
 | G4 | Kiểm chứng lệnh thật: lệnh chờ REQ-021 (TC-046..051), Trade Manager, sentiment khi vào lệnh | ⏳ Chờ FX mở cửa thứ Hai |
 | G5 | Đánh giá tuần chạy thử S02 (forward 1 tuần) | ⏳ Cuối tuần 10–11/10 |
 | G6 | Tự động kiểm tra số liệu tin (P2) | ✅ Deploy cùng `G6` (news data health) |
-| G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ✅ Đã deploy; bridge chạy tay bằng `run_bridge.ps1` (Windows) hoặc systemd (Ubuntu) |
+| G7 | AI Bridge v1 Level 0 (P3) với các đề xuất Q1–Q6 | ✅ Đã deploy; bridge chạy tay bằng `run_bridge.ps1` (Windows) hoặc systemd (Ubuntu). 05/10: bridge đã dừng từ 04/10 ~15:00 (OAuth `claude` hết hạn), 7 request tồn (đều quá hạn, bị loại `AI_REQUEST_EXPIRED`); chạy lại 09:49 trong cửa sổ PowerShell riêng, cần mở lại sau khi khởi động lại máy |
 | G8 | Command queue + CLOSE / PARTIAL / BE / TRAIL (P4, đặc tả 9.2) | ✅ Đã deploy; kiểm chứng với lệnh thật từ thứ Hai |
 | G9 | S04 Failed Break (P5) | ✅ LIVE cùng S02 theo yêu cầu người dùng 04/10 (InpS04Mode=S04_LIVE); replay S02/S04 từ 01/01 để theo dõi |
-| G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | 🔬 05/10: chỉ S06 SWING (H1) có lợi thế dương ổn định (+0,10R, 550 lệnh 2024–2026); đề xuất đưa vào EA ở SHADOW |
+| G10 | Kiểm chứng S02 bằng Strategy Tester (P6) | 🔬 05/10: chỉ S06 SWING (H1) có lợi thế dương ổn định (+0,10R, 550 lệnh 2024–2026); đề xuất đưa vào EA ở SHADOW. Sweep chạy lại trên dữ liệu xuất 05/10 (`5eecfb1`: sweep chỉ tính MARKET), có phí: kết luận không đổi. **Người dùng giữ S02/S04 LIVE trên demo** dù kết quả nghiên cứu âm, để lấy số liệu tuần chạy thử (G5) |
 | G11 | Sentiment: dòng tóm tắt trên Overview + replay sentiment theo từng tin | ⬜ |
-| G12 | S01 / S03 / S05 / S06 (P7), Telegram (P8) | ⬜ |
-| G13 | Push `main` lên GitHub | ⬜ Chờ người dùng đồng ý |
+| G12 | S01 / S03 / S05 / S06 (P7), Telegram (P8) | ⬜ S01/S03/S05/S06 mới có prototype trong `research/g10/setups.py`, chưa có trong EA |
+| G13 | Push `main` lên GitHub | ✅ 05/10 (`107b8db`) |
+| G14 | REQ-012 đánh giá AI: nhãn HELPFUL/HARMFUL/NEUTRAL/UNATTRIBUTABLE, báo cáo tuần, cổng AIG-01..07 | ⬜ Chưa có; cần trước khi xét AI Level 2 |
+| G15 | NFR-07 xoay vòng log: `audit.jsonl` tăng ~1,3 MB/ngày (chủ yếu `RUNTIME_REFRESHED` mỗi 30 s), `news_reactions.jsonl` 5,8 MB | ⬜ |
+| G16 | `news_state.json` chỉ ghi khi trạng thái tin đổi nên `last_success_utc` trên đĩa có thể cũ vài giờ; bên đọc ngoài EA (AI bridge) dễ hiểu nhầm là lịch tin cũ | ⬜ Lỗi nhỏ |
+| G17 | NFR-02 soak test, NFR-06 đo CPU/RAM | ⬜ |
+
+**Mốc chờ thị trường:** G3 S&P Services PMI 20:45 và ISM 21:00 tối 05/10 (giờ VN); G4 lệnh thật (TC-046..051, Trade Manager TC-012..015); G5 đánh giá tuần chạy thử 10–11/10.
