@@ -62,3 +62,9 @@ Thiết kế: `docs/superpowers/specs/2026-10-05-telegram-gateway-v1-design.md`.
 4. Chạy: `.\bridge\run_telegram.ps1`. Trên Ubuntu dùng `telegram-gateway.service`.
 
 Lệnh: `/status`, `/ask <câu hỏi>`, `/help` (operator và viewer); `/pause`, `/resume`, `/confirm <mã>` (chỉ operator). Trạng thái vào lệnh chỉ được báo theo `current/operator_mode.json` và kết quả EA, không theo ACK của gateway. `/ask` đi qua AI Bridge (cần `ai_bridge.py` đang chạy). Log: `logs/telegram.jsonl` (token luôn bị che). Trạng thái: `telegram/state.json`.
+
+Lệnh đọc thêm (G17/G20): `/trades` (10 lệnh đã đóng gần nhất kèm R), `/week` (báo cáo tuần từ `research/g10/weekly_review.py`, 1 lần mỗi 10 phút), `/soak` (tài nguyên MT5 và độ ổn định EA).
+
+## Soak monitor (G17)
+
+`.ridgeun_soak.ps1` lấy mẫu CPU, RAM, handle, thread của MT5 cùng bộ đếm refresh của EA và dung lượng log mỗi 5 phút vào `logs/soak.jsonl` (chỉ đọc). Báo cáo: `python bridge/soak_monitor.py --queue-root <...> --report [--hours 72]` hoặc `/soak` trên Telegram. Cờ: `MEMORY_CLIMBING` (> 50 MB/ngày), `HANDLES_CLIMBING` (> 200/ngày) sau ít nhất 12 giờ; `CPU_ABOVE_BUDGET` (> 25% một lõi); `REFRESH_FAILURES`.

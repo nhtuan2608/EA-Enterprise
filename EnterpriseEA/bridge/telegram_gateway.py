@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 import urllib.error
@@ -37,6 +38,10 @@ STATUS_STALE = 120              # EA snapshot older than this is reported STALE
 NEWS_LEAD = 30 * 60             # notify HIGH events this long before
 ALERT_THROTTLE = 15 * 60
 SEND_ATTEMPTS = 5
+WEEK_TIMEOUT = 240              # /week report subprocess
+WEEK_PER_10MIN = 1
+TRADES_SHOWN = 10
+HERE = Path(__file__).resolve().parent
 
 DEFAULT_CONFIG = {
     "operators": [],            # Telegram user ids allowed to pause/resume (private chat)
@@ -58,6 +63,9 @@ ALERT_REASONS = ("LOSS_LIMIT_REACHED", "RECOVERY_REQUIRED", "EXECUTION_UNKNOWN")
 REPORT_TYPES = {"EA_DIAGNOSTICS": "Chẩn đoán EA", "NEWS_DATA_REVIEW": "Review dữ liệu tin"}
 
 HELP_VIEWER = ("/status - trạng thái EA\n"
+               "/trades - các lệnh đã đóng gần đây\n"
+               "/week - báo cáo tuần (lệnh thật và kết quả ảo theo setup)\n"
+               "/soak - tài nguyên MT5 và độ ổn định EA\n"
                "/ask <câu hỏi> - hỏi AI (chỉ đọc, không đặt lệnh)\n"
                "/help - danh sách lệnh")
 HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế đang có vẫn được quản lý)\n"
@@ -131,7 +139,7 @@ def clip(text: str, limit: int = MAX_MESSAGE) -> str:
 # Gateway
 # ---------------------------------------------------------------------------
 class Gateway:
-    def __init__(self, root: Path, config: dict, api, token: str = "", clock=now):
+    def __init__(self, root: Path, config: dict, api, token: str = "", clock=now, runner=None):
         self.root = Path(root)
         self.config = config
         self.api = api
@@ -145,6 +153,8 @@ class Gateway:
         self.operators = {int(x) for x in config.get("operators", [])}
         self.viewers = {int(x) for x in config.get("viewers", [])} - self.operators
         self.state = self._load_state()
+        self.runner = runner or self._spawn_week
+        self.jobs = {}          # running /week reports (in memory: a restart drops them)
 
     # -- state and log ------------------------------------------------------
     def _load_state(self) -> dict:
@@ -250,6 +260,12 @@ class Gateway:
             self.send(uid, HELP_OPERATOR if role == "OPERATOR" else HELP_VIEWER, mid)
         elif cmd == "/status":
             self.send(uid, self.status_text(), mid)
+        elif cmd == "/trades":
+            self.send(uid, self.trades_text(), mid)
+        elif cmd == "/soak":
+            self.send(uid, self.soak_text(), mid)
+        elif cmd == "/week":
+            self.cmd_week(uid, mid)
         elif cmd == "/ask":
             self.cmd_ask(uid, mid, arg.strip(), uid_update)
         elif cmd in ("/pause", "/resume", "/confirm"):
@@ -418,6 +434,79 @@ class Gateway:
                 f"Sentiment: {d['sentiment']}\n"
                 f"AI Bridge: {bridge}")
 
+    # -- read-only reports (G20, G17) ----------------------------------------
+    def trades_text(self) -> str:
+        path = self.root / "logs" / "trades.jsonl"
+        try:
+            lines = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        except (OSError, ValueError):
+            lines = []
+        if not lines:
+            return "Chưa có lệnh nào đã đóng."
+        out = []
+        for t in lines[-TRADES_SHOWN:]:
+            when = time.strftime("%d/%m %H:%M", time.gmtime(int(t.get("exit_utc") or 0)))
+            r = t.get("realized_r")
+            if r is not None:
+                res = f"{float(r):+.2f}R ({float(t.get('realized_money', 0)):+.2f})"
+            elif t.get("realized_known"):
+                res = f"{float(t.get('realized_money', 0)):+.2f}"
+            else:
+                res = "chưa rõ"
+            side = "BUY" if int(t.get("direction", 0)) == 1 else "SELL"
+            out.append(f"{when}Z {t.get('symbol')} {t.get('setup')}/{t.get('profile')} {side} {res} {t.get('exit_cause', '')}")
+        known = [float(t["realized_r"]) for t in lines if t.get("realized_r") is not None]
+        total = f"\nTổng {len(known)} lệnh có R: {sum(known):+.2f}R" if known else ""
+        return f"{min(len(lines), TRADES_SHOWN)} lệnh gần nhất:\n" + "\n".join(out) + total
+
+    def soak_text(self) -> str:
+        try:
+            import soak_monitor
+        except ImportError:
+            return "Không tìm thấy soak_monitor.py."
+        return soak_monitor.report_text(soak_monitor.report(soak_monitor.load_samples(self.root / "logs" / "soak.jsonl")))
+
+    def _spawn_week(self):
+        script = HERE.parent / "research" / "g10" / "weekly_review.py"
+        env = dict(os.environ, EEA_RESEARCH_DATA=str(self.root / "research"), PYTHONIOENCODING="utf-8")
+        return subprocess.Popen([sys.executable, str(script)], cwd=str(script.parent), env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def cmd_week(self, uid: int, mid):
+        if any(j["chat_id"] == uid for j in self.jobs.values()):
+            self.send(uid, "Báo cáo tuần đang chạy, chờ kết quả.", mid)
+            return
+        if not self.rate_ok(uid, "week", WEEK_PER_10MIN, 600):
+            self.send(uid, "Báo cáo tuần chỉ chạy 1 lần mỗi 10 phút.", mid)
+            return
+        try:
+            proc = self.runner()
+        except OSError as exc:
+            self.send(uid, f"Không chạy được báo cáo tuần: {exc}", mid)
+            return
+        self.jobs[id(proc)] = {"proc": proc, "chat_id": uid, "reply_to": mid, "started": self.clock()}
+        self.send(uid, "Đang tính báo cáo tuần (có thể 1-2 phút)...", mid)
+
+    def poll_jobs(self):
+        for key, j in list(self.jobs.items()):
+            proc = j["proc"]
+            if proc.poll() is None:
+                if self.clock() - j["started"] > WEEK_TIMEOUT:
+                    proc.kill()
+                    self.send(j["chat_id"], "Báo cáo tuần quá thời gian, đã dừng.", j["reply_to"])
+                    del self.jobs[key]
+                continue
+            out, err = proc.communicate()
+            text = out.decode("utf-8", "replace").strip()
+            if proc.returncode != 0 or not text:
+                text = "Báo cáo tuần lỗi: " + err.decode("utf-8", "replace").strip()[-300:]
+            else:
+                # Plain text: drop the markdown table rule and emphasis.
+                text = "\n".join(l for l in text.splitlines() if not l.startswith("|---")).replace("**", "")
+            self.send(j["chat_id"], text, j["reply_to"])
+            self.log("WEEK_REPORT", returncode=proc.returncode)
+            del self.jobs[key]
+
     # -- notifications (N1) -------------------------------------------------
     def notify_audit(self):
         path = self.root / "logs" / "audit.jsonl"
@@ -521,6 +610,7 @@ class Gateway:
             self.log("POLL_FAILED", detail=redact(exc, self.token)[:200])
         self.poll_results()
         self.poll_asks()
+        self.poll_jobs()
         self.notify_audit()
         self.notify_reports()
         self.notify_news()
