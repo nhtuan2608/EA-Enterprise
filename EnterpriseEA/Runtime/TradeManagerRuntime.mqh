@@ -346,6 +346,66 @@ bool EEA_TradeManagerAudit(CAuditLog &audit,const EEA_ManagedTrade &t,const stri
    return audit.Append(event,"EA_TRADE_MANAGER");
   }
 
+// G20: realized money of a closed position from all of its deals (profit, commission, swap,
+// fee; the entry deal's commission included). False until an exit deal is visible, so a
+// result is never guessed. Deals come from the observer's history window (lookback days).
+bool EEA_TradeManagerRealized(const EEA_ManagedTrade &t,const EEA_RuntimeReconciliationSnapshot &r,
+                              double &money,double &exit_price,long &exit_utc)
+  {
+   money=0.0; exit_price=0.0; exit_utc=0;
+   bool closed=false;
+   for(int i=0;i<r.deal_count && i<EEA_RUNTIME_MAX_DEALS;i++)
+     {
+      if(r.deals[i].position_id!=t.position_id) continue;
+      money+=r.deals[i].profit+r.deals[i].commission+r.deals[i].swap+r.deals[i].fee;
+      if(r.deals[i].entry!="0" && r.deals[i].time_utc>=exit_utc)
+        { closed=true; exit_utc=r.deals[i].time_utc; exit_price=r.deals[i].price; }
+     }
+   return closed;
+  }
+
+// Money lost at the initial stop for the initial volume: the R unit of the trade.
+double EEA_TradeManagerInitialRiskMoney(const EEA_ManagedTrade &t)
+  {
+   if(t.initial_sl<=0.0 || t.entry_price<=0.0 || t.initial_volume<=0.0) return 0.0;
+   double loss=0.0;
+   if(!OrderCalcProfit(t.direction==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,t.intent.broker_symbol,t.initial_volume,
+                       t.entry_price,t.initial_sl,loss) || !MathIsValidNumber(loss)) return 0.0;
+   return MathAbs(loss);
+  }
+
+// TRADE_EXITED with the realized result, plus one line per closed trade in logs/trades.jsonl.
+void EEA_TradeManagerRecordExit(CAuditLog &audit,const string root,const EEA_ManagedTrade &t,
+                                const EEA_RuntimeReconciliationSnapshot &r,const string cause)
+  {
+   double money=0.0, exit_price=0.0; long exit_utc=0;
+   const bool known=EEA_TradeManagerRealized(t,r,money,exit_price,exit_utc);
+   const double risk=EEA_TradeManagerInitialRiskMoney(t);
+   const bool r_known=known && risk>0.0;
+   const string result=",\"realized_known\":"+(known ? "true" : "false")+",\"realized_money\":"+DoubleToString(money,2)+
+      ",\"risk_money\":"+DoubleToString(risk,2)+",\"realized_r\":"+(r_known ? DoubleToString(money/risk,3) : "null")+
+      ",\"exit_price\":"+DoubleToString(exit_price,8)+",\"exit_utc\":"+IntegerToString(exit_utc)+
+      ",\"exit_cause\":\""+EEA_JsonEscape(cause)+"\"";
+   EEAEvent event;
+   EEAEvent_Init(event,"TRADE_EXITED",TimeGMT(),t.intent.canonical_symbol,t.intent.candidate_id,"",t.state,
+                 known ? "OK" : "DEGRADED");
+   event.config_version=t.intent.config_version;
+   EEAEvent_AddReason(event,"POSITION_CLOSED");
+   event.details_json="{\"position_id\":\""+EEA_JsonEscape(t.position_id)+"\",\"profile\":\""+EEA_JsonEscape(t.profile)+
+      "\",\"bars\":"+IntegerToString(t.bars)+",\"mfe_r\":"+DoubleToString(t.mfe_r,3)+
+      ",\"mae_r\":"+DoubleToString(t.mae_r,3)+",\"reason\":\"POSITION_CLOSED\""+result+"}";
+   audit.Append(event,"EA_TRADE_MANAGER");
+   const string line="{\"candidate_id\":\""+EEA_JsonEscape(t.intent.candidate_id)+"\",\"setup\":\""+EEA_JsonEscape(t.intent.setup_id)+
+      "\",\"profile\":\""+EEA_JsonEscape(t.profile)+"\",\"symbol\":\""+EEA_JsonEscape(t.intent.canonical_symbol)+
+      "\",\"direction\":"+IntegerToString(t.direction)+",\"entry_price\":"+DoubleToString(t.entry_price,8)+
+      ",\"initial_sl\":"+DoubleToString(t.initial_sl,8)+",\"initial_tp\":"+DoubleToString(t.initial_tp,8)+
+      ",\"volume\":"+DoubleToString(t.initial_volume,2)+",\"opened_at_utc\":"+IntegerToString(t.opened_at_utc)+
+      ",\"bars\":"+IntegerToString(t.bars)+",\"mfe_r\":"+DoubleToString(t.mfe_r,3)+",\"mae_r\":"+DoubleToString(t.mae_r,3)+
+      ",\"partial\":"+(t.partial_done ? "true" : "false")+",\"break_even\":"+(t.be_done ? "true" : "false")+
+      ",\"trailed\":"+(t.trail_active ? "true" : "false")+result+"}";
+   EEA_WriteAtomicAppendText(root+"/logs/trades.jsonl",line+"\r\n");
+  }
+
 int EEA_TradeManagerSymbolRow(const EEA_ObserverRuntimeContext &observer,const string broker_symbol)
   {
    for(int k=0;k<observer.symbol_count;k++) if(observer.broker_symbols[k]==broker_symbol) return k;
@@ -519,8 +579,10 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
          int prow=EEA_TradeManagerFindPosition(t,observer.reconciliation);
          if(prow<0)
            {
+            // The cause is whatever the manager last asked for (structure, time stop) or the broker (SL/TP).
+            const string cause=t.exit_request!="" ? t.exit_request : t.last_reason;
             t.active=false; t.state="EXITED"; t.last_reason="POSITION_CLOSED"; t.exited_at_utc=(long)TimeGMT();
-            EEA_TradeManagerAudit(audit,t,"TRADE_EXITED","POSITION_CLOSED");
+            EEA_TradeManagerRecordExit(audit,root,t,observer.reconciliation,cause);
            }
          else
            {

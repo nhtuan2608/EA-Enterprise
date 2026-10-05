@@ -275,7 +275,15 @@ class Bridge:
         tmp = path.with_suffix(path.suffix + ".tmp")
         # Compact separators: the EA's MQL reader expects "key":"value" without spaces.
         tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        os.replace(tmp, path)
+        # The EA may hold the target open for a moment while it reads it (Windows: access denied).
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
 
     def log(self, event: str, **fields):
         line = {"at_utc": utc_now(), "event": event, **fields}

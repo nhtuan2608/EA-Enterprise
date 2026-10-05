@@ -111,7 +111,15 @@ def write_atomic(path: Path, payload: dict):
     tmp = path.with_suffix(path.suffix + ".tmp")
     # Compact separators: the EA's MQL reader expects "key":"value" without spaces.
     tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, path)
+    # The EA or the AI bridge may hold the target open for a moment while reading it (Windows).
+    for attempt in range(5):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.2 * (attempt + 1))
 
 
 def clip(text: str, limit: int = MAX_MESSAGE) -> str:
@@ -446,9 +454,17 @@ class Gateway:
         if kind in TRADE_EVENTS and notify.get("trades"):
             d = ev.get("details", {}) or {}
             setup = str(ev.get("entity_id", "")).split("-", 1)[0]
+            result = ""
+            if kind == "TRADE_EXITED" and "realized_known" in d:          # G20
+                if d.get("realized_known") and d.get("realized_r") is not None:
+                    result = f"\nKết quả: {d['realized_r']:+.2f}R ({d.get('realized_money', 0):+.2f})  thoát: {d.get('exit_cause', '')}"
+                elif d.get("realized_known"):
+                    result = f"\nKết quả: {d.get('realized_money', 0):+.2f} (không tính được R)  thoát: {d.get('exit_cause', '')}"
+                else:
+                    result = "\nKết quả: chưa thấy deal đóng trong lịch sử"
             self.broadcast(f"{TRADE_EVENTS[kind]} {ev.get('symbol', '')} {setup} {d.get('profile', '')}\n"
                            f"Trạng thái: {ev.get('state_after', '')}  lý do: {','.join(reasons)}\n"
-                           f"MFE {d.get('mfe_r', 0)}R  MAE {d.get('mae_r', 0)}R  ({ev.get('occurred_at_utc', '')})")
+                           f"MFE {d.get('mfe_r', 0)}R  MAE {d.get('mae_r', 0)}R  ({ev.get('occurred_at_utc', '')})" + result)
             return
         alert = kind in ALERT_EVENTS or any(any(k in r for k in ALERT_REASONS) for r in reasons)
         if alert and notify.get("alerts"):
