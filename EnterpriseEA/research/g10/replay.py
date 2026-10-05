@@ -350,6 +350,8 @@ def _walk_tm(bars, i, d, entry, stop, target, risk, profile, c, point, res, mana
                 level = ext - d * 0.1 * bar["atr"]
             if d * (level - entry) > 0 and d * (level - sl) >= 0.1 * risk:
                 sl = level
+    # Bar of the exit (or of the walk limit): account simulations need the holding period.
+    res["exit_i"] = b if limit >= i + 1 else i
     if open_frac > 0:
         realized += open_frac * d * (bars[limit]["close"] - entry) / risk
     res["r"] = realized
