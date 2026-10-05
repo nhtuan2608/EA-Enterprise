@@ -2,3 +2,4 @@
 __pycache__/
 results/*_*.json
 results_sweep.log
+results/weekly_review_*.md
