@@ -399,6 +399,7 @@ class Gateway:
         news = read_json(cur / "news_state.json") or {}
         sentiment = read_json(cur / "sentiment.json") or {}
         heartbeat = read_json(self.root / "ai" / "bridge_heartbeat.json") or {}
+        supervisor = read_json(self.root / "supervisor_heartbeat.json") or {}
         age = None
         try:
             observed = time.strptime(runtime.get("observed_at_utc", ""), "%Y-%m-%dT%H:%M:%SZ")
@@ -419,6 +420,10 @@ class Gateway:
             "next_news": [f"{e.get('currency')} {e.get('name')}" for e in news.get("events", [])[:3]],
             "sentiment": sentiment.get("regime") if sentiment.get("ok") else "UNAVAILABLE",
             "ai_bridge_age_s": self.clock() - int(heartbeat["at_utc"]) if "at_utc" in heartbeat else None,
+            "supervisor_age_s": self.clock() - int(supervisor["at_utc"]) if "at_utc" in supervisor else None,
+            "supervisor_services": {k: ("RUNNING" if v.get("running") else "PAUSED" if v.get("paused") else "DOWN")
+                                    + (f" (chạy lại {v['restarts']})" if v.get("restarts") else "")
+                                    for k, v in (supervisor.get("services") or {}).items()},
         }
 
     def status_text(self) -> str:
@@ -435,7 +440,17 @@ class Gateway:
                 f"News Guard: {news}\n"
                 f"Tin sắp tới: {'; '.join(d['next_news']) or '--'}\n"
                 f"Sentiment: {d['sentiment']}\n"
-                f"AI Bridge: {bridge}")
+                f"AI Bridge: {bridge}\n"
+                f"Supervisor: {self.supervisor_text(d)}")
+
+    @staticmethod
+    def supervisor_text(d: dict) -> str:
+        age = d.get("supervisor_age_s")
+        if age is None:
+            return "không chạy (dịch vụ chạy tay)"
+        if age > 120:
+            return f"OFFLINE ({age}s)"
+        return ", ".join(f"{k} {v}" for k, v in d["supervisor_services"].items()) or "ONLINE"
 
     # -- read-only reports (G20, G17) ----------------------------------------
     def trades_text(self) -> str:
