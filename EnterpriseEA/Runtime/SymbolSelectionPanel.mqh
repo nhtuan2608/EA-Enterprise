@@ -219,6 +219,8 @@ struct EEA_SymbolPanelEngineView
    string sentiment_regime;
    long sentiment_bar_time;
    string sentiment_summary;
+   bool operator_paused;          // G19: entries paused by the operator (Telegram)
+   string operator_mode_reason;
    string sentiment_ccy[8];
    double sentiment_s4[8];
    double sentiment_s24[8];
@@ -292,6 +294,7 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    for(int i=0;i<32;i++) view.ai_lines[i]="";
    view.sentiment_ok=false; view.sentiment_reason="SENTIMENT_NOT_PUBLISHED"; view.sentiment_regime="UNKNOWN";
    view.sentiment_bar_time=0; view.sentiment_summary=""; view.sentiment_symbol_count=0;
+   view.operator_paused=false; view.operator_mode_reason="";
    for(int i=0;i<8;i++) { view.sentiment_ccy[i]=""; view.sentiment_s4[i]=0.0; view.sentiment_s24[i]=0.0; }
    view.news_reason="NEWS_GUARD_NOT_PUBLISHED"; view.news_last_success_utc=0; view.news_policy="";
    view.news_symbol_count=0; view.news_event_count=0;
@@ -1761,8 +1764,10 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                            ctx.status.reason_code,EEA_PANEL_MUTED_COLOR);
    bool live_open=EEA_SymbolPanelLivePathOpen();
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Entries",left,s+60,"New entries",
+                           live_open && g_panel_engine.operator_paused ? "PAUSED by operator (Telegram)" :
                            live_open ? "LIVE - each candidate risk-gated" :
                            (ctx.status.new_entries_blocked ? "BLOCKED (observer only)" : "REVIEW"),
+                           live_open && g_panel_engine.operator_paused ? EEA_PANEL_DANGER_COLOR :
                            live_open ? EEA_PANEL_WARNING_COLOR :
                            (ctx.status.new_entries_blocked ? EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR));
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Execution",right,s+60,"Execution",

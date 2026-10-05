@@ -1,0 +1,15 @@
+[Unit]
+Description=EnterpriseEA Telegram gateway (long polling, no inbound port)
+After=network-online.target
+
+[Service]
+Type=simple
+User=trader
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/enterpriseea/telegram.env
+ExecStart=/usr/bin/python3 /opt/enterpriseea/bridge/telegram_gateway.py --queue-root /home/trader/.wine/drive_c/users/trader/AppData/Roaming/MetaQuotes/Terminal/TERMINAL_ID/MQL5/Files/EnterpriseEA --config /etc/enterpriseea/telegram.json --loop
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

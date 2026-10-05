@@ -2,3 +2,5 @@
 EnterpriseEA/*.ex5
 EnterpriseEA/EnterpriseEA.log
 __pycache__/
+EnterpriseEA/bridge/telegram.json
+*.token

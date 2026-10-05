@@ -22,6 +22,7 @@
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
 #include "Integration/CandidateLedger.mqh"
+#include "Integration/RemoteModeRuntime.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
@@ -122,6 +123,10 @@ bool g_controller_allows_market=false;
 EEA_ControlledLiveConfig g_live_config;
 EEA_ControlledLiveRuntimeState g_live_runtime;
 EEA_CandidateLedger g_candidate_ledger;
+EEA_RemoteModeState g_remote_mode;       // G19 operator entry mode (Telegram /pause, /resume)
+bool g_remote_loaded=false;
+string g_remote_reason="OPERATOR_MODE_NOT_LOADED";
+string g_remote_last="";
 
 bool EEA_LivePanelAllowed()
   {
@@ -725,6 +730,40 @@ void EEA_PublishAiView(EEA_SymbolPanelEngineView &view)
 // ---------------------------------------------------------------------------
 string g_command_last="";
 
+// G19: the seven safety facts a /confirm needs before the operator pause is lifted.
+void EEA_RemoteResumeEvidenceNow(EEA_RemoteResumeEvidence &e)
+  {
+   e.account_wide_reconciled=(g_runtime.status.runtime_state=="OBSERVING");
+   e.risk_gate_ready=(g_risk_ledger.initial_capital>0.0 && !g_live_runtime.recovery_blocked);
+   e.news_gate_ready=true;
+   for(int i=0;i<g_runtime.symbol_count;i++)
+      if(g_runtime.broker_symbols[i]!="" && EEA_NewsStateFor(g_news,g_runtime.canonical_symbols[i])=="UNKNOWN")
+         e.news_gate_ready=false;
+   e.broker_connected=(TerminalInfoInteger(TERMINAL_CONNECTED)!=0);
+   e.mt5_trade_allowed=(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)!=0 && MQLInfoInteger(MQL_TRADE_ALLOWED)!=0);
+   e.protective_management_ready=(g_trade_manager.loaded && StringFind(g_trade_manager.reason,"FAILED")<0 &&
+                                  StringFind(g_trade_manager.reason,"UNREADABLE")<0);
+   e.evidence_fresh=((long)TimeGMT()-(long)g_runtime.status.last_timer_at_utc<=120);
+  }
+
+// G19: load (or bootstrap) the operator mode for this account, then apply queued remote commands.
+void EEA_RemoteModeTimer()
+  {
+   if(!g_runtime.initialized || g_runtime.account.account_fingerprint=="") return;
+   if(!g_remote_loaded || g_remote_mode.account_id!=g_runtime.account.account_fingerprint)
+     {
+      EEA_RemoteModeLoad(g_remote_mode,g_config.data_root,g_runtime.account.account_fingerprint,g_config.config_version,
+                         g_audit,g_remote_reason);
+      g_remote_loaded=true;
+     }
+   EEA_RemoteResumeEvidence evidence;
+   EEA_RemoteResumeEvidenceNow(evidence);
+   EEA_RemoteModeProcessInbox(g_remote_mode,g_config.data_root,evidence,g_audit,g_remote_last);
+  }
+
+// Entries stay blocked until the mode is known (fail closed) and while the operator paused them.
+bool EEA_RemoteEntriesPaused() { return !g_remote_loaded || g_remote_mode.operator_paused; }
+
 void EEA_CommandProcessNow()
   {
    if(!g_runtime.initialized || !g_trade_manager.loaded) return;
@@ -873,6 +912,8 @@ void EEA_PublishPanelEngineView()
    view.observer_only=InpObserverOnly;
    view.execution_enabled=g_live_config.enabled;
    view.live_armed=g_live_config.armed;
+   view.operator_paused=EEA_RemoteEntriesPaused();
+   view.operator_mode_reason=g_remote_loaded ? g_remote_last : g_remote_reason;
    view.controller_status=EEA_PanelControllerStatusText(g_controller_load_status);
    view.controller_kill_active=g_controller.kill_active;
    view.controller_allows_market=g_controller_allows_market;
@@ -1242,10 +1283,17 @@ void OnTimer()
                                g_trade_manager,g_pending_runtime,g_audit);
           EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
           EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
+          EEA_RemoteModeTimer();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
-             EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
-                                       g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
-                                       g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
+            {
+             // REQ-019 / O-12: an operator pause blocks new entries only; management keeps running.
+             if(EEA_RemoteEntriesPaused())
+                g_live_runtime.last_reason="OPERATOR_PAUSED_ENTRIES";
+             else
+                EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
+                                          g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
+                                          g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
+            }
           // G18: every candidate's final outcome (entered or why not) for the virtual-result report.
           EEA_CandidateLedgerUpdate(g_candidate_ledger,g_config.data_root,g_strategy_runtime,g_live_runtime,
                                     g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked,
