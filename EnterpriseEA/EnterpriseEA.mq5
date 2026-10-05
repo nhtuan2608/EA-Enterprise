@@ -1282,7 +1282,12 @@ void OnTimer()
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
           EEA_SetupReplayUpdate(g_setup_replay,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
-          EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count);
+          // G11: the sentiment reference pairs are exported too (H1) for the per-news replay.
+          string ref_canonical[], ref_broker[];
+          ArrayResize(ref_canonical,g_sentiment.count); ArrayResize(ref_broker,g_sentiment.count);
+          for(int r=0;r<g_sentiment.count;r++) { ref_canonical[r]=g_sentiment.pairs[r].canonical; ref_broker[r]=g_sentiment.brokers[r]; }
+          EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count,
+                              ref_canonical,ref_broker,g_sentiment.count);
           EEA_RemoteModeTimer();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
             {

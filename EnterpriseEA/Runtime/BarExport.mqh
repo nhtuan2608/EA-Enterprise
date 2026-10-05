@@ -11,6 +11,9 @@
 // start date changed, the last export is older than a week, or (G18) on the weekend when
 // the last export predates that Saturday, so the weekly review has the whole week's bars.
 // A finished export re-checks once an hour.
+// G11: the sentiment reference pairs that are not selected symbols are exported on H1 only
+// (from the replay start), so the sentiment at each news event can be rebuilt offline.
+// The meta file carries the job signature: a different job list exports again.
 
 #define EEA_BAR_EXPORT_MAX_JOBS 96
 #define EEA_BAR_EXPORT_LEAD_DAYS 120   // level bars before the replay start (H4 swings, previous week)
@@ -31,6 +34,7 @@ struct EEA_BarExportRuntime
    string canonical[EEA_BAR_EXPORT_MAX_JOBS];
    string broker[EEA_BAR_EXPORT_MAX_JOBS];
    int tf[EEA_BAR_EXPORT_MAX_JOBS];
+   bool reference[EEA_BAR_EXPORT_MAX_JOBS];   // H1 of a sentiment reference pair (G11)
    string reason;
    long next_check_utc;   // a finished export re-checks staleness from this time
   };
@@ -69,7 +73,7 @@ string EEA_BarExportProgressPath(const string root) { return root+"/research/bar
 string EEA_BarExportSignature(const EEA_BarExportRuntime &rt)
   {
    string sig=IntegerToString(rt.from_utc)+"|"+IntegerToString(rt.swing_from_utc);
-   for(int j=0;j<rt.count;j++) sig+="|"+rt.canonical[j]+EEA_BarExportTfName(rt.tf[j]);
+   for(int j=0;j<rt.count;j++) sig+="|"+rt.canonical[j]+EEA_BarExportTfName(rt.tf[j])+(rt.reference[j] ? "R" : "");
    return sig;
   }
 
@@ -81,21 +85,36 @@ void EEA_BarExportWriteProgress(const EEA_BarExportRuntime &rt)
       "\",\"next\":"+IntegerToString(rt.next)+",\"written_at_utc\":"+IntegerToString((long)TimeGMT())+"}");
   }
 
-void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count)
+void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count,
+                       const string &ref_canonical[],const string &ref_broker[],const int ref_count)
   {
    rt.loaded=true;
-   string json;
-   if(EEA_StrategyCandidateStoreReadText(EEA_BarExportMetaPath(rt.root),json) &&
-      StringToInteger(EEA_StrategyCandidateStoreField(json,"from_utc"))==rt.from_utc &&
-      StringToInteger(EEA_StrategyCandidateStoreField(json,"swing_from_utc"))==rt.swing_from_utc &&
-      !EEA_BarExportStale(StringToInteger(EEA_StrategyCandidateStoreField(json,"exported_at_utc")),(long)TimeGMT()))
-     { rt.done=true; rt.reason="EXPORT_CURRENT"; return; }
-   FolderCreate(rt.root+"/research",0);
+   // The job list first: its signature decides whether the last export is still current.
    rt.count=0;
    int tfs[3]={PERIOD_M5,PERIOD_H1,PERIOD_H4};
    for(int i=0;i<count;i++)
       for(int k=0;k<3 && broker[i]!="" && rt.count<EEA_BAR_EXPORT_MAX_JOBS;k++)
-        { rt.canonical[rt.count]=canonical[i]; rt.broker[rt.count]=broker[i]; rt.tf[rt.count]=tfs[k]; rt.count++; }
+        {
+         rt.canonical[rt.count]=canonical[i]; rt.broker[rt.count]=broker[i]; rt.tf[rt.count]=tfs[k];
+         rt.reference[rt.count]=false; rt.count++;
+        }
+   for(int r=0;r<ref_count && rt.count<EEA_BAR_EXPORT_MAX_JOBS;r++)
+     {
+      if(ref_broker[r]=="" || ref_canonical[r]=="") continue;
+      bool selected=false;
+      for(int i=0;i<count && !selected;i++) if(canonical[i]==ref_canonical[r] && broker[i]!="") selected=true;
+      if(selected) continue;
+      rt.canonical[rt.count]=ref_canonical[r]; rt.broker[rt.count]=ref_broker[r]; rt.tf[rt.count]=PERIOD_H1;
+      rt.reference[rt.count]=true; rt.count++;
+     }
+   string json;
+   if(EEA_StrategyCandidateStoreReadText(EEA_BarExportMetaPath(rt.root),json) &&
+      StringToInteger(EEA_StrategyCandidateStoreField(json,"from_utc"))==rt.from_utc &&
+      StringToInteger(EEA_StrategyCandidateStoreField(json,"swing_from_utc"))==rt.swing_from_utc &&
+      EEA_StrategyCandidateStoreField(json,"signature")==EEA_BarExportSignature(rt) &&
+      !EEA_BarExportStale(StringToInteger(EEA_StrategyCandidateStoreField(json,"exported_at_utc")),(long)TimeGMT()))
+     { rt.done=true; rt.reason="EXPORT_CURRENT"; return; }
+   FolderCreate(rt.root+"/research",0);
    rt.next=0;
    string progress;
    if(EEA_StrategyCandidateStoreReadText(EEA_BarExportProgressPath(rt.root),progress) &&
@@ -108,7 +127,7 @@ void EEA_BarExportLoad(EEA_BarExportRuntime &rt,const string &canonical[],const 
 bool EEA_BarExportJob(EEA_BarExportRuntime &rt,const int j,const bool last_try)
   {
    const long offset=EEA_NewsServerOffsetSeconds();
-   const long start=(rt.tf[j]==PERIOD_M5 ? rt.from_utc : rt.swing_from_utc);
+   const long start=(rt.tf[j]==PERIOD_M5 || rt.reference[j] ? rt.from_utc : rt.swing_from_utc);
    const long from_server=start+offset-EEA_BAR_EXPORT_LEAD_DAYS*86400;
    MqlRates rates[];
    ArraySetAsSeries(rates,false);
@@ -139,7 +158,8 @@ bool EEA_BarExportJob(EEA_BarExportRuntime &rt,const int j,const bool last_try)
 void EEA_BarExportWriteMeta(const EEA_BarExportRuntime &rt)
   {
    string json="{\"from_utc\":"+IntegerToString(rt.from_utc)+",\"swing_from_utc\":"+IntegerToString(rt.swing_from_utc)+",\"exported_at_utc\":"+IntegerToString((long)TimeGMT())+
-      ",\"server_offset_now\":"+IntegerToString(EEA_NewsServerOffsetSeconds())+",\"symbols\":[";
+      ",\"server_offset_now\":"+IntegerToString(EEA_NewsServerOffsetSeconds())+
+      ",\"signature\":\""+EEA_BarExportSignature(rt)+"\",\"symbols\":[";
    int w=0;
    for(int j=0;j<rt.count;j++)
      {
@@ -148,11 +168,16 @@ void EEA_BarExportWriteMeta(const EEA_BarExportRuntime &rt)
          "\",\"point\":"+DoubleToString(SymbolInfoDouble(rt.broker[j],SYMBOL_POINT),10)+
          ",\"digits\":"+IntegerToString(SymbolInfoInteger(rt.broker[j],SYMBOL_DIGITS))+"}";
      }
+   json+="],\"reference_h1\":[";
+   w=0;
+   for(int j=0;j<rt.count;j++)
+      if(rt.reference[j]) json+=(w++>0 ? "," : "")+"\""+rt.canonical[j]+"\"";
    json+="]}";
    EEA_WriteAtomicText(EEA_BarExportMetaPath(rt.root),json);
   }
 
-void EEA_BarExportUpdate(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count)
+void EEA_BarExportUpdate(EEA_BarExportRuntime &rt,const string &canonical[],const string &broker[],const int count,
+                         const string &ref_canonical[],const string &ref_broker[],const int ref_count)
   {
    if(!rt.enabled) return;
    if(rt.done)
@@ -162,7 +187,7 @@ void EEA_BarExportUpdate(EEA_BarExportRuntime &rt,const string &canonical[],cons
       rt.next_check_utc=now+EEA_BAR_EXPORT_RECHECK_SECONDS;
       rt.loaded=false; rt.done=false;   // EEA_BarExportLoad marks it current again if nothing is due
      }
-   if(!rt.loaded) { EEA_BarExportLoad(rt,canonical,broker,count); return; }
+   if(!rt.loaded) { EEA_BarExportLoad(rt,canonical,broker,count,ref_canonical,ref_broker,ref_count); return; }
    if(rt.next<rt.count)
      {
       if(EEA_BarExportJob(rt,rt.next,rt.retries>=10) || rt.retries>=10)
