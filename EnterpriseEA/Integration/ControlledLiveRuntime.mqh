@@ -24,6 +24,7 @@
 #include "../Runtime/TradeManagerRuntime.mqh"
 #include "../News/NewsCalendar.mqh"
 #include "../Market/SentimentRuntime.mqh"
+#include "../Market/UsdFlow.mqh"
 #include "SetupArbitration.mqh"
 
 struct EEA_ControlledLiveConfig
@@ -522,6 +523,13 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
       // entry on the release) was validated without the HTF filter, so it keeps every side.
       if(strategy.setup[index]=="S06" && strategy.htf_risk_modifier[index]<1.0)
         { reason="S06_COUNTER_HTF"; return false; }
+      // G27/G29: S06B trades with the USD flow (EURUSD, GBPUSD, USDJPY index vs EMA50, H1).
+      if(strategy.setup[index]=="S06B" && g_s06b_require_usd_flow)
+        {
+         const int usd=EEA_UsdFlowAlignment(g_usd_flow,engine.canonical_symbol,direction);
+         if(usd<0) { reason="S06B_COUNTER_USD"; return false; }
+         if(usd==0) { reason="S06B_USD_FLOW_UNKNOWN"; return false; }
+        }
       target=entry+direction*EEA_S06_TARGET_R*risk_distance;
      }
    else
@@ -1041,6 +1049,7 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
          ",\"htf\":\""+strategy.htf_structure[i]+"\",\"htf_modifier\":"+DoubleToString(strategy.htf_risk_modifier[i],2)+
          ",\"sentiment\":\""+alignment.verdict+"\",\"sentiment_factor\":"+DoubleToString(alignment.factor,2)+
          ",\"news_block\":\""+news_block+"\",\"opposite_active\":"+(opposite ? "true" : "false")+
+         ","+EEA_UsdFlowJson(g_usd_flow,engine.canonical_symbol,engine.direction)+
          ",\"plan_reason\":\""+EEA_JsonEscape(reason)+"\"}";
       EEAEvent event;
       EEAEvent_Init(event,setup+"_SHADOW_CANDIDATE",TimeGMT(),engine.canonical_symbol,candidate_id,"","SHADOW","OK");

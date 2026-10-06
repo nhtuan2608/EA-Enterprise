@@ -54,6 +54,7 @@ enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
 input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
 input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
+input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
 input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
@@ -1042,6 +1043,8 @@ int OnInit()
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
    g_live_config.scalp_risk_with_swing_same_side=MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));
+   EEA_UsdFlowInit(g_usd_flow);
+   g_s06b_require_usd_flow=InpS06BRequireUsdFlow;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -1289,6 +1292,8 @@ void OnTimer()
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
+          // G29: USD flow at the last closed H1 bar, for the S06B filter and every candidate log.
+          EEA_UsdFlowUpdateFromObserver(g_usd_flow,g_runtime);
           // SHADOW setups record would-be trades; the replay measures S02/S04 on history.
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);

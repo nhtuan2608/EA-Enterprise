@@ -33,6 +33,7 @@ struct EEA_LedgerEntry
    bool   seen;
    bool   executed;
    string entry_kind;
+   string usd_json;     // G29: USD flow when the candidate was first seen
   };
 
 struct EEA_CandidateLedger
@@ -85,7 +86,7 @@ string EEA_CandidateLedgerLine(const EEA_LedgerEntry &e,const long closed_utc)
       ",\"key_level\":"+DoubleToString(e.key_level,8)+",\"mode\":\""+e.mode+
       "\",\"disposition\":\""+(e.executed ? "EXECUTED" : "NOT_EXECUTED")+
       "\",\"reason\":\""+EEA_JsonEscape(e.executed ? "EXECUTED" : e.reason)+
-      "\",\"entry_kind\":\""+e.entry_kind+"\",\"first_seen_utc\":"+IntegerToString(e.first_seen_utc)+
+      "\",\"entry_kind\":\""+e.entry_kind+"\","+e.usd_json+",\"first_seen_utc\":"+IntegerToString(e.first_seen_utc)+
       ",\"closed_utc\":"+IntegerToString(closed_utc)+"}";
   }
 
@@ -101,6 +102,7 @@ void EEA_CandidateLedgerAdd(EEA_CandidateLedger &l,const EEA_StrategyCandidateRu
    x.extreme=e.candidate.retest_extreme>0.0 ? e.candidate.retest_extreme : e.retest_extreme;
    x.zone_low=e.zone_low; x.zone_high=e.zone_high; x.signal_atr=e.signal_atr; x.key_level=e.key_level;
    x.first_seen_utc=now; x.reason=""; x.seen=false; x.executed=false; x.entry_kind="";
+   x.usd_json=EEA_UsdFlowJson(g_usd_flow,e.canonical_symbol,e.direction);
    l.items[l.count++]=x;
   }
 
