@@ -22,6 +22,7 @@
 #include "Runtime/StrategyCandidateRuntime.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
 #include "Integration/CandidateLedger.mqh"
+#include "Integration/S06BPyramidRuntime.mqh"
 #include "Integration/RemoteModeRuntime.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
@@ -54,6 +55,8 @@ enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
 input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
 input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
+input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
+input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
 input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
@@ -84,7 +87,7 @@ input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait fo
 input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
-input string InpNewsIgnoreKeywords      = "";     // News Guard: comma list of HIGH event names to ignore (empty = none)
+input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,ISM Non-Manufacturing,S&P Global Services PMI,Note Auction,Money Stock"; // News Guard: HIGH event names to ignore (G30: no larger move than a normal hour)
 input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
 input bool   InpSentimentEnabled        = true;   // Market sentiment: reduce-only filter from cross-pair flow
 input bool   InpAiEnabled               = true;   // AI Bridge v1 (Level 0/1: reports only, never trades)
@@ -1042,6 +1045,9 @@ int OnInit()
    g_live_config.deviation=InpLiveDeviation;
    g_live_config.filling_mode=InpLiveFillingMode;
    g_live_config.scalp_risk_with_swing_same_side=MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));
+   EEA_UsdFlowInit(g_usd_flow);
+   g_s06b_require_usd_flow=InpS06BRequireUsdFlow;
+   g_s06b_pyramid_live=InpS06BPyramidLive;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -1289,6 +1295,8 @@ void OnTimer()
           EEA_NewsReactionUpdate(g_news_reaction,g_audit,g_config.data_root,g_news,g_trade_manager,(long)InpNewsReplayFrom);
           EEA_NewsHealthUpdate();
           EEA_AiTimer();
+          // G29: USD flow at the last closed H1 bar, for the S06B filter and every candidate log.
+          EEA_UsdFlowUpdateFromObserver(g_usd_flow,g_runtime);
           // SHADOW setups record would-be trades; the replay measures S02/S04 on history.
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
@@ -1306,9 +1314,16 @@ void OnTimer()
              if(EEA_RemoteEntriesPaused())
                 g_live_runtime.last_reason="OPERATOR_PAUSED_ENTRIES";
              else
+               {
                 EEA_ControlledLiveOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,
                                           g_controller,g_controller_allows_market,g_audit,g_risk_ledger,
                                           g_pending_runtime,g_live_session,g_trade_manager,g_news,g_sentiment);
+                // G31: one add for a LIVE S06B trade at +1R (OFF unless InpS06BPyramidLive).
+                if(!g_live_runtime.recovery_blocked)
+                   EEA_S06BPyramidOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,g_controller,
+                                          g_controller_allows_market,g_audit,g_risk_ledger,g_pending_runtime,
+                                          g_live_session,g_trade_manager,g_news);
+               }
             }
           // G18: every candidate's final outcome (entered or why not) for the virtual-result report.
           EEA_CandidateLedgerUpdate(g_candidate_ledger,g_config.data_root,g_strategy_runtime,g_live_runtime,

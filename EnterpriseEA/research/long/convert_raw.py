@@ -2,7 +2,7 @@
 
   python convert_raw.py [--raw "D:\\Work\\Private\\AI APP\\Trading-with-AI\\input\\raw"]
 
-Writes research/long/data/bars_<SYMBOL>_<TF>.csv (time = server wall clock as epoch seconds,
+Writes research/long/data/bars_<SYMBOL>_<TF>.csv, tickvol_<SYMBOL>_H1.csv (time = server wall clock as epoch seconds,
 like the EA export) and bars_meta.json, and prints the bar count per year. A zero spread (early
 years of some exports) is replaced by that file's median non-zero spread so costs are not
 understated.
@@ -20,14 +20,19 @@ HERE = Path(__file__).resolve().parent
 RAW = Path(r"D:\Work\Private\AI APP\Trading-with-AI\input\raw")
 OUT = HERE / "data"
 SYMBOLS = ["EURUSD", "GBPUSD", "XAUUSD", "BTCUSD", "USDJPY"]
-TIMEFRAMES = ["M5", "H1", "H4"]
+TIMEFRAMES = ["M5", "H1", "H4", "D1"]   # D1: G35 levels for H4 entries
 # Point and digits as on the EA's broker (research/bars_meta.json of 05/10/2026).
 START = {"XAUUSD": 1519862400, "BTCUSD": 1514764800}     # 2018-03-01, 2018-01-01 (dense data from here)
 SPEC = {"EURUSD": (0.00001, 5), "GBPUSD": (0.00001, 5), "XAUUSD": (0.01, 2), "BTCUSD": (0.01, 2), "USDJPY": (0.001, 3)}
+# G36: more pairs exported 06/10/2026 (MT5 bar limit: 2024-02-20 .. 2026-10-06 only), out-of-sample checks.
+EXTRA_SYMBOLS = ["AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "EURJPY", "GBPJPY", "AUDJPY", "EURGBP"]
+SPEC.update({s: (0.001, 3) if s.endswith("JPY") else (0.00001, 5) for s in EXTRA_SYMBOLS})
 
 
 def parse_line(line: str):
     parts = line.rstrip("\r\n").split("\t")
+    if len(parts) == 8 and parts[0][:1].isdigit():
+        parts.insert(1, "00:00:00")            # D1 and longer: no <TIME> column
     if len(parts) < 9 or not parts[0][:1].isdigit():
         return None
     y, mo, d = (int(x) for x in parts[0].split("."))
@@ -58,11 +63,59 @@ def convert(src: Path, dst: Path, start: int = 0) -> Counter:
     return years
 
 
+def convert_tickvol(src: Path, dst: Path, start: int = 0) -> int:
+    """G28: tick volume (MT5 <TICKVOL>) of each bar, kept apart from the bar files: time,tickvol."""
+    seen, n = set(), 0
+    with dst.open("w", encoding="utf-8", newline="") as fh:
+        fh.write("time,tickvol" + chr(10))
+        for line in sorted(src.read_text(encoding="utf-8", errors="replace").splitlines()):
+            r = parse_line(line)
+            if not r or r[0] < start or r[0] in seen:
+                continue
+            seen.add(r[0])
+            fh.write(f"{r[0]},{int(line.split(chr(9))[6])}" + chr(10))
+            n += 1
+    return n
+
+
 def time_year(t: int) -> int:
     return int(__import__("time").gmtime(t).tm_year)
 
 
 def main(argv: list[str]) -> None:
+    if "--extra" in argv:                   # G36: H1, H4 and tick volume of EXTRA_SYMBOLS; meta gets them too
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for sym in EXTRA_SYMBOLS:
+            for tf in ("H1", "H4"):
+                files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
+                if files:
+                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv")
+                    print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
+            files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+            if files:
+                convert_tickvol(files[0], OUT / f"tickvol_{sym}_H1.csv")
+        meta = json.loads((OUT / "bars_meta.json").read_text(encoding="utf-8"))
+        known = {s["symbol"] for s in meta["symbols"]}
+        meta["symbols"] += [{"symbol": s, "broker": s, "point": SPEC[s][0], "digits": SPEC[s][1]}
+                            for s in EXTRA_SYMBOLS if s not in known]
+        (OUT / "bars_meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        return
+    if "--tf" in argv:                      # only these timeframes, e.g. --tf D1 (G35)
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for tf in argv[argv.index("--tf") + 1].split(","):
+            for sym in SYMBOLS:
+                files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
+                if files:
+                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv", START.get(sym, 0))
+                    print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
+        return
+    if "--tickvol" in argv:                 # only the tick volume files (G28)
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for sym in SYMBOLS:
+            files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+            if files:
+                print(f"{sym} H1 tickvol: {convert_tickvol(files[0], OUT / f'tickvol_{sym}_H1.csv', START.get(sym, 0))}")
+        return
     raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
     OUT.mkdir(parents=True, exist_ok=True)
     last_time = 0
@@ -78,6 +131,16 @@ def main(argv: list[str]) -> None:
             with dst.open(encoding="utf-8") as fh:
                 *_, tail = fh
             last_time = max(last_time, int(tail.split(",")[0]))
+    for sym in SYMBOLS:
+        files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+        if files:
+            print(f"{sym} H1 tickvol: {convert_tickvol(files[0], OUT / f'tickvol_{sym}_H1.csv', START.get(sym, 0))}")
+    # G26 step 3: intermarket context (H1 only), same conversion; the folders use other file prefixes.
+    for name, folder, prefix in (("DXY", "DXY", "USDX."), ("US10Y", "US10Y", "USNote10Y")):
+        files = sorted((raw / folder).glob(f"{prefix}_H1_*.csv"))
+        if files:
+            years = convert(files[0], OUT / f"bars_{name}_H1.csv")
+            print(f"{name} H1: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
     # Server offset at the end of the data (October: US summer time, broker UTC+3).
     meta = {"from_utc": 1262304000, "swing_from_utc": 1262304000, "exported_at_utc": last_time - 10800,
             "server_offset_now": 10800, "source": str(raw),

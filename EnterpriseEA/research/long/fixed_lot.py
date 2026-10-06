@@ -88,6 +88,7 @@ def simulate(rows: list[dict], mode: str, lots: dict) -> dict:
     day_count = defaultdict(int)
     by_setup = defaultdict(float)
     by_year = defaultdict(float)
+    by_month = defaultdict(float)
     ftmo_fail = None
     day_of = lambda t: t // 86400  # noqa: E731
     week_of = lambda t: (t // 86400 + 3) // 7  # noqa: E731  Monday-based
@@ -101,6 +102,7 @@ def simulate(rows: list[dict], mode: str, lots: dict) -> dict:
             week_pnl[week_of(tr["out"])] += tr["pnl"]
             by_setup[tr["setup"] + " " + tr["profile"]] += tr["pnl"]
             by_year[datetime.fromtimestamp(tr["out"], timezone.utc).year] += tr["pnl"]
+            by_month[datetime.fromtimestamp(tr["out"], timezone.utc).strftime("%Y-%m")] += tr["pnl"]
             peak = max(peak, eq)
             max_dd = max(max_dd, (peak - eq) / peak)
             if ftmo_fail is None and (day_pnl[day_of(tr["out"])] <= -FTMO_DAILY * CAPITAL or eq <= (1 - FTMO_OVERALL) * CAPITAL):
@@ -142,7 +144,8 @@ def simulate(rows: list[dict], mode: str, lots: dict) -> dict:
             "per_year_pct": ((eq / CAPITAL) ** (1 / years) - 1) * 100 if eq > 0 else -100.0,
             "max_dd_pct": max_dd * 100, "worst_day_pct": worst_day * 100, "ftmo_fail": ftmo_fail,
             "by_setup": {k: round(v, 2) for k, v in by_setup.items()},
-            "by_year_pct": {k: round(v / CAPITAL * 100, 2) for k, v in sorted(by_year.items())}}
+            "by_year_pct": {k: round(v / CAPITAL * 100, 2) for k, v in sorted(by_year.items())},
+            "by_month_pct": {k: v / CAPITAL * 100 for k, v in sorted(by_month.items())}}
 
 
 def line(name: str, s: dict) -> str:

@@ -22,7 +22,8 @@ import candidates_eval as ce
 import context
 
 # Out-of-sample expectancy from the G10 study (R per trade, costs included) for comparison.
-RESEARCH = {"S02_SCALP": -0.36, "S02_SWING": -0.14, "S04_SCALP": -0.22, "S04_SWING": 0.0, "S06_SWING": 0.10}
+RESEARCH = {"S02_SCALP": -0.36, "S02_SWING": -0.14, "S04_SCALP": -0.22, "S04_SWING": 0.0, "S06_SWING": 0.10,
+            "S06B_SWING": 0.29}  # G23 test 2021-2025
 
 
 def trades_path() -> Path:

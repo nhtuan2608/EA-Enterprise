@@ -25,6 +25,7 @@ S02_BASE = {
               "trigger_progress_atr": 0.05, "fail_on_close_inside_zone": True},
 }
 S02_BASE["SWING"] = dict(S02_BASE["SCALP"], config_version="s02-v1-swing-0.1.0", max_bars_to_retest=10)
+S02_BASE["SWING4"] = S02_BASE["SWING"]   # G35: same engine on H4 entries
 
 TM = {  # EEA_TradeProfileFor
     "SCALP": {"be_at_r": 1.0, "partial_at_r": 1.0, "partial_fraction": 0.5, "trail_start_r": 1.5,
@@ -32,15 +33,16 @@ TM = {  # EEA_TradeProfileFor
     "SWING": {"be_at_r": 1.0, "partial_at_r": 1.5, "partial_fraction": 0.33, "trail_start_r": 2.0,
               "trail": "STRUCTURE", "trail_atr_mult": 0.0, "structure_bars": 5, "timeout_bars": 120},
 }
-HORIZON = {"SCALP": 48, "SWING": 72}
-MIN_RR = {"SCALP": 1.5, "SWING": 2.0}
+TM["SWING4"] = TM["SWING"]   # the EA manages a trade on its own timeframe's bars
+HORIZON = {"SCALP": 48, "SWING": 72, "SWING4": 72}
+MIN_RR = {"SCALP": 1.5, "SWING": 2.0, "SWING4": 2.0}
 
 
 def engine_params(setup: str, profile: str, over: dict | None = None) -> dict:
     if setup == "S02":
         p = dict(S02_BASE[profile])
     else:
-        p = s04_oracle.config(profile)
+        p = s04_oracle.config("SWING" if profile == "SWING4" else profile)
     p.update(over or {})
     return p
 
@@ -219,7 +221,10 @@ def evaluate(ctx: dict, c: dict, setup: str, profile: str, model: str = "tm", tr
 
 # Round-trip commission in price units per unit volume (assumption: raw-spread account,
 # USD 6 per lot round trip on FX and gold, none on BTC). Set "costs": False to ignore.
-COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0}
+COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0,
+              # G36: USD 6 per lot in the quote currency (approximate rates)
+              "AUDUSD": 0.00006, "NZDUSD": 0.00006, "USDCAD": 0.000083, "USDCHF": 0.000048, "EURGBP": 0.000045,
+              "EURJPY": 0.009, "GBPJPY": 0.009, "AUDJPY": 0.009}
 
 
 def _apply_costs(ctx, res, risk, t, factor):

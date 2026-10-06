@@ -181,7 +181,7 @@ class NewsIgnoreListTests(unittest.TestCase):
         self.assertIn('if(keywords=="") return false;', ignored)
         self.assertIn("StringToLower(lowered);", ignored)
         shell = read("EnterpriseEA.mq5")
-        self.assertIn('input string InpNewsIgnoreKeywords      = "";', shell)
+        self.assertIn('input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,', shell)
         cal = read("News/NewsCalendar.mqh")
         self.assertIn("EEA_NewsEventIgnored(ev.name,rt.cfg.ignore_keywords)", cal)
 
