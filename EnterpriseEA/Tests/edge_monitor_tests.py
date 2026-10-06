@@ -18,7 +18,8 @@ PARAMS = em.load_params()
 
 class ParamsTests(unittest.TestCase):
     def test_every_stream_calibrated(self):
-        for key in ("S04_SWING", "S06B_SWING_USD", "S06B_SWING_USD_ADD", "T2_POSITION", "T2_POSITION_TREND"):
+        for key in ("S04_SWING", "S06B_SWING_USD", "S06B_SWING_USD_ADD", "T2_POSITION", "T2_POSITION_TREND",
+                    "T2_POSITION_TREND_ADD"):
             p = PARAMS[key]
             self.assertGreater(p["mean"], 0)
             self.assertAlmostEqual(p["k"], p["mean"] / 2)
@@ -33,9 +34,32 @@ class ParamsTests(unittest.TestCase):
     def test_monitor_streams_use_existing_params(self):
         names = em.streams([], [])
         self.assertEqual(set(names), {"S04_SWING thật", "S04_SWING ảo", "S06B_SWING ảo lọc USD", "S06B_SWING ảo lọc USD + bồi",
-                                      "T2_POSITION ảo", "T2_POSITION ảo XAU+BTC"})
+                                      "T2_POSITION ảo", "T2_POSITION ảo XAU+BTC", "T2_POSITION ảo XAU+BTC + bồi"})
         for key, _ in names.values():
             self.assertIn(key, PARAMS)
+
+
+class T2SinceG44Tests(unittest.TestCase):
+    """G46: T2 streams count only candidates since the G44 deploy (momentum filter) and use the add result."""
+
+    def ev(self, t, sym, r, r_add=None):
+        e = {"status": "EVALUATED", "setup": "T2", "profile": "POSITION", "symbol": sym, "time": t, "r": r}
+        if r_add is not None:
+            e["r_add"] = r_add
+        return e
+
+    def test_t2_before_g44_is_not_counted(self):
+        before, after = em.T2_START_UTC - 3600, em.T2_START_UTC + 3600
+        s = em.streams([], [self.ev(before, "XAUUSD", 9.0, 9.0), self.ev(after, "XAUUSD", 1.0, 2.5),
+                            self.ev(after + 1, "EURUSD", -1.0)])
+        self.assertEqual(s["T2_POSITION ảo"][1], [1.0, -1.0])
+        self.assertEqual(s["T2_POSITION ảo XAU+BTC"][1], [1.0])
+        self.assertEqual(s["T2_POSITION ảo XAU+BTC + bồi"][1], [2.5])
+
+    def test_filtered_params_differ_from_the_unfiltered_research(self):
+        # G43: the momentum filter lifts T2 from +0.19R to about +0.25R per trade on five symbols
+        self.assertGreater(PARAMS["T2_POSITION"]["mean"], 0.2)
+        self.assertGreater(PARAMS["T2_POSITION_TREND_ADD"]["mean"], PARAMS["T2_POSITION_TREND"]["mean"])
 
 
 class CheckTests(unittest.TestCase):

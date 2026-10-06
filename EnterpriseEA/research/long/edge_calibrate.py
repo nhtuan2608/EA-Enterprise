@@ -10,6 +10,8 @@ with the +1R add. For each stream, from its own trade results (in R):
             delay is measured on the same trades shifted to a mean of 0 and of -0.1R.
   DRAWDOWN  95th and 99th percentile of the largest drawdown (R) after n trades, n = 5 .. 300, drawn
             from the research results: a live drawdown beyond the 99th percentile is not bad luck.
+G46: the T2 streams follow the EA since G44: momentum-close filter (g43_reversal.has_pattern), and
+T2_POSITION_TREND_ADD is the XAU/BTC stream with the +1R add (g43_low_risk.t2_rows add_at=1).
 Writes research/g10/edge_params.json, read by the monitor.
 """
 from __future__ import annotations
@@ -26,6 +28,25 @@ import pyramid  # noqa: E402
 import discovery  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "g10" / "edge_params.json"
+T2 = {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}
+TREND = ("XAUUSD", "BTCUSD")
+
+
+def t2_stream(symbols, add_at=None) -> list[float]:
+    """G46: T2 results as the EA trades it since G44 (momentum close), optionally with the +1R add."""
+    import g43_low_risk as g43
+    from g43_reversal import arrays, has_pattern
+    out = []
+    for s in symbols:
+        B = discovery.load(s, "H4")
+        if B is None:
+            continue
+        A = arrays(B["bars"])
+        idx = {int(u): i for i, u in enumerate(B["utc"])}
+        for t in g43.t2_rows(T2, [s], add_at=add_at):
+            if has_pattern("nến đà", A, idx[t["in"]], t["dir"]):
+                out.append(t["r"])
+    return out
 SIMS = 4000
 CAP = 1500
 DD_N = [5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300]
@@ -84,15 +105,14 @@ def main() -> None:
         "S04_SWING": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT)["r"] for t in sig["S04"]],
         "S06B_SWING_USD": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT)["r"] for t in sig["S06B_USD"]],
         "S06B_SWING_USD_ADD": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT, 1.0)["r"] for t in sig["S06B_USD"]],
-        # G38: T2 as chosen by discovery.py (H4 Donchian 60, D1 EMA200 side, stop 2 ATR, ATR trail 3)
-        "T2_POSITION": [t["r"] for s in ls.SYMBOLS for t in discovery.trades(
-            "T2", {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}, s)],
-        # G41: T2 on the trend assets it may trade live (InpT2LiveSymbols default)
-        "T2_POSITION_TREND": [t["r"] for s in ("XAUUSD", "BTCUSD") for t in discovery.trades(
-            "T2", {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}, s)],
+        # G38/G46: T2 (H4 Donchian 60, D1 EMA200 side, stop 2 ATR, ATR trail 3) with the G44 momentum filter
+        "T2_POSITION": t2_stream(ls.SYMBOLS),
+        # G41/G46: on the trend assets it may trade live (InpT2LiveSymbols default), without and with the add
+        "T2_POSITION_TREND": t2_stream(TREND),
+        "T2_POSITION_TREND_ADD": t2_stream(TREND, add_at=1.0),
     }
     rng = np.random.default_rng(37)
-    params = {"version": "edge-params-v1", "source": "research/long/edge_calibrate.py (G37)",
+    params = {"version": "edge-params-v1", "source": "research/long/edge_calibrate.py (G37, T2 G46)",
               "streams": {k: calibrate(np.array(v), rng) for k, v in streams.items()}}
     OUT.write_text(json.dumps(params, indent=1), encoding="utf-8")
     for k, p in params["streams"].items():
