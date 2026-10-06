@@ -8,7 +8,7 @@ Kế hoạch: `docs/superpowers/plans/2026-10-06-g43-low-risk-high-rr.md`. Chỉ
 
 1. **Rủi ro theo setup = kỳ vọng ÷ phương sai** ước trên 2010–2016: S04 0,98×, S06B 1,51×, T2 0,51× mức nền (nền 0,3%: S04 0,29%, S06B 0,45%, T2 0,15%);
 2. **T2 chỉ nhận tín hiệu có "nến đà"** (nến tín hiệu hoặc nến trước đóng ở 1/4 trên/dưới của biên ≥ 1 ATR theo chiều lệnh);
-3. **T2 bồi 1 lệnh ở +1R** (cùng rủi ro tiền, dừng lệnh đầu về hòa vốn).
+3. **T2 bồi 1 lệnh ở +1R** (cùng rủi ro tiền; dừng của lệnh bồi đặt tại giá vào của lệnh đầu, lệnh đầu giữ dừng/trail của nó — đính chính 06/10: lúc bồi có thể có tới 2 đơn vị rủi ro mở cho tới khi trail kéo lệnh đầu qua hòa vốn).
 
 Toàn kỳ 2010–2025 ở nền 0,3%: **+4,9%/năm, DD 4,3%, RR 3,7**, 15/16 năm dương (chỉ 2010 −1,5%), tháng tệ nhất −1,4%. Ở 0,5%/lệnh (CUSTOM): +7,4%/năm, DD 5,5%.
 

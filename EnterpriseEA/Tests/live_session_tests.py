@@ -112,7 +112,7 @@ class InternalLossLimitTests(unittest.TestCase):
             self.assertIn(token, room)
         plan = section(live, "bool EEA_ControlledLiveResolveV1Plan")
         self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)", plan)
-        self.assertIn("MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room)", plan)
+        self.assertIn("MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room)", plan)   # G44 weight <= 1
 
     def test_prague_week_starts_on_monday(self):
         # Mirror of EEA_PragueWeekResetUtc's weekday arithmetic (1970-01-01 was a Thursday).

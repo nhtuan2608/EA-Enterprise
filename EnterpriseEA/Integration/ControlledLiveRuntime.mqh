@@ -592,8 +592,9 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
-   p.base_risk_fraction=limits.per_trade_fraction*htf;
-   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room);
+   const double weight=EEA_SetupRiskWeight(strategy.setup[index]);
+   p.base_risk_fraction=limits.per_trade_fraction*htf*weight;
+   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room);
    p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
    p.portfolio_cap_includes_existing=true;
    p.invalidation_price=invalidation;

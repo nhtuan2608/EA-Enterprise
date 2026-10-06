@@ -56,6 +56,7 @@ struct EEA_StrategyCandidateRuntime
    int s02_mode;       // same values: OFF, SHADOW or LIVE
    int t2_mode;        // G38/G40: T2 (H4 Donchian, POSITION profile), OFF, SHADOW or LIVE
    string t2_live_symbols;   // G41: comma list; a LIVE T2 engine of another symbol stays in SHADOW
+   bool t2_momentum_filter;  // G43/G44: T2 signals need a momentum close (signal bar or the bar before)
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -83,6 +84,7 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.s02_mode=EEA_S04_MODE_LIVE;
    runtime.t2_mode=EEA_S04_MODE_OFF;
    runtime.t2_live_symbols="";
+   runtime.t2_momentum_filter=false;
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
      {
@@ -625,8 +627,18 @@ bool EEA_StrategyRuntimeScanT2Engine(EEA_StrategyCandidateRuntime &runtime,const
       bar.open=rates[b].open; bar.high=rates[b].high; bar.low=rates[b].low; bar.close=rates[b].close;
       bar.atr=EEA_StrategyRuntimeAtrFromRates(rates,b,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
       const int side=EEA_StrategyRuntimeT2SideAt(daily,ema,daily_count,rates[b].time);
+      int momentum=3;
+      if(runtime.t2_momentum_filter)
+        {
+         const double prev_atr=EEA_StrategyRuntimeAtrFromRates(rates,b-1,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
+         momentum=0;
+         if(EEA_T2MomentumClose(bar.high,bar.low,bar.close,bar.atr,1) ||
+            EEA_T2MomentumClose(rates[b-1].high,rates[b-1].low,rates[b-1].close,prev_atr,1)) momentum|=1;
+         if(EEA_T2MomentumClose(bar.high,bar.low,bar.close,bar.atr,-1) ||
+            EEA_T2MomentumClose(rates[b-1].high,rates[b-1].low,rates[b-1].close,prev_atr,-1)) momentum|=2;
+        }
       EEA_S02Event event;
-      if(!EEA_T2ProcessClosedBar(engine,bar,lo,hi,side,runtime.profile_config[index],event))
+      if(!EEA_T2ProcessClosedBar(engine,bar,lo,hi,side,runtime.profile_config[index],event,momentum))
         { runtime.scan_reason[index]=event.reason_code; ok=false; break; }
       runtime.scan_reason[index]=event.reason_code;
       runtime.zone_text[index]="channel "+DoubleToString(lo,digits)+"-"+DoubleToString(hi,digits)+

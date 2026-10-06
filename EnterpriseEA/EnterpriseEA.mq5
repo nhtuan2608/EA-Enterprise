@@ -60,6 +60,11 @@ input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchia
 input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
+input bool InpT2PyramidLive             = false; // G44: one add at +1R for a LIVE T2 trade (stop at the first entry, same target)
+input bool InpT2MomentumFilter          = true;  // G43/G44: T2 signals need a momentum close (signal bar or the bar before)
+input double InpRiskWeightS04           = 0.65;  // G43/G44: risk weight of S04 (0..1, x the risk of one trade)
+input double InpRiskWeightS06B          = 1.00;  // G43/G44: risk weight of S06B (0..1)
+input double InpRiskWeightT2            = 0.34;  // G43/G44: risk weight of T2 (0..1)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
 input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
 input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
@@ -1065,6 +1070,10 @@ int OnInit()
    EEA_UsdFlowInit(g_usd_flow);
    g_s06b_require_usd_flow=InpS06BRequireUsdFlow;
    g_s06b_pyramid_live=InpS06BPyramidLive;
+   g_t2_pyramid_live=InpT2PyramidLive;
+   g_risk_weight_s04=InpRiskWeightS04;
+   g_risk_weight_s06b=InpRiskWeightS06B;
+   g_risk_weight_t2=InpRiskWeightT2;
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {
@@ -1149,6 +1158,7 @@ int OnInit()
                                             (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,
                                             (int)InpT2Mode);
       g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;   // G41: after the init, which resets the runtime
+      g_strategy_runtime.t2_momentum_filter=InpT2MomentumFilter;   // G44
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",

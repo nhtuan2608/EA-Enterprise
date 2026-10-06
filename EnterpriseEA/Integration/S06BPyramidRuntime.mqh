@@ -18,8 +18,10 @@
 #define EEA_S06B_ADD_AT_R 1.0
 #define EEA_S06B_ADD_SUFFIX "-ADD1"
 #define EEA_S06B_ADD_MIN_RR 1.5     // +1R add to a 3R target: about 2R gross before costs
+#define EEA_T2_ADD_AT_R 1.0         // G43/G44: T2 add at +1R (research/long/g43_low_risk.py C2)
 
 bool   g_s06b_pyramid_live=false;
+bool   g_t2_pyramid_live=false;     // G44: one add for a LIVE T2 trade (InpT2PyramidLive, off by default)
 string g_s06b_pyramid_reason="PYRAMID_OFF";
 
 bool EEA_S06BIsAddCandidate(const string candidate_id)
@@ -29,10 +31,10 @@ bool EEA_S06BIsAddCandidate(const string candidate_id)
   }
 
 // Engine slot of the S06B setup for a symbol (its mode and config version are reused).
-int EEA_S06BEngineIndex(const EEA_StrategyCandidateRuntime &strategy,const string canonical)
+int EEA_S06BEngineIndex(const EEA_StrategyCandidateRuntime &strategy,const string canonical,const string setup="S06B")
   {
    for(int i=0;i<strategy.symbol_count;i++)
-      if(strategy.setup[i]=="S06B" && strategy.engines[i].canonical_symbol==canonical) return i;
+      if(strategy.setup[i]==setup && strategy.engines[i].canonical_symbol==canonical) return i;
    return -1;
   }
 
@@ -53,16 +55,19 @@ bool EEA_S06BAddBarReady(const EEA_ManagedTrade &t,const double add_at_r,datetim
 bool EEA_S06BAddPlan(const EEA_ManagedTrade &t,const EEA_RuntimePositionRow &position,
                      const EEA_ObserverRuntimeContext &observer,const EEA_RuntimeSymbolSpec &symbol,
                      const EEA_PolicySettings &policy,const EEA_RiskLedger &ledger,const string setup_version,
-                     EEA_ControlledLiveTradePlan &p,string &reason)
+                     EEA_ControlledLiveTradePlan &p,string &reason,const string setup="S06B")
   {
    EEA_ControlledLivePlanDefaults(p);
+   const bool t2=(setup=="T2");
    EEA_RiskLimits limits;
    if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)) return false;
    if(ledger.initial_capital<=0.0) { reason="LIVE_INITIAL_CAPITAL_UNKNOWN"; return false; }
    if(ledger.last_reset_utc!=EEA_PragueDailyResetUtc((long)TimeGMT()) || ledger.last_reset_balance<=0.0)
      { reason="LIVE_DAILY_RESET_SNAPSHOT_STALE"; return false; }
    if(t.initial_tp<=0.0) { reason="S06B_ADD_NO_TARGET"; return false; }
-   if(position.sl<=0.0 || t.direction*(position.sl-t.entry_price)<0.0)
+   // S06B: the first trade is already at break-even. T2 (research pyramid.run): the add's stop is the
+   // first trade's entry; the first trade keeps its own (ATR trail) stop, so both can be at risk.
+   if(!t2 && (position.sl<=0.0 || t.direction*(position.sl-t.entry_price)<0.0))
      { reason="S06B_ADD_FIRST_STOP_NOT_AT_BREAK_EVEN"; return false; }
    const double tick=symbol.tick_size>0.0 ? symbol.tick_size : symbol.point;
    double median_spread=EEA_MedianSpreadPoints(symbol.broker_symbol,EEA_S02_SPREAD_MEDIAN_BARS);
@@ -71,7 +76,7 @@ bool EEA_S06BAddPlan(const EEA_ManagedTrade &t,const EEA_RuntimePositionRow &pos
    double cost=2.0*EEA_CommissionPerLotPerSide(observer.reconciliation,symbol.broker_symbol,learned);
    bool known=false;
    double swap=EEA_SwapMoneyPerLotPerNight(symbol,t.direction,known);
-   if(swap<0.0) cost+=-swap*EEA_S02_SWING_EXPECTED_NIGHTS;
+   if(swap<0.0) cost+=-swap*(t2 ? EEA_T2_EXPECTED_NIGHTS : EEA_S02_SWING_EXPECTED_NIGHTS);
    if(!known) learned=false;
    double loss_room=0.0;
    if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)) return false;
@@ -82,13 +87,14 @@ bool EEA_S06BAddPlan(const EEA_ManagedTrade &t,const EEA_RuntimePositionRow &pos
    p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
-   p.base_risk_fraction=limits.per_trade_fraction;
-   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room);
+   const double weight=EEA_SetupRiskWeight(setup);
+   p.base_risk_fraction=limits.per_trade_fraction*weight;
+   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room);
    p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
    p.portfolio_cap_includes_existing=true;
    // EEA_ProposeStructuralLevels puts the stop one buffer beyond the invalidation: one tick
    // inside the first trade's stop plus a one-tick buffer lands exactly on that stop.
-   p.invalidation_price=position.sl+t.direction*tick;
+   p.invalidation_price=(t2 ? t.entry_price : position.sl)+t.direction*tick;
    p.stop_buffer_price=tick;
    p.target_price=t.initial_tp;
    p.max_spread_points=2.0*median_spread;
@@ -106,14 +112,14 @@ bool EEA_S06BAddPlan(const EEA_ManagedTrade &t,const EEA_RuntimePositionRow &pos
 
 // The add as a candidate of its own: TRIGGERED now, expires after this bar.
 void EEA_S06BAddEngine(const EEA_StrategyCandidateRuntime &strategy,const int index,const EEA_ManagedTrade &t,
-                       const string add_id,EEA_S02Engine &e)
+                       const string add_id,EEA_S02Engine &e,const string setup="S06B")
   {
    e=strategy.engines[index];
    e.state=EEA_S02_TRIGGERED;
    e.direction=t.direction;
    e.zone_low=0.0; e.zone_high=0.0;
    e.candidate.candidate_id=add_id;
-   e.candidate.setup_id="S06B";
+   e.candidate.setup_id=setup;
    e.candidate.direction=(t.direction==1 ? "LONG" : "SHORT");
    e.candidate.state="TRIGGERED";
    e.candidate.detected_at_utc=TimeGMT();
@@ -123,7 +129,7 @@ void EEA_S06BAddEngine(const EEA_StrategyCandidateRuntime &strategy,const int in
    e.candidate.canonical_symbol=e.canonical_symbol;
    e.candidate.timeframe=e.timeframe;
    e.candidate.config_version=e.config_version;
-   e.candidate.reason_code="S06B_PYRAMID_ADD";
+   e.candidate.reason_code=setup+"_PYRAMID_ADD";
   }
 
 void EEA_S06BPyramidAudit(CAuditLog &audit,const EEA_ManagedTrade &t,const string add_id,const string event_type,
@@ -148,7 +154,7 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
                             EEA_PendingRuntime &pending,EEA_LiveSessionRuntime &session,
                             EEA_TradeManagerRuntime &trades,const EEA_NewsRuntime &news)
   {
-   if(!g_s06b_pyramid_live) { g_s06b_pyramid_reason="PYRAMID_OFF"; return true; }
+   if(!g_s06b_pyramid_live && !g_t2_pyramid_live) { g_s06b_pyramid_reason="PYRAMID_OFF"; return true; }
    if(!config.enabled || !config.armed) { g_s06b_pyramid_reason="CONTROLLED_LIVE_NOT_ARMED"; return true; }
    if(state.recovery_blocked) { g_s06b_pyramid_reason="EXECUTION_UNKNOWN_RECOVERY_REQUIRED"; return false; }
    if(!strategy.enabled || observer.status.runtime_state!="OBSERVING")
@@ -161,22 +167,26 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
      {
       if(!trades.items[k].active || trades.items[k].position_id=="") continue;
       EEA_ManagedTrade t=trades.items[k];
-      if(t.intent.setup_id!="S06B" || t.add_candidate!="" || EEA_S06BIsAddCandidate(t.intent.candidate_id) ||
-         t.exit_request!="" || !t.be_done) continue;
+      const bool s06=(t.intent.setup_id=="S06B" && g_s06b_pyramid_live);
+      const bool t2=(t.intent.setup_id=="T2" && g_t2_pyramid_live);
+      if((!s06 && !t2) || t.add_candidate!="" || EEA_S06BIsAddCandidate(t.intent.candidate_id) ||
+         t.exit_request!="" || (s06 && !t.be_done)) continue;
+      const string setup=t.intent.setup_id;
+      const string profile=(t2 ? "POSITION" : "SWING");
       const string add_id=t.intent.candidate_id+EEA_S06B_ADD_SUFFIX;
       if(EEA_TradeManagerHasCandidate(trades,add_id)) continue;
-      const int engine_index=EEA_S06BEngineIndex(strategy,t.intent.canonical_symbol);
+      const int engine_index=EEA_S06BEngineIndex(strategy,t.intent.canonical_symbol,setup);
       if(engine_index<0 || EEA_StrategyRuntimeEngineMode(strategy,engine_index)!=EEA_S04_MODE_LIVE)
-        { g_s06b_pyramid_reason="S06B_NOT_LIVE"; continue; }
+        { g_s06b_pyramid_reason=setup+"_NOT_LIVE"; continue; }
       datetime bar_time=0;
-      if(!EEA_S06BAddBarReady(t,EEA_S06B_ADD_AT_R,bar_time)) { g_s06b_pyramid_reason="S06B_ADD_WAIT_1R_CLOSE"; continue; }
+      if(!EEA_S06BAddBarReady(t,t2 ? EEA_T2_ADD_AT_R : EEA_S06B_ADD_AT_R,bar_time)) { g_s06b_pyramid_reason=setup+"_ADD_WAIT_1R_CLOSE"; continue; }
       const int prow=EEA_TradeManagerFindPosition(t,observer.reconciliation);
       if(prow<0) continue;
       const EEA_RuntimePositionRow position=observer.reconciliation.positions[prow];
       const int row=EEA_ObserverRuntimeIndexOf(observer,t.intent.canonical_symbol);
       if(row<0 || row>=ArraySize(observer.symbol_specs) || observer.broker_symbols[row]=="")
         { g_s06b_pyramid_reason="LIVE_SYMBOL_UNRESOLVED"; continue; }
-      const string news_block=EEA_NewsEntryBlockFor(news,t.intent.canonical_symbol,"SWING");
+      const string news_block=EEA_NewsEntryBlockFor(news,t.intent.canonical_symbol,"SWING");   // POSITION follows SWING (G40)
       if(news_block!="") { g_s06b_pyramid_reason=news_block; continue; }
       string reason;
       EEA_PolicySettings policy;
@@ -187,15 +197,15 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
       const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
       if(!EEA_LiveSessionAuthorize(session,observer.config_version,observer.account.account_fingerprint,
             observer.account.broker_server,observer.account.account_margin_mode,EEA_PolicySignedId(policy.committed_policy),
-            observer.broker_symbols[row],add_id,"SWING",real_account,(long)TimeGMT(),day_reset,
+            observer.broker_symbols[row],add_id,profile=="POSITION" ? "SWING" : profile,real_account,(long)TimeGMT(),day_reset,
             ledger.initial_capital,EEA_LedgerDailyReference(ledger,policy.committed_policy),observer.account.equity,authorization,reason))
         { g_s06b_pyramid_reason=reason; continue; }
       const string authorization_path=EEA_LiveSessionPath(observer.root);
       EEA_S02Engine engine;
-      EEA_S06BAddEngine(strategy,engine_index,t,add_id,engine);
+      EEA_S06BAddEngine(strategy,engine_index,t,add_id,engine,setup);
       EEA_ControlledLiveTradePlan plan;
       EEA_DryRunContext current; EEA_DryRunEvidence evidence[]; EEA_RuntimeTradeQuote quote;
-      if(!EEA_S06BAddPlan(t,position,observer,observer.symbol_specs[row],policy,ledger,engine.config_version,plan,reason) ||
+      if(!EEA_S06BAddPlan(t,position,observer,observer.symbol_specs[row],policy,ledger,engine.config_version,plan,reason,setup) ||
          !EEA_ControlledLiveApplySessionCap(true,session,ledger,plan,reason) ||
          !EEA_ControlledLiveApplyNewsRisk(news,t.intent.canonical_symbol,"SWING",plan,reason) ||
          !EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,engine,observer.symbol_specs[row],policy,
@@ -232,7 +242,7 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
                                          observer.config_version,params,TimeGMT(),intent,intent_reason))
         { g_s06b_pyramid_reason=intent_reason; continue; }
       if(!EEA_ControlledLiveAuditAuthorization(audit,authorization,decision,intent,observer.broker_symbols[row],
-                                                "S06B_PYRAMID_ADD"))
+                                                setup+"_PYRAMID_ADD"))
         { g_s06b_pyramid_reason="LIVE_AUTHORIZATION_AUDIT_FAILED"; continue; }
       // Marked before sending: whatever the broker answers, this trade never gets a second add.
       trades.items[k].add_candidate=add_id;
@@ -263,18 +273,18 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
       state.recovery_blocked=(result.confirmation_state=="EXECUTION_UNKNOWN");
       string manage_reason;
       if(EEA_TradeManagerRegister(trades,observer.root,intent,result.request_ticket,result.request_ticket_kind,
-                                  "SWING",t.timeframe,0.0,0.0,authorization_path,manage_reason))
+                                  profile,t.timeframe,0.0,0.0,authorization_path,manage_reason))
         {
          // research rule2: stop already at break-even, no partial (zone 0: no structure exit).
          for(int j=0;j<trades.count;j++)
             if(trades.items[j].active && trades.items[j].intent.candidate_id==add_id)
               {
                trades.items[j].be_done=true; trades.items[j].partial_done=true;
-               trades.items[j].last_reason="S06B_PYRAMID_ADD";
+               trades.items[j].last_reason=setup+"_PYRAMID_ADD";
                EEA_TradeManagerWrite(observer.root,trades.items[j]);
               }
         }
-      if(!EEA_LiveSessionRecordEntry(session,observer.root,day_reset,"SWING"))
+      if(!EEA_LiveSessionRecordEntry(session,observer.root,day_reset,profile=="POSITION" ? "SWING" : profile))
          session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
       g_s06b_pyramid_reason="S06B_PYRAMID_"+result.confirmation_state;
       EEA_S06BPyramidAudit(audit,t,add_id,"S06B_PYRAMID_SUBMITTED",result.confirmation_state,observer.config_version);

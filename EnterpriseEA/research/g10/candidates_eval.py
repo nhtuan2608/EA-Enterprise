@@ -34,6 +34,7 @@ TRADE = {
 }
 OUT = Path(__file__).resolve().parent / "results"
 ADD_AT = {"S06B": 1.0}      # G28/G29: virtual add (pyramiding) at +1R
+T2_ADD_AT = 1.0             # G44: T2 virtual add at +1R
 T2_RULE = {"target": None, "be": None, "partial": None, "trail": ("ATR", 0.0, 3.0), "timeout": 180,
            "struct_exit": False}   # research/long/discovery.py trend_rule, T2 set (G38)
 
@@ -93,11 +94,13 @@ def evaluate_t2(row: dict, ctx: dict, base: dict) -> dict:
     pyramid.GAP_FILL = True
     try:
         res = pyramid.run(ctx, t, T2_RULE)
+        # G44: the same trade with one add at +1R (research/long/g43_low_risk.py C2, stop at the first entry).
+        res_add = pyramid.run(ctx, t, T2_RULE, T2_ADD_AT)
     finally:
         pyramid.GAP_FILL = gap
     if res["exit_i"] >= len(bars) - 1:
         return dict(base, status="NO_BARS_YET")
-    return dict(base, status="EVALUATED", r=res["r"], exit_time=bars[res["exit_i"]]["time"],
+    return dict(base, status="EVALUATED", r=res["r"], r_add=res_add["r"], exit_time=bars[res["exit_i"]]["time"],
                 usd=row.get("usd_alignment", "UNKNOWN"))
 
 
