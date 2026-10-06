@@ -4,11 +4,24 @@ from __future__ import annotations
 import math
 
 
+def resolve_rules(policy_id: str, custom: dict | None) -> dict | None:
+    """Mirror of EEA_PolicyRulesResolve (Risk/PolicyRules.mqh)."""
+    if policy_id == "FTMO_1_STEP":
+        return {"daily_percent": 3.0, "overall_percent": 10.0, "trailing": True, "daily_from_equity": False}
+    if policy_id in {"FTMO_2_STEP", "BALANCE_BASED_FTMO_V1"}:
+        return {"daily_percent": 5.0, "overall_percent": 10.0, "trailing": False, "daily_from_equity": False}
+    if policy_id == "CUSTOM" and custom:
+        d, o = custom["daily_percent"], custom["overall_percent"]
+        if math.isfinite(d) and math.isfinite(o) and 0 < d <= o <= 100:
+            return dict(custom)
+    return None
+
+
 def calculate(policy: dict, inputs: dict) -> dict:
     def unknown(reason: str) -> dict:
         return {"valid": False, "headroom_status": "POLICY_DATA_UNKNOWN", "reason_code": reason}
 
-    if policy["status"] != "ACTIVE" or policy["policy_id"] not in {"FTMO_1_STEP", "FTMO_2_STEP", "BALANCE_BASED_FTMO_V1"}:
+    if policy["status"] != "ACTIVE" or policy["policy_id"] not in {"FTMO_1_STEP", "FTMO_2_STEP", "BALANCE_BASED_FTMO_V1", "CUSTOM"}:
         return unknown("POLICY_NOT_SELECTED_OR_UNSUPPORTED")
     if (not policy["config_version"] or not policy["source_version"] or not policy["source_reference"] or
             policy["policy_timezone"] != "Europe/Prague" or not policy["account_currency"] or
@@ -27,24 +40,33 @@ def calculate(policy: dict, inputs: dict) -> dict:
             inputs["stress_loss_currency"] != policy["account_currency"]):
         return unknown("CURRENT_EQUITY_OR_STRESS_INPUT_INVALID")
 
+    rules = resolve_rules(policy["policy_id"], policy.get("custom_rules"))
+    if rules is None:
+        return unknown("POLICY_RULESET_UNSUPPORTED")
+    daily_reference = inputs["balance_at_daily_reset"]
+    if rules["daily_from_equity"]:
+        equity_reset = inputs.get("equity_at_daily_reset", 0.0)
+        if not math.isfinite(equity_reset) or equity_reset <= 0:
+            return unknown("DAILY_RESET_EQUITY_MISSING")
+        daily_reference = equity_reset
+
     initial = policy["initial_capital"]
-    if policy["policy_id"] == "FTMO_1_STEP":
+    if rules["trailing"]:
         if (not inputs["high_water_snapshot_valid"] or inputs["high_water_snapshot_quality"] != "OK" or
                 inputs["high_water_config_version"] != policy["config_version"] or
                 inputs["high_water_as_of_utc"] <= 0 or inputs["high_water_as_of_utc"] > inputs["daily_reset_at_utc"] or
                 not math.isfinite(inputs["prior_overall_high_water_balance"]) or
                 inputs["prior_overall_high_water_balance"] < initial):
             return unknown("TRAILING_HIGH_WATER_SNAPSHOT_MISSING_OR_INVALID")
-        daily_percent, overall_percent = 3.0, 10.0
         high_water = max(initial, inputs["prior_overall_high_water_balance"], inputs["balance_at_daily_reset"])
     else:
-        daily_percent, overall_percent = 5.0, 10.0
         high_water = initial
+    daily_percent, overall_percent = rules["daily_percent"], rules["overall_percent"]
 
     equity = inputs["current_balance"] + inputs["floating_pnl_after_costs"]
     daily_loss = initial * daily_percent / 100.0
-    daily_floor = inputs["balance_at_daily_reset"] - daily_loss
-    overall_floor = (high_water if policy["policy_id"] == "FTMO_1_STEP" else initial) - initial * overall_percent / 100.0
+    daily_floor = daily_reference - daily_loss
+    overall_floor = (high_water if rules["trailing"] else initial) - initial * overall_percent / 100.0
     daily_room = equity - daily_floor
     overall_room = equity - overall_floor
     available = min(daily_room, overall_room) - policy["safety_buffer_money"]

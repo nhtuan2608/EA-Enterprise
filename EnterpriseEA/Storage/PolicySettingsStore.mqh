@@ -23,7 +23,7 @@ struct EEA_PolicySettings
 bool EEA_PolicyIdValid(const string policy)
   {
    return policy=="UNSELECTED" || policy=="FTMO_1_STEP" || policy=="FTMO_2_STEP" ||
-          policy=="BALANCE_BASED_FTMO_V1";
+          policy=="BALANCE_BASED_FTMO_V1" || policy=="CUSTOM";
   }
 
 void EEA_PolicySettingsDefaults(EEA_PolicySettings &s)

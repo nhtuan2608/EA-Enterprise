@@ -56,7 +56,7 @@ class RiskLimitsTests(unittest.TestCase):
                       "l.total_open_fraction=l.internal_daily_fraction", "2.5*l.per_trade_fraction",
                       "MathMin(2.0*l.internal_daily_fraction,0.4*l.firm_overall_fraction)",
                       "l.safety_buffer_fraction=l.per_trade_fraction", "MathMax(0.0,MathMin(1.0,modifier))",
-                      "RISK_LIMITS_POLICY_UNSELECTED", "EEA_FtmoPolicyRates"):
+                      "RISK_LIMITS_POLICY_UNSELECTED", "EEA_PolicyRulesResolve"):
             self.assertIn(token, src)
 
 

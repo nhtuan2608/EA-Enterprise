@@ -4,6 +4,7 @@
 #include "AtomicWriter.mqh"
 #include "..\Core\Events.mqh"
 #include "..\Runtime\AccountAutoProfile.mqh"
+#include "..\Risk\PolicyRules.mqh"
 
 // Durable FTMO policy facts that cannot be re-read from the terminal at any moment:
 // the initial capital, the balance at the latest Europe/Prague daily reset and the
@@ -20,6 +21,7 @@ struct EEA_RiskLedger
    double high_water_balance;
    long   last_reset_utc;
    double last_reset_balance;
+   double last_reset_equity;       // sampled when the EA saw the reset; 0 = not sampled (G34)
    long   revision;
   };
 
@@ -27,7 +29,7 @@ void EEA_RiskLedgerDefaults(EEA_RiskLedger &l)
   {
    l.config_version=""; l.account_fingerprint=""; l.broker_server="";
    l.initial_capital=0.0; l.initial_capital_source="";
-   l.high_water_balance=0.0; l.last_reset_utc=0; l.last_reset_balance=0.0; l.revision=0;
+   l.high_water_balance=0.0; l.last_reset_utc=0; l.last_reset_balance=0.0; l.last_reset_equity=0.0; l.revision=0;
   }
 
 string EEA_RiskLedgerPath(const string root) { return root+"/current/risk_ledger.json"; }
@@ -57,6 +59,7 @@ bool EEA_RiskLedgerWrite(const string root,const EEA_RiskLedger &l)
       DoubleToString(l.initial_capital,8)+",\"initial_capital_source\":\""+EEA_JsonEscape(l.initial_capital_source)+
       "\",\"high_water_balance\":"+DoubleToString(l.high_water_balance,8)+",\"last_reset_utc\":"+
       IntegerToString(l.last_reset_utc)+",\"last_reset_balance\":"+DoubleToString(l.last_reset_balance,8)+
+      ",\"last_reset_equity\":"+DoubleToString(l.last_reset_equity,8)+
       ",\"revision\":"+IntegerToString(l.revision)+"}";
    return EEA_WriteAtomicText(EEA_RiskLedgerPath(root),json);
   }
@@ -87,17 +90,31 @@ bool EEA_RiskLedgerLoad(const string root,const string config_version,const stri
    l.high_water_balance=StringToDouble(EEA_RiskLedgerField(json,"high_water_balance"));
    l.last_reset_utc=StringToInteger(EEA_RiskLedgerField(json,"last_reset_utc"));
    l.last_reset_balance=StringToDouble(EEA_RiskLedgerField(json,"last_reset_balance"));
+   l.last_reset_equity=StringToDouble(EEA_RiskLedgerField(json,"last_reset_equity"));
    l.revision=StringToInteger(EEA_RiskLedgerField(json,"revision"));
    if(l.initial_capital<=0.0 || l.high_water_balance<l.initial_capital || l.revision<=0)
      { EEA_RiskLedgerDefaults(l); return false; }
    return true;
   }
 
+#define EEA_RESET_EQUITY_SAMPLE_WINDOW 600
+
+// The amount the daily floor starts from for a policy: the equity at the reset when the rules say
+// so and it was sampled, otherwise the balance at the reset (a missing sample is never a zero).
+double EEA_LedgerDailyReference(const EEA_RiskLedger &l,const string policy_id)
+  {
+   EEA_PolicyRules rules;
+   if(EEA_PolicyRulesResolve(policy_id,g_custom_policy_rules,rules) && rules.daily_from_equity && l.last_reset_equity>0.0)
+      return l.last_reset_equity;
+   return l.last_reset_balance;
+  }
+
 // Brings the ledger up to the latest Prague reset. Every reset inside the loaded
 // history raises the high-water mark when its balance is higher; the high-water mark
 // never falls. Returns true when anything changed.
 bool EEA_RiskLedgerAdvance(EEA_RiskLedger &l,const EEA_RuntimeReconciliationSnapshot &snapshot,
-                           const double current_balance,const long now_utc,string &reason)
+                           const double current_balance,const long now_utc,string &reason,
+                           const double current_equity=0.0)
   {
    reason="";
    if(l.initial_capital<=0.0) { reason="INITIAL_CAPITAL_UNKNOWN"; return false; }
@@ -125,6 +142,8 @@ bool EEA_RiskLedgerAdvance(EEA_RiskLedger &l,const EEA_RuntimeReconciliationSnap
    if(latest_balance<=0.0) { reason="DAILY_RESET_BALANCE_UNAVAILABLE"; return false; }
    l.high_water_balance=hw;
    l.last_reset_utc=latest; l.last_reset_balance=latest_balance; l.revision++;
+   // Equity cannot be rebuilt from history: keep the live sample only when the EA saw the reset itself.
+   l.last_reset_equity=((now_utc-latest)<=EEA_RESET_EQUITY_SAMPLE_WINDOW && current_equity>0.0) ? current_equity : 0.0;
    reason="RISK_LEDGER_ADVANCED";
    return true;
   }

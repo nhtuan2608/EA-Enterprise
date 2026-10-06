@@ -106,7 +106,7 @@ bool EEA_RestoreLedgerCheckpoint(const EEA_LedgerCheckpoint &c,
       c.risk_content_fingerprint=="" || c.policy_id=="" ||
       c.reset_status!="OK" || c.day_index<0 || c.prague_day_id=="" || c.reset_at_utc<=0 ||
       c.reset_at_utc>c.captured_at_utc ||
-      (c.policy_id!="FTMO_1_STEP" && c.policy_id!="FTMO_2_STEP") ||
+      (c.policy_id!="FTMO_1_STEP" && c.policy_id!="FTMO_2_STEP" && c.policy_id!="CUSTOM") ||
       !MathIsValidNumber(c.initial_capital) || c.initial_capital<=0.0 ||
       !MathIsValidNumber(c.balance_at_reset) || !MathIsValidNumber(c.highest_reset_balance) ||
       !MathIsValidNumber(c.daily_floor) || !MathIsValidNumber(c.overall_floor) ||
