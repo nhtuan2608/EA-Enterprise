@@ -45,8 +45,21 @@ def direction(close, lo, hi, side):
     return 0
 
 
-def run(h4, daily, first=None):
-    """Triggered candidates: dicts with i, direction, stop anchor, channel and ATR."""
+MOMENTUM_QUARTER = 0.25
+
+
+def momentum_close(bar, atr, d):
+    """G43/G44 EEA_T2MomentumClose: range of at least the ATR, close in the quarter on the side of d."""
+    rng = bar["high"] - bar["low"]
+    if rng <= 0 or atr <= 0 or rng < atr:
+        return False
+    return bar["close"] >= bar["high"] - MOMENTUM_QUARTER * rng if d > 0 else bar["close"] <= bar["low"] + MOMENTUM_QUARTER * rng
+
+
+def run(h4, daily, first=None, momentum=False):
+    """Triggered candidates: dicts with i, direction, stop anchor, channel and ATR.
+
+    momentum=True: InpT2MomentumFilter, the signal bar or the bar before closes with momentum in d."""
     out = []
     start = max(CHANNEL, ATR_PERIOD + 1) if first is None else first
     for b in range(start, len(h4)):
@@ -56,6 +69,8 @@ def run(h4, daily, first=None):
         if atr <= 0:
             continue
         d = direction(h4[b]["close"], lo, hi, daily_side(daily, h4[b]["time"]))
+        if d and momentum and not (momentum_close(h4[b], atr, d) or momentum_close(h4[b - 1], atr_at(h4, b - 1), d)):
+            d = 0
         if d:
             out.append({"i": b, "direction": d, "anchor": h4[b]["close"] - d * STOP_ATR * atr,
                         "channel": (lo, hi), "atr": atr})

@@ -56,14 +56,15 @@ class PyramidSourceTests(unittest.TestCase):
         self.assertIn("bool   g_s06b_pyramid_live=false;", self.src)
 
     def test_gates(self):
-        for token in ('if(!g_s06b_pyramid_live) { g_s06b_pyramid_reason="PYRAMID_OFF"; return true; }',
+        for token in ('if(!g_s06b_pyramid_live && !g_t2_pyramid_live) { g_s06b_pyramid_reason="PYRAMID_OFF"; return true; }',
                       "if(state.recovery_blocked)", "if(pending.entries_blocked)",
                       'EEA_ExecutionControllerAllowsNewRequest(controller,"MARKET_ENTRY",TimeGMT())',
                       'if(!session.present) { g_s06b_pyramid_reason="S06B_ADD_NEEDS_LIVE_SESSION"; return false; }',
-                      'if(t.intent.setup_id!="S06B" || t.add_candidate!="" || EEA_S06BIsAddCandidate(t.intent.candidate_id) ||',
-                      "t.exit_request!=\"\" || !t.be_done) continue;",
+                      'const bool s06=(t.intent.setup_id=="S06B" && g_s06b_pyramid_live);',
+                      'if((!s06 && !t2) || t.add_candidate!="" || EEA_S06BIsAddCandidate(t.intent.candidate_id) ||',
+                      "t.exit_request!=\"\" || (s06 && !t.be_done)) continue;",
                       "EEA_StrategyRuntimeEngineMode(strategy,engine_index)!=EEA_S04_MODE_LIVE",
-                      "EEA_S06BAddBarReady(t,EEA_S06B_ADD_AT_R,bar_time)",
+                      "EEA_S06BAddBarReady(t,t2 ? EEA_T2_ADD_AT_R : EEA_S06B_ADD_AT_R,bar_time)",
                       'EEA_NewsEntryBlockFor(news,t.intent.canonical_symbol,"SWING")'):
             self.assertIn(token, self.timer)
 
@@ -83,11 +84,11 @@ class PyramidSourceTests(unittest.TestCase):
 
     def test_plan_stop_at_first_break_even_stop_and_first_target(self):
         plan = section(self.src, "bool EEA_S06BAddPlan(")
-        self.assertIn("p.invalidation_price=position.sl+t.direction*tick;", plan)
+        self.assertIn("p.invalidation_price=(t2 ? t.entry_price : position.sl)+t.direction*tick;", plan)   # S06B: first stop (G44: T2 first entry)
         self.assertIn("p.stop_buffer_price=tick;", plan)
         self.assertIn("p.target_price=t.initial_tp;", plan)
-        self.assertIn("if(position.sl<=0.0 || t.direction*(position.sl-t.entry_price)<0.0)", plan)
-        self.assertIn("p.base_risk_fraction=limits.per_trade_fraction;", plan)
+        self.assertIn("if(!t2 && (position.sl<=0.0 || t.direction*(position.sl-t.entry_price)<0.0))", plan)
+        self.assertIn("p.base_risk_fraction=limits.per_trade_fraction*weight;", plan)   # G44 setup weight <= 1
         self.assertIn("p.portfolio_cap_includes_existing=true;", plan)
 
         def stop(direction, sl, tick):      # mirror of EEA_ProposeStructuralLevels' stop
@@ -98,13 +99,14 @@ class PyramidSourceTests(unittest.TestCase):
 
     def test_add_managed_like_research_rule2(self):
         self.assertIn("trades.items[j].be_done=true; trades.items[j].partial_done=true;", self.timer)
-        self.assertIn('"SWING",t.timeframe,0.0,0.0,authorization_path,manage_reason)', self.timer)
+        self.assertIn('profile,t.timeframe,0.0,0.0,authorization_path,manage_reason)', self.timer)
+        self.assertIn('const string profile=(t2 ? "POSITION" : "SWING");', self.timer)   # S06B adds stay SWING (G44)
         import pyramid
         self.assertEqual(pyramid.CURRENT["trail"], ("STRUCT", 2.0, 5))   # the TM trails from 2R of its own risk
 
     def test_engine_candidate_is_fresh(self):
         eng = section(self.src, "void EEA_S06BAddEngine(")
-        for token in ("e.state=EEA_S02_TRIGGERED;", 'e.candidate.setup_id="S06B";', "e.candidate.triggered_at_utc=TimeGMT();",
+        for token in ("e.state=EEA_S02_TRIGGERED;", 'e.candidate.setup_id=setup;', "e.candidate.triggered_at_utc=TimeGMT();",
                       "e.candidate.expires_after_bars=1;", "e.candidate.age_after_trigger_bars=0;",
                       "e.candidate.config_version=e.config_version;"):
             self.assertIn(token, eng)

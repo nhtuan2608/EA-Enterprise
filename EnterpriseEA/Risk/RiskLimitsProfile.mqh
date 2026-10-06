@@ -77,6 +77,22 @@ bool EEA_RiskLimitsForPolicy(const string policy_id,EEA_RiskLimits &l,string &re
    return true;
   }
 
+// G43/G44: risk weight by setup (mean / variance of the research results, 2010-2016, scaled so the
+// largest is 1). A weight only lowers the risk of one trade; 0 means the setup takes no live risk.
+double g_risk_weight_s04=1.0;
+double g_risk_weight_s06b=1.0;
+double g_risk_weight_t2=1.0;
+
+double EEA_SetupRiskWeight(const string setup)
+  {
+   double w=1.0;
+   if(setup=="S04") w=g_risk_weight_s04;
+   else if(setup=="S06B") w=g_risk_weight_s06b;
+   else if(setup=="T2") w=g_risk_weight_t2;
+   if(!MathIsValidNumber(w)) return 0.0;
+   return MathMax(0.0,MathMin(1.0,w));
+  }
+
 // Risk money for one trade: equity-based, capped by the initial-capital cap, then
 // reduced by the product of the trade's modifiers (each clamped to [0,1]).
 double EEA_RiskLimitsTradeRiskMoney(const EEA_RiskLimits &l,const double equity,

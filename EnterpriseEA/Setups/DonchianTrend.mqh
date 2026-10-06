@@ -25,7 +25,8 @@
 #define EEA_T2_EMA_DAYS 200
 #define EEA_T2_TIMEOUT_BARS 180
 #define EEA_T2_TARGET_CAP_R 20.0        // broker target cap: the research has no target (largest of 1,037 trades: 17.7R)
-#define EEA_T2_EXPECTED_NIGHTS 10.0     // swap estimate: research holds 18 H4 bars median, 58 at the 90th percentile
+#define EEA_T2_EXPECTED_NIGHTS 10.0
+#define EEA_T2_MOMENTUM_QUARTER 0.25     // G43: momentum close = top / bottom quarter of a range of at least 1 ATR     // swap estimate: research holds 18 H4 bars median, 58 at the 90th percentile
 
 void EEA_T2V1Config(EEA_S02Config &c)
   {
@@ -64,6 +65,15 @@ void EEA_T2SetEvent(EEA_S02Event &ev,const EEA_S02Engine &e,const datetime at,
    ev.config_version=e.config_version;
   }
 
+// G43 momentum close of one bar in direction d: range of at least its ATR and the close in the
+// quarter of the range on the side of d (research/long/g43_reversal.py momentum).
+bool EEA_T2MomentumClose(const double high,const double low,const double close,const double atr,const int d)
+  {
+   const double range=high-low;
+   if(range<=0.0 || atr<=0.0 || range<atr) return false;
+   return d>0 ? close>=high-EEA_T2_MOMENTUM_QUARTER*range : close<=low+EEA_T2_MOMENTUM_QUARTER*range;
+  }
+
 // Breakout direction of the bar: +1 above the channel with the D1 side up, -1 below with it down.
 int EEA_T2Direction(const EEA_S02Bar &b,const double channel_low,const double channel_high,const int d1_side)
   {
@@ -73,7 +83,8 @@ int EEA_T2Direction(const EEA_S02Bar &b,const double channel_low,const double ch
   }
 
 bool EEA_T2ProcessClosedBar(EEA_S02Engine &e,const EEA_S02Bar &b,const double channel_low,const double channel_high,
-                            const int d1_side,const EEA_S02Config &c,EEA_S02Event &ev)
+                            const int d1_side,const EEA_S02Config &c,EEA_S02Event &ev,
+                            const int momentum_mask=3)
   {
    EEA_T2SetEvent(ev,e,b.closed_at_utc,"NO_TRANSITION",e.state,"WAITING_FOR_BREAKOUT");
    if(e.canonical_symbol=="" || e.timeframe=="" || e.config_version=="")
@@ -101,6 +112,13 @@ bool EEA_T2ProcessClosedBar(EEA_S02Engine &e,const EEA_S02Bar &b,const double ch
      {
       EEA_T2SetEvent(ev,e,b.closed_at_utc,"NO_TRANSITION",e.state,
                      d1_side==0 ? "D1_SIDE_UNKNOWN" : "WAITING_FOR_BREAKOUT");
+      return true;
+     }
+   // G43: with the momentum filter on, the signal bar or the bar before must close with momentum in
+   // the trade direction (bit 1 = long allowed, bit 2 = short allowed; 3 = filter off).
+   if((momentum_mask & (d>0 ? 1 : 2))==0)
+     {
+      EEA_T2SetEvent(ev,e,b.closed_at_utc,"NO_TRANSITION",e.state,"T2_NO_MOMENTUM_CLOSE");
       return true;
      }
    const int before=e.state;
