@@ -467,6 +467,8 @@ class Gateway:
                    if st.get(key) != want]
         if st.get("session") != "ACTIVE":
             missing.append(f"phiên {st.get('session')}")
+        if st.get("strategy_running") is False:          # key absent on older EA builds
+            missing.append(f"chiến lược tắt: {st.get('strategy_reason') or '?'}")
         age = int(self.clock() - int(st.get("written_at_utc", 0)))
         modes = st.get("modes") or {}
         live = [k for k, v in modes.items() if v == "LIVE"]

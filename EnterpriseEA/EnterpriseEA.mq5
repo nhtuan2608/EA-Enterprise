@@ -1278,6 +1278,14 @@ void EEA_WriteLiveStatus()
    string session_reason;
    const string session=EEA_LiveSessionStateText(session_reason);
    const bool armed=g_live_config.enabled && g_live_config.armed;
+   // Diagnostics (written on every timer, also when the strategy branch does not run): the setup
+   // engines scan and the live path can enter only when all of these hold.
+   const bool strategy_running=InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
+                               g_strategy_runtime.enabled && g_strategy_checkpoints_loaded;
+   string strategy_reason=g_strategy_runtime.reason_code;
+   if(!InpStrategyRuntimeEnabled) strategy_reason="INPUT_STRATEGY_RUNTIME_DISABLED";
+   else if(g_runtime.status.runtime_state!="OBSERVING") strategy_reason="RUNTIME_"+g_runtime.status.runtime_state;
+   else if(g_strategy_runtime.enabled && !g_strategy_checkpoints_loaded) strategy_reason="CHECKPOINTS_NOT_LOADED_YET";
    string modes="{"+EEA_LiveStatusPair("S02",EEA_SetupModeName((int)InpS02Mode),true)+","+
                 EEA_LiveStatusPair("S04",EEA_SetupModeName((int)InpS04Mode),true)+","+
                 EEA_LiveStatusPair("S06",EEA_SetupModeName((int)InpS06Mode),true)+","+
@@ -1296,7 +1304,13 @@ void EEA_WriteLiveStatus()
       EEA_LiveStatusPair("last_reason",g_live_runtime.last_reason,true)+","+
       EEA_LiveStatusPair("modes",modes,false)+","+
       EEA_LiveStatusPair("s06b_pyramid_live",g_s06b_pyramid_live ? "true" : "false",false)+","+
-      EEA_LiveStatusPair("s06b_require_usd_flow",g_s06b_require_usd_flow ? "true" : "false",false)+"}";
+      EEA_LiveStatusPair("s06b_require_usd_flow",g_s06b_require_usd_flow ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("strategy_running",strategy_running ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("strategy_enabled",g_strategy_runtime.enabled ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("strategy_checkpoints_loaded",g_strategy_checkpoints_loaded ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("strategy_reason",strategy_reason,true)+","+
+      EEA_LiveStatusPair("runtime_state",g_runtime.status.runtime_state,true)+","+
+      EEA_LiveStatusPair("runtime_reason",g_runtime.status.reason_code,true)+"}";
    EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
   }
 
@@ -1320,6 +1334,8 @@ void OnTimer()
        if(g_runtime.initialized)
           EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
                                               g_runtime.reconciliation,g_audit);
+       // Every timer, also when the strategy branch below is off: /status and the soak see why.
+       EEA_WriteLiveStatus();
        if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
           g_strategy_runtime.enabled)
          {
@@ -1376,7 +1392,6 @@ void OnTimer()
           EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count,
                               ref_canonical,ref_broker,g_sentiment.count);
           EEA_RemoteModeTimer();
-          EEA_WriteLiveStatus();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
             {
              // REQ-019 / O-12: an operator pause blocks new entries only; management keeps running.
