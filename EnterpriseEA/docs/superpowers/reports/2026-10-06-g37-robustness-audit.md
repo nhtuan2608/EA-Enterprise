@@ -52,3 +52,18 @@ khoảng +0,15..0,26R mỗi lệnh.
 - Các bộ test gateway không còn chạy `edge_monitor.py` thật (không còn ResourceWarning).
 - Chạy thật trên dữ liệu EA 06/10: monitor đọc sổ candidate và lệnh thật, ghi `current/edge_monitor.json` (chưa có
   lệnh nào từ 06/10).
+
+## Kiểm tra rò rỉ dữ liệu tương lai (06/10, `research/long/leak_check.py`)
+
+Cắt dữ liệu H1/H4/D1 tại 2015-06-01, 2019-03-01, 2023-09-01, 2025-06-01 (chỉ giữ nến đã đóng trước mốc), chạy lại code
+nghiên cứu trong tiến trình mới, so tín hiệu với dữ liệu đầy đủ trước mốc: S04 (thời điểm, chiều, mốc dừng lỗ), S06B (và cờ
+USD), T2 (thời điểm, chiều, dừng lỗ theo ATR). **0 tín hiệu thay đổi** trên 12 lần so (95–3.968 tín hiệu mỗi lần): tín hiệu
+không dùng dữ liệu tương lai. Kết quả lệnh dùng nến sau điểm vào theo định nghĩa (dừng lỗ chạm trước TP trong cùng nến,
+gap khớp ở giá mở).
+
+Rò rỉ ở mức lựa chọn (không phải code), cần biết:
+- Sàn spread lấy trung vị spread 2024+ (`convert_raw.py`): giả định chi phí dùng dữ liệu gần đây, thận trọng hơn là lạc quan.
+- Bộ lọc `VOL_MID` (G27, không dùng) chia ngưỡng ATR theo toàn bộ lịch sử.
+- Một số quyết định cấp phương pháp đã nhìn kết quả cả giai đoạn: chọn bồi +1R (G28), chọn M5 trong 6 phương án (G37), ý
+  tưởng thử bám xu hướng sau khi thấy lãi gần đây đến từ xu hướng lớn (G36). Vì vậy kỳ vọng thực tế nên lấy mức thận trọng
+  (walk-forward, bootstrap p10) và cần forward (shadow) trước khi tăng rủi ro.
