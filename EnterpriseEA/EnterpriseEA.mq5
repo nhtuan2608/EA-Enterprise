@@ -100,6 +100,10 @@ input string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data
 input string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
+input double InpCustomDailyLossPercent  = 5.0;    // CUSTOM policy: daily loss allowance, percent of the initial capital
+input double InpCustomOverallLossPercent = 10.0;  // CUSTOM policy: overall loss allowance, percent of the initial capital
+input bool   InpCustomTrailingFloor     = false;  // CUSTOM policy: overall floor trails the high-water balance (false = fixed at the initial capital)
+input bool   InpCustomDailyFromEquity   = true;   // CUSTOM policy: daily floor starts from the equity at the reset (false = balance)
 input double InpLiveSafetyBufferMoney   = 0.0;
 input double InpLiveBalanceAtDailyReset = 0.0;
 input long   InpLiveDailyResetUtc       = 0;
@@ -239,7 +243,8 @@ void EEA_MaintainDurableState()
       g_risk_ledger.high_water_balance=first_deposit;
      }
    string reason;
-   if(EEA_RiskLedgerAdvance(g_risk_ledger,g_runtime.reconciliation,g_runtime.account.balance,(long)TimeGMT(),reason))
+   if(EEA_RiskLedgerAdvance(g_risk_ledger,g_runtime.reconciliation,g_runtime.account.balance,(long)TimeGMT(),reason,
+                           g_runtime.account.equity))
       EEA_RiskLedgerWrite(root,g_risk_ledger);
   }
 
@@ -347,7 +352,7 @@ bool EEA_LiveSessionSign(const long seconds,string &reason)
    session.account_fingerprint=g_runtime.account.account_fingerprint;
    session.broker_server=g_runtime.account.broker_server;
    session.account_mode=g_runtime.account.account_margin_mode;
-   session.risk_policy_id=policy.committed_policy;
+   session.risk_policy_id=EEA_PolicySignedId(policy.committed_policy);
    session.build_hash="build-"+IntegerToString((long)__DATETIME__);
    session.allowed_symbols=symbols;
    session.scope=EEA_LIVE_SESSION_SCOPE;
@@ -1023,6 +1028,10 @@ int OnInit()
       Print("INIT_PARAMETERS_INCORRECT: live profile requires InpObserverOnly=false, InpExecutionEnabled=true and InpLiveTradeArmed=true.");
       return INIT_PARAMETERS_INCORRECT;
      }
+   g_custom_policy_rules.daily_percent=InpCustomDailyLossPercent;
+   g_custom_policy_rules.overall_percent=InpCustomOverallLossPercent;
+   g_custom_policy_rules.trailing=InpCustomTrailingFloor;
+   g_custom_policy_rules.daily_from_equity=InpCustomDailyFromEquity;
    EEA_ControlledLiveConfigDefaults(g_live_config);
    EEA_ControlledLiveRuntimeStateDefaults(g_live_runtime);
    EEA_CandidateLedgerInit(g_candidate_ledger);

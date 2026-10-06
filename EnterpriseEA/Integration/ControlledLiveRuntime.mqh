@@ -250,6 +250,7 @@ struct EEA_ControlledLiveTradePlan
    double initial_capital;
    double safety_buffer_money;
    double balance_at_daily_reset;
+   double equity_at_daily_reset;
    datetime daily_reset_at_utc;
    double prior_overall_high_water_balance;
    double base_risk_fraction;
@@ -278,7 +279,7 @@ struct EEA_ControlledLiveTradePlan
 
 void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
   {
-   p.setup_version=""; p.initial_capital=0.0; p.safety_buffer_money=0.0; p.balance_at_daily_reset=0.0;
+   p.setup_version=""; p.initial_capital=0.0; p.safety_buffer_money=0.0; p.balance_at_daily_reset=0.0; p.equity_at_daily_reset=0.0;
    p.daily_reset_at_utc=0; p.prior_overall_high_water_balance=0.0; p.base_risk_fraction=0.0;
    p.per_trade_cap_money=0.0; p.portfolio_cap_money=0.0; p.portfolio_cap_includes_existing=false;
    p.invalidation_price=0.0; p.target_price=0.0; p.target_r_multiple=0.0; p.stop_buffer_price=0.0;
@@ -383,7 +384,7 @@ void EEA_ControlledLivePlanFromConfig(const EEA_ControlledLiveConfig &config,con
   {
    EEA_ControlledLivePlanDefaults(p);
    p.setup_version=config.setup_version; p.initial_capital=config.initial_capital;
-   p.safety_buffer_money=config.safety_buffer_money; p.balance_at_daily_reset=config.balance_at_daily_reset;
+   p.safety_buffer_money=config.safety_buffer_money; p.balance_at_daily_reset=config.balance_at_daily_reset; p.equity_at_daily_reset=config.balance_at_daily_reset;
    p.daily_reset_at_utc=config.daily_reset_at_utc; p.prior_overall_high_water_balance=config.prior_overall_high_water_balance;
    p.base_risk_fraction=config.base_risk_fraction; p.per_trade_cap_money=config.per_trade_cap_money;
    p.portfolio_cap_money=config.portfolio_remaining_money; p.invalidation_price=engine.invalidation_price;
@@ -443,11 +444,11 @@ long EEA_PragueWeekResetUtc(const long now_utc)
   }
 
 bool EEA_ControlledLiveInternalLossRoom(const EEA_ObserverRuntimeContext &observer,const EEA_RiskLedger &ledger,
-                                        const EEA_RiskLimits &limits,double &room_money,string &reason)
+                                        const string policy_id,const EEA_RiskLimits &limits,double &room_money,string &reason)
   {
    room_money=0.0;
    const double equity=observer.account.equity;
-   const double daily_loss=ledger.last_reset_balance-equity;
+   const double daily_loss=EEA_LedgerDailyReference(ledger,policy_id)-equity;
    const double daily_room=limits.internal_daily_fraction*ledger.initial_capital-daily_loss;
    if(daily_room<=0.0) { reason="INTERNAL_DAILY_LOSS_LIMIT_REACHED"; return false; }
    const long week_start=EEA_PragueWeekResetUtc((long)TimeGMT());
@@ -582,12 +583,13 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
      }
    double htf=MathMax(0.0,MathMin(1.0,strategy.htf_risk_modifier[index]));
    double loss_room=0.0;
-   if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,limits,loss_room,reason)) return false;
+   if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)) return false;
 
    p.setup_version=engine.config_version;
    p.initial_capital=ledger.initial_capital;
    p.safety_buffer_money=limits.safety_buffer_fraction*ledger.initial_capital;
    p.balance_at_daily_reset=ledger.last_reset_balance;
+   p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
    p.base_risk_fraction=limits.per_trade_fraction*htf;
@@ -692,6 +694,7 @@ bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &conf
    ftmo_policy.source_reference="policy-settings-revision-"+IntegerToString(policy.revision);
    ftmo_policy.policy_timezone="Europe/Prague"; ftmo_policy.account_currency=observer.account.account_currency;
    ftmo_policy.initial_capital=plan.initial_capital; ftmo_policy.safety_buffer_money=plan.safety_buffer_money;
+   ftmo_policy.custom_rules=g_custom_policy_rules;
    ftmo_policy.continue_after_daily_profit_target=policy.committed_daily_continuation;
    ftmo_policy.continue_after_overall_profit_target=policy.committed_overall_continuation;
 
@@ -703,6 +706,7 @@ bool EEA_ControlledLiveBuildRiskContextPlan(const EEA_ControlledLiveConfig &conf
    ftmo_input.daily_reset_at_utc=plan.daily_reset_at_utc; ftmo_input.daily_snapshot_valid=true;
    ftmo_input.reset_window_confirmed_by_caller=true;
    ftmo_input.balance_at_daily_reset=plan.balance_at_daily_reset;
+   ftmo_input.equity_at_daily_reset=plan.equity_at_daily_reset;
    ftmo_input.current_balance=observer.account.balance;
    ftmo_input.floating_pnl_after_costs=floating_pnl;
    ftmo_input.proposed_stress_loss=MathMin(plan.per_trade_cap_money,
@@ -1196,9 +1200,9 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
         {
          const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
          if(!EEA_LiveSessionAuthorize(session,observer.config_version,observer.account.account_fingerprint,
-               observer.account.broker_server,observer.account.account_margin_mode,policy.committed_policy,
+               observer.account.broker_server,observer.account.account_margin_mode,EEA_PolicySignedId(policy.committed_policy),
                observer.broker_symbols[row],candidate_id,entry_profile,real_account,(long)TimeGMT(),day_reset,
-               ledger.initial_capital,ledger.last_reset_balance,observer.account.equity,authorization,reason))
+               ledger.initial_capital,EEA_LedgerDailyReference(ledger,policy.committed_policy),observer.account.equity,authorization,reason))
            { state.last_reason=reason; session.reason=reason; continue; }
          authorization_path=EEA_LiveSessionPath(observer.root);
         }

@@ -4,9 +4,11 @@
 // Pure arithmetic for policy-floor headroom. No terminal, broker, calendar, or order APIs.
 // The default policy is unselected. This module is intentionally not included by the EA shell.
 
+#include "PolicyRules.mqh"
+
 struct EEA_FtmoPolicy
   {
-   string policy_id;             // UNSELECTED | FTMO_1_STEP | FTMO_2_STEP | BALANCE_BASED_FTMO_V1
+   string policy_id;             // UNSELECTED | FTMO_1_STEP | FTMO_2_STEP | BALANCE_BASED_FTMO_V1 | CUSTOM
    string status;                // UNSELECTED | ACTIVE | POLICY_DATA_UNKNOWN
    string config_version;
    string source_version;
@@ -17,6 +19,7 @@ struct EEA_FtmoPolicy
    double safety_buffer_money;
    bool continue_after_daily_profit_target;
    bool continue_after_overall_profit_target;
+   EEA_PolicyRules custom_rules;  // used only when policy_id is CUSTOM
   };
 
 struct EEA_FtmoInputs
@@ -29,6 +32,7 @@ struct EEA_FtmoInputs
    bool daily_snapshot_valid;
    bool reset_window_confirmed_by_caller;
    double balance_at_daily_reset;
+   double equity_at_daily_reset;   // needed when the rules start the daily floor from equity (CUSTOM)
    double current_balance;
    double floating_pnl_after_costs;
    double proposed_stress_loss;
@@ -77,6 +81,7 @@ void EEA_FtmoPolicyDefaults(EEA_FtmoPolicy &p)
    p.safety_buffer_money=0.0;
    p.continue_after_daily_profit_target=true;
    p.continue_after_overall_profit_target=true;
+   EEA_PolicyRulesDefaults(p.custom_rules);
   }
 
 void EEA_FtmoInputDefaults(EEA_FtmoInputs &i)
@@ -89,6 +94,7 @@ void EEA_FtmoInputDefaults(EEA_FtmoInputs &i)
    i.daily_snapshot_valid=false;
    i.reset_window_confirmed_by_caller=false;
    i.balance_at_daily_reset=0.0;
+   i.equity_at_daily_reset=0.0;
    i.current_balance=0.0;
    i.floating_pnl_after_costs=0.0;
    i.proposed_stress_loss=0.0;
@@ -126,13 +132,14 @@ void EEA_FtmoHeadroomDefaults(EEA_FtmoHeadroom &o)
 
 bool EEA_FtmoPolicyRates(const string policy_id,double &daily_percent,double &overall_percent)
   {
-   if(policy_id=="FTMO_1_STEP")
-     { daily_percent=3.0; overall_percent=10.0; return true; }
-   if(policy_id=="FTMO_2_STEP" || policy_id=="BALANCE_BASED_FTMO_V1")
-     { daily_percent=5.0; overall_percent=10.0; return true; }
+   EEA_PolicyRules none,r;
+   EEA_PolicyRulesDefaults(none);
    daily_percent=0.0;
    overall_percent=0.0;
-   return false;
+   if(!EEA_PolicyIsPreset(policy_id) || !EEA_PolicyRulesResolve(policy_id,none,r)) return false;
+   daily_percent=r.daily_percent;
+   overall_percent=r.overall_percent;
+   return true;
   }
 
 bool EEA_FtmoCalculate(const EEA_FtmoPolicy &p,const EEA_FtmoInputs &i,EEA_FtmoHeadroom &o)
@@ -144,7 +151,7 @@ bool EEA_FtmoCalculate(const EEA_FtmoPolicy &p,const EEA_FtmoInputs &i,EEA_FtmoH
    o.snapshot_id=i.daily_snapshot_id;
    o.daily_reset_at_utc=i.daily_reset_at_utc;
 
-   if(p.status!="ACTIVE" || (p.policy_id!="FTMO_1_STEP" && p.policy_id!="FTMO_2_STEP" && p.policy_id!="BALANCE_BASED_FTMO_V1"))
+   if(p.status!="ACTIVE" || (!EEA_PolicyIsPreset(p.policy_id) && p.policy_id!="CUSTOM"))
      { o.reason_code="POLICY_NOT_SELECTED_OR_UNSUPPORTED"; return false; }
    if(p.config_version=="" || p.source_version=="" || p.source_reference=="" ||
       p.policy_timezone!="Europe/Prague" || p.account_currency=="" ||
@@ -163,11 +170,18 @@ bool EEA_FtmoCalculate(const EEA_FtmoPolicy &p,const EEA_FtmoInputs &i,EEA_FtmoH
       i.stress_loss_currency!=p.account_currency)
      { o.reason_code="CURRENT_EQUITY_OR_STRESS_INPUT_INVALID"; return false; }
 
-   double daily_percent=0.0,overall_percent=0.0;
-   if(!EEA_FtmoPolicyRates(p.policy_id,daily_percent,overall_percent))
+   EEA_PolicyRules rules;
+   if(!EEA_PolicyRulesResolve(p.policy_id,p.custom_rules,rules))
      { o.reason_code="POLICY_RULESET_UNSUPPORTED"; return false; }
+   double daily_reference=i.balance_at_daily_reset;
+   if(rules.daily_from_equity)
+     {
+      if(!MathIsValidNumber(i.equity_at_daily_reset) || i.equity_at_daily_reset<=0.0)
+        { o.reason_code="DAILY_RESET_EQUITY_MISSING"; return false; }
+      daily_reference=i.equity_at_daily_reset;
+     }
    double high_water=p.initial_capital;
-   if(p.policy_id=="FTMO_1_STEP")
+   if(rules.trailing)
      {
       if(!i.high_water_snapshot_valid || i.high_water_snapshot_quality!="OK" ||
          i.high_water_config_version!=p.config_version ||
@@ -179,11 +193,11 @@ bool EEA_FtmoCalculate(const EEA_FtmoPolicy &p,const EEA_FtmoInputs &i,EEA_FtmoH
      }
 
    o.equity_after_costs=i.current_balance+i.floating_pnl_after_costs;
-   o.daily_loss_amount=p.initial_capital*daily_percent/100.0;
-   o.daily_floor=i.balance_at_daily_reset-o.daily_loss_amount;
+   o.daily_loss_amount=p.initial_capital*rules.daily_percent/100.0;
+   o.daily_floor=daily_reference-o.daily_loss_amount;
    o.overall_high_water_balance=high_water;
-   o.overall_floor=(p.policy_id=="FTMO_1_STEP" ? high_water : p.initial_capital)-
-                   p.initial_capital*overall_percent/100.0;
+   o.overall_floor=(rules.trailing ? high_water : p.initial_capital)-
+                   p.initial_capital*rules.overall_percent/100.0;
    o.daily_floor_headroom=o.equity_after_costs-o.daily_floor;
    o.overall_floor_headroom=o.equity_after_costs-o.overall_floor;
    o.available_headroom=MathMin(o.daily_floor_headroom,o.overall_floor_headroom)-p.safety_buffer_money;

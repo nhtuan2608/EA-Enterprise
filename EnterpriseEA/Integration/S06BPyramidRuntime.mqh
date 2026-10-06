@@ -74,11 +74,12 @@ bool EEA_S06BAddPlan(const EEA_ManagedTrade &t,const EEA_RuntimePositionRow &pos
    if(swap<0.0) cost+=-swap*EEA_S02_SWING_EXPECTED_NIGHTS;
    if(!known) learned=false;
    double loss_room=0.0;
-   if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,limits,loss_room,reason)) return false;
+   if(!EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)) return false;
    p.setup_version=setup_version;
    p.initial_capital=ledger.initial_capital;
    p.safety_buffer_money=limits.safety_buffer_fraction*ledger.initial_capital;
    p.balance_at_daily_reset=ledger.last_reset_balance;
+   p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
    p.base_risk_fraction=limits.per_trade_fraction;
@@ -185,9 +186,9 @@ bool EEA_S06BPyramidOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Cont
       EEA_LiveAuthorizationDecision authorization;
       const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
       if(!EEA_LiveSessionAuthorize(session,observer.config_version,observer.account.account_fingerprint,
-            observer.account.broker_server,observer.account.account_margin_mode,policy.committed_policy,
+            observer.account.broker_server,observer.account.account_margin_mode,EEA_PolicySignedId(policy.committed_policy),
             observer.broker_symbols[row],add_id,"SWING",real_account,(long)TimeGMT(),day_reset,
-            ledger.initial_capital,ledger.last_reset_balance,observer.account.equity,authorization,reason))
+            ledger.initial_capital,EEA_LedgerDailyReference(ledger,policy.committed_policy),observer.account.equity,authorization,reason))
         { g_s06b_pyramid_reason=reason; continue; }
       const string authorization_path=EEA_LiveSessionPath(observer.root);
       EEA_S02Engine engine;

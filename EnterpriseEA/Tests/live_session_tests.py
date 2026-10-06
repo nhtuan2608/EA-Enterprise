@@ -111,7 +111,7 @@ class InternalLossLimitTests(unittest.TestCase):
                       "limits.internal_weekly_fraction", "EEA_BalanceAtUtc(observer.reconciliation"):
             self.assertIn(token, room)
         plan = section(live, "bool EEA_ControlledLiveResolveV1Plan")
-        self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,limits,loss_room,reason)", plan)
+        self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)", plan)
         self.assertIn("MathMin(limits.per_trade_fraction*ledger.initial_capital,loss_room)", plan)
 
     def test_prague_week_starts_on_monday(self):

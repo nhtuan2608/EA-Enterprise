@@ -1336,14 +1336,17 @@ void EEA_SymbolPanelSettingsRisk(const long chart_id,EEA_ObserverRuntimeContext 
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_PolicyHelp",EEA_PANEL_CONTENT_X,y+26,
                           "Selects the equity floors used by the Risk Kernel. Changes stay staged until Apply.",
                           EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
-   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",EEA_PANEL_CONTENT_X,y+46,166,30,
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP",EEA_PANEL_CONTENT_X,y+46,124,30,
                               "FTMO 1-Step",g_panel_state.staged_policy=="FTMO_1_STEP" ?
                               EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_SECONDARY);
-   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",EEA_PANEL_CONTENT_X+172,y+46,166,30,
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_2_STEP",EEA_PANEL_CONTENT_X+129,y+46,124,30,
                               "FTMO 2-Step",g_panel_state.staged_policy=="FTMO_2_STEP" ?
                               EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_SECONDARY);
-   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",EEA_PANEL_CONTENT_X+344,y+46,166,30,
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_BALANCE_BASED_FTMO_V1",EEA_PANEL_CONTENT_X+258,y+46,124,30,
                               "Balance based",g_panel_state.staged_policy=="BALANCE_BASED_FTMO_V1" ?
+                              EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_SECONDARY);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_CUSTOM",EEA_PANEL_CONTENT_X+387,y+46,123,30,
+                              "Custom",g_panel_state.staged_policy=="CUSTOM" ?
                               EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_SECONDARY);
    bool policy_changed=(g_panel_state.staged_policy!=g_panel_state.committed_policy);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_PolicyState",EEA_PANEL_CONTENT_X,y+88,
@@ -3069,6 +3072,21 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       EEA_SymbolPanelPolicySnapshot old_policy;
        EEA_SymbolPanelCapturePolicySnapshot(old_policy);
       g_panel_state.staged_policy="BALANCE_BASED_FTMO_V1"; g_panel_state.policy_confirmed=false;
+      bool policy_persisted=EEA_SymbolPanelPersistPolicy(ctx,audit,false);
+       if(!policy_persisted)
+         {
+          EEA_SymbolPanelRestorePolicySnapshot(old_policy);
+          g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
+          EEA_SymbolPanelRequirePolicyAudit(ctx,audit,"POLICY_APPLY_REJECTED","POLICY_SETTINGS_PERSISTENCE_FAILED",
+                                     old_policy.staged_policy,old_policy.authorization_utc);
+         }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_CUSTOM")
+     {
+      EEA_SymbolPanelPolicySnapshot old_policy;
+       EEA_SymbolPanelCapturePolicySnapshot(old_policy);
+      g_panel_state.staged_policy="CUSTOM"; g_panel_state.policy_confirmed=false;
       bool policy_persisted=EEA_SymbolPanelPersistPolicy(ctx,audit,false);
        if(!policy_persisted)
          {

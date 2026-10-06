@@ -45,12 +45,12 @@ void EEA_RiskLimitsDefaults(EEA_RiskLimits &l)
 bool EEA_RiskLimitsForPolicy(const string policy_id,EEA_RiskLimits &l,string &reason)
   {
    EEA_RiskLimitsDefaults(l);
-   double daily_percent=0.0,overall_percent=0.0;
-   if(!EEA_FtmoPolicyRates(policy_id,daily_percent,overall_percent))
+   EEA_PolicyRules rules;
+   if(!EEA_PolicyRulesResolve(policy_id,g_custom_policy_rules,rules))
      { reason="RISK_LIMITS_POLICY_UNSELECTED"; return false; }
    l.policy_id=policy_id;
-   l.firm_daily_fraction=daily_percent/100.0;
-   l.firm_overall_fraction=overall_percent/100.0;
+   l.firm_daily_fraction=rules.daily_percent/100.0;
+   l.firm_overall_fraction=rules.overall_percent/100.0;
    l.internal_daily_fraction=MathMin(0.4*l.firm_daily_fraction,0.02);
    l.per_trade_fraction=l.internal_daily_fraction/4.0;
    l.total_open_fraction=l.internal_daily_fraction;
