@@ -25,6 +25,11 @@ void EEA_PolicyRulesDefaults(EEA_PolicyRules &r)
 // The operator's CUSTOM numbers (EA inputs), set once at start; the runtime copies it into the policy.
 EEA_PolicyRules g_custom_policy_rules={0.0,0.0,false,false};
 
+// G42: risk per trade the operator asks for during an evaluation phase (fraction of the initial
+// capital, 0 = derive it from the policy). Capped, and every other internal limit follows it.
+#define EEA_RISK_OVERRIDE_CAP 0.015
+double g_risk_per_trade_override=0.0;
+
 bool EEA_PolicyRulesValid(const EEA_PolicyRules &r)
   {
    return MathIsValidNumber(r.daily_percent) && MathIsValidNumber(r.overall_percent) &&

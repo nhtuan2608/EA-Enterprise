@@ -100,6 +100,9 @@ input string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data
 input string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
+enum EEA_AccountPhaseInput { PHASE_EVALUATION=0, PHASE_FUNDED=1 };
+input EEA_AccountPhaseInput InpAccountPhase = PHASE_EVALUATION; // EVALUATION uses InpEvalRiskPercent; FUNDED derives the risk from the policy
+input double InpEvalRiskPercent         = 1.5;    // Evaluation phase: risk per trade, percent of the initial capital (0 = derive; cap 1.5)
 input double InpCustomDailyLossPercent  = 5.0;    // CUSTOM policy: daily loss allowance, percent of the initial capital
 input double InpCustomOverallLossPercent = 10.0;  // CUSTOM policy: overall loss allowance, percent of the initial capital
 input bool   InpCustomTrailingFloor     = false;  // CUSTOM policy: overall floor trails the high-water balance (false = fixed at the initial capital)
@@ -1028,6 +1031,8 @@ int OnInit()
       Print("INIT_PARAMETERS_INCORRECT: live profile requires InpObserverOnly=false, InpExecutionEnabled=true and InpLiveTradeArmed=true.");
       return INIT_PARAMETERS_INCORRECT;
      }
+   g_risk_per_trade_override=(InpAccountPhase==PHASE_EVALUATION && InpEvalRiskPercent>0.0) ?
+                             MathMin(InpEvalRiskPercent/100.0,EEA_RISK_OVERRIDE_CAP) : 0.0;
    g_custom_policy_rules.daily_percent=InpCustomDailyLossPercent;
    g_custom_policy_rules.overall_percent=InpCustomOverallLossPercent;
    g_custom_policy_rules.trailing=InpCustomTrailingFloor;
