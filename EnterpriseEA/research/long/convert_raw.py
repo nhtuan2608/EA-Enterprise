@@ -24,6 +24,9 @@ TIMEFRAMES = ["M5", "H1", "H4", "D1"]   # D1: G35 levels for H4 entries
 # Point and digits as on the EA's broker (research/bars_meta.json of 05/10/2026).
 START = {"XAUUSD": 1519862400, "BTCUSD": 1514764800}     # 2018-03-01, 2018-01-01 (dense data from here)
 SPEC = {"EURUSD": (0.00001, 5), "GBPUSD": (0.00001, 5), "XAUUSD": (0.01, 2), "BTCUSD": (0.01, 2), "USDJPY": (0.001, 3)}
+# G36: more pairs exported 06/10/2026 (MT5 bar limit: 2024-02-20 .. 2026-10-06 only), out-of-sample checks.
+EXTRA_SYMBOLS = ["AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "EURJPY", "GBPJPY", "AUDJPY", "EURGBP"]
+SPEC.update({s: (0.001, 3) if s.endswith("JPY") else (0.00001, 5) for s in EXTRA_SYMBOLS})
 
 
 def parse_line(line: str):
@@ -80,6 +83,23 @@ def time_year(t: int) -> int:
 
 
 def main(argv: list[str]) -> None:
+    if "--extra" in argv:                   # G36: H1, H4 and tick volume of EXTRA_SYMBOLS; meta gets them too
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for sym in EXTRA_SYMBOLS:
+            for tf in ("H1", "H4"):
+                files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
+                if files:
+                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv")
+                    print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
+            files = sorted((raw / sym).glob(f"{sym}_H1_*.csv"))
+            if files:
+                convert_tickvol(files[0], OUT / f"tickvol_{sym}_H1.csv")
+        meta = json.loads((OUT / "bars_meta.json").read_text(encoding="utf-8"))
+        known = {s["symbol"] for s in meta["symbols"]}
+        meta["symbols"] += [{"symbol": s, "broker": s, "point": SPEC[s][0], "digits": SPEC[s][1]}
+                            for s in EXTRA_SYMBOLS if s not in known]
+        (OUT / "bars_meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        return
     if "--tf" in argv:                      # only these timeframes, e.g. --tf D1 (G35)
         raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
         for tf in argv[argv.index("--tf") + 1].split(","):

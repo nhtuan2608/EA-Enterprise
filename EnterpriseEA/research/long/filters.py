@@ -33,7 +33,8 @@ import replay  # noqa: E402
 import setups  # noqa: E402
 
 FILTERS = ["ADX_LOW", "ADX_HIGH", "D1_TREND", "USD_FLOW", "VOL_MID"]
-USD_SIGN = {"EURUSD": -1, "GBPUSD": -1, "XAUUSD": -1, "BTCUSD": -1, "USDJPY": 1}
+USD_SIGN = {"EURUSD": -1, "GBPUSD": -1, "XAUUSD": -1, "BTCUSD": -1, "USDJPY": 1,
+            "AUDUSD": -1, "NZDUSD": -1, "USDCAD": 1, "USDCHF": 1}   # G36; crosses have no USD side
 S06B = {"box": 24, "max_box_atr": 3.0, "contraction": 0.85, "mode": "immediate", "sl": "far"}
 
 
@@ -149,10 +150,10 @@ def tag(rows: list[dict], symbol: str, usd: dict, dxy: dict) -> None:
         i, d = t["i"], t["dir"]
         flow = usd.get(t["time"], 0)
         t["f"] = {"ADX_LOW": a[i] < 20, "ADX_HIGH": a[i] > 25, "D1_TREND": trend[i] == d,
-                  "USD_FLOW": flow != 0 and d * USD_SIGN[symbol] == flow,
+                  "USD_FLOW": flow != 0 and d * USD_SIGN.get(symbol, 0) == flow,
                   "VOL_MID": q1 < bars[i]["atr"] <= q2}
         real = dxy.get(t["time"], 0)
-        t["dxy_ok"] = None if real == 0 else d * USD_SIGN[symbol] == real
+        t["dxy_ok"] = None if real == 0 or symbol not in USD_SIGN else d * USD_SIGN[symbol] == real
 
 
 def period(utc: int) -> str:

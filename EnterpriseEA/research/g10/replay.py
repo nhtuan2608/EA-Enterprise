@@ -221,7 +221,10 @@ def evaluate(ctx: dict, c: dict, setup: str, profile: str, model: str = "tm", tr
 
 # Round-trip commission in price units per unit volume (assumption: raw-spread account,
 # USD 6 per lot round trip on FX and gold, none on BTC). Set "costs": False to ignore.
-COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0}
+COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0,
+              # G36: USD 6 per lot in the quote currency (approximate rates)
+              "AUDUSD": 0.00006, "NZDUSD": 0.00006, "USDCAD": 0.000083, "USDCHF": 0.000048, "EURGBP": 0.000045,
+              "EURJPY": 0.009, "GBPJPY": 0.009, "AUDJPY": 0.009}
 
 
 def _apply_costs(ctx, res, risk, t, factor):
