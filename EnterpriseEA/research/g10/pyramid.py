@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import replay
 
+# G32: a bar that opens beyond the stop fills at its open (weekend and news gaps), not at the
+# stop. Off by default so CURRENT keeps reproducing replay.evaluate.
+GAP_FILL = False
+
 CURRENT = {"name": "TM hiện tại", "target": "plan", "be": 1.0, "partial": (1.5, 0.33), "trail": ("STRUCT", 2.0, 5),
            "timeout": 120, "struct_exit": True}
 
@@ -32,7 +36,12 @@ def walk(c: dict, t: dict, rule: dict, start: int, entry: float, stop: float, ta
         sp = bar["spread"] * point if d == -1 else 0.0
         hi, lo, close = bar["high"] + sp, bar["low"] + sp, bar["close"] + sp
         if (d == 1 and lo <= sl) or (d == -1 and hi >= sl):
-            realized += open_frac * d * (sl - entry) / risk
+            fill = sl
+            if GAP_FILL:
+                o = bar["open"] + sp
+                if (d == 1 and o < sl) or (d == -1 and o > sl):
+                    fill = o
+            realized += open_frac * d * (fill - entry) / risk
             open_frac = 0.0
             break
         if target is not None and ((d == 1 and hi >= target) or (d == -1 and lo <= target)):
