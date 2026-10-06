@@ -73,3 +73,21 @@ Lưu ý:
   các tin đó.
 - Mẫu mới 1 năm (6–10 lần ra tin cho phần lớn tin; Jobless Claims, EIA, Lagarde 30–59 lần). Các nghiên cứu
   G23–G28 không áp chặn tin mà S04/S06B vẫn dương, nên nới các tin yếu ít rủi ro.
+
+## 3. (G32) FTMO 2-Step so với 1-Step
+
+`research/long/ftmo2_odds.py`: cùng chuỗi lệnh, cùng kiểm tra dư địa như EA. 2-Step: vòng 1 +10%, vòng 2 +5%
+(mỗi vòng số dư mới), lỗ ngày 5%, sàn cố định vốn đầu − 10%, ít nhất 4 ngày giao dịch mỗi vòng.
+
+| Rủi ro/lệnh, S04 + S06B lọc USD + bồi +1R | 1-Step: ≤ 12 tháng / ≤ 24 tháng / trung vị | 2-Step (cả 2 vòng): ≤ 12 tháng / ≤ 24 tháng / trung vị |
+|---|---|---|
+| 0,75% | 13–22% / 48–57% / 1,6–2,1 năm | 0–4% / 5–26% / 2,6–3,5 năm |
+| 1,0% | 26–39% / 64–69% / 1,1–1,5 năm | 2–12% / 25–44% / 1,9–2,7 năm |
+| 1,5% | 41–56% / 71–73% / 0,6–0,9 năm (ngày tốt nhất vi phạm nhiều) | 13–28% / 49–59% / 1,2–1,8 năm |
+| 2,0% | – | 21–38% / 54–56% / 0,8–1,3 năm |
+
+- Hệ thống này không bao giờ chạm sàn nhờ kiểm tra dư địa, nên lợi thế của 2-Step (lỗ ngày 5%, sàn cố định)
+  không giúp gì; điều quyết định là tổng lợi nhuận phải đạt: 1-Step cần 10%, 2-Step cần 10% + 5%.
+- Với hệ thống lãi ít nhưng đều này, **1-Step nhanh hơn rõ** ở cùng mức rủi ro. 2-Step chỉ bằng 1-Step khi
+  tăng rủi ro lên khoảng gấp đôi (2% so với 1%), tức sụt giảm thực tế lớn gấp đôi.
+- Điểm cộng của 2-Step: không có luật "ngày tốt nhất" và sàn không trượt theo đỉnh; điểm trừ: chậm hơn.

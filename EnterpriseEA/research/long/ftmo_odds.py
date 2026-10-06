@@ -37,15 +37,20 @@ RISKS = [0.003, 0.005, 0.0075, 0.01, 0.015]
 DAY, WEEK = 86400, 7 * 86400
 HORIZON_DAYS = [91, 182, 365, 730]
 BUFFER = 0.005
+# G32: rule sets. 1-Step: trailing floor from the highest end-of-day balance, best-day check.
+# 2-Step (each phase): static floor at the initial balance - 10%, daily 5%, 4 trading days.
+ONE_STEP = {"target": TARGET, "daily": DAILY_FTMO, "overall": OVERALL_FTMO, "trailing": True, "min_days": 0}
 
 
-def limits(r: float) -> dict:
-    return {"open": 4 * r, "daily": min(4 * r, 0.025), "weekly": min(8 * r, 0.05)}
+def limits(r: float, rules: dict = ONE_STEP) -> dict:
+    return {"open": 4 * r, "daily": min(4 * r, rules["daily"] - BUFFER), "weekly": min(8 * r, rules["overall"] / 2)}
 
 
-def challenge(rows: list[dict], r: float, start: int, end: int | None = None) -> dict:
+def challenge(rows: list[dict], r: float, start: int, end: int | None = None, rules: dict = ONE_STEP) -> dict:
     """rows sorted by entry time; replays from `start` until pass, fail or the end of the rows."""
-    lim = limits(r)
+    lim = limits(r, rules)
+    daily_ftmo, overall_ftmo, target = rules["daily"], rules["overall"], rules["target"]
+    trading_days = set()
     bal, high_eod = CAPITAL, CAPITAL
     day_open = {}                 # day -> balance at the day's start (realized)
     day_pnl, week_pnl = defaultdict(float), defaultdict(float)
@@ -54,6 +59,9 @@ def challenge(rows: list[dict], r: float, start: int, end: int | None = None) ->
 
     def day_of(t):
         return t // DAY
+
+    def floor():
+        return (high_eod if rules["trailing"] else CAPITAL) - overall_ftmo * CAPITAL
 
     def close_until(t):
         nonlocal bal, high_eod
@@ -67,11 +75,11 @@ def challenge(rows: list[dict], r: float, start: int, end: int | None = None) ->
             bal += tr["pnl"]
             day_pnl[d] += tr["pnl"]
             week_pnl[(tr["out"] // DAY + 3) // 7] += tr["pnl"]
-            if bal - day_open[d] <= -DAILY_FTMO * CAPITAL:
+            if bal - day_open[d] <= -daily_ftmo * CAPITAL:
                 return "FAIL_DAILY", tr["out"]
-            if bal <= high_eod - OVERALL_FTMO * CAPITAL:
+            if bal <= floor() - 1e-9:
                 return "FAIL_OVERALL", tr["out"]
-            if bal >= CAPITAL * (1 + TARGET):
+            if bal >= CAPITAL * (1 + target) and len(trading_days) >= rules["min_days"]:
                 return "PASS", tr["out"]
         return None, None
 
@@ -93,10 +101,12 @@ def challenge(rows: list[dict], r: float, start: int, end: int | None = None) ->
         if at_risk > lim["open"] * CAPITAL + 1e-9:
             continue
         start_today = day_open.get(d, bal)
-        if (start_today - bal) + at_risk > (DAILY_FTMO - BUFFER) * CAPITAL + 1e-9:
+        if (start_today - bal) + at_risk > (daily_ftmo - BUFFER) * CAPITAL + 1e-9:
             continue
-        if bal - at_risk < max(high_eod, bal if d not in day_open else high_eod) - (OVERALL_FTMO - BUFFER) * CAPITAL - 1e-9:
+        high_now = max(high_eod, bal if d not in day_open else high_eod) if rules["trailing"] else CAPITAL
+        if bal - at_risk < high_now - (overall_ftmo - BUFFER) * CAPITAL - 1e-9:
             continue
+        trading_days.add(d)
         open_trades.append(dict(t, risk=risk, pnl=t["r"] * risk))
     res, when = close_until(10 ** 12)
     if res:
@@ -125,7 +135,9 @@ def summary(results: list[dict]) -> dict:
     return out
 
 
-def bootstrap(rows: list[dict], r: float, paths: int, seed: int) -> list[dict]:
+def bootstrap(rows: list[dict], r: float, paths: int, seed: int, runner=None) -> list[dict]:
+    """runner(path, r, start) -> result; default: one 1-Step challenge."""
+    runner = runner or challenge
     months = defaultdict(list)
     for t in rows:
         dt = datetime.fromtimestamp(t["in"], timezone.utc)
@@ -142,7 +154,7 @@ def bootstrap(rows: list[dict], r: float, paths: int, seed: int) -> list[dict]:
             shift = m * span - starts[k]
             path += [dict(t, **{"in": t["in"] + shift, "out": t["out"] + shift}) for t in months[k]]
         path.sort(key=lambda x: x["in"])
-        out.append(challenge(path, r, 0))
+        out.append(runner(path, r, 0))
     return out
 
 
