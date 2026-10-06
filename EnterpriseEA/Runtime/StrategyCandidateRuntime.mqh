@@ -54,7 +54,7 @@ struct EEA_StrategyCandidateRuntime
    int s06b_mode;      // S06B (24-bar box, entry on the release bar), same values
    int scalp_mode;     // G26: cap for every SCALP engine (OFF, SHADOW or LIVE)
    int s02_mode;       // same values: OFF, SHADOW or LIVE
-   int t2_mode;        // G38: T2 (H4 Donchian, POSITION profile), OFF or SHADOW only for now
+   int t2_mode;        // G38/G40: T2 (H4 Donchian, POSITION profile), OFF, SHADOW or LIVE
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -128,7 +128,7 @@ bool EEA_StrategyCandidateRuntimeInit(EEA_StrategyCandidateRuntime &runtime,
 // Entry mode of a setup: OFF, SHADOW (record only) or LIVE.
 int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,const string setup)
   { return setup=="S04" ? runtime.s04_mode : setup=="S06" ? runtime.s06_mode : setup=="S06B" ? runtime.s06b_mode :
-           setup=="T2" ? MathMin(runtime.t2_mode,EEA_S04_MODE_SHADOW) : runtime.s02_mode; }
+           setup=="T2" ? runtime.t2_mode : runtime.s02_mode; }
 
 // G26: the mode an engine actually runs in: its setup's mode, capped by the SCALP mode for
 // SCALP engines (OFF < SHADOW < LIVE). Every entry, shadow and ledger decision uses this.
@@ -188,7 +188,7 @@ bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
    EEA_StrategyCandidateRuntimeDefaults(runtime);
    runtime.enabled=enabled;
    runtime.zone_mode=true;
-   runtime.t2_mode=MathMin(t2_mode,EEA_S04_MODE_SHADOW);   // G38: no LIVE T2 before its Trade Manager profile
+   runtime.t2_mode=t2_mode;
    runtime.s04_mode=s04_mode;
    runtime.s06_mode=s06_mode;
    runtime.s06b_mode=s06b_mode;

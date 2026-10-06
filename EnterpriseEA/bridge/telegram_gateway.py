@@ -445,6 +445,7 @@ class Gateway:
         return (f"EA: {d['runtime_state']} ({ea})\n"
                 f"Vào lệnh (theo EA): {d['operator_mode']}\n"
                 f"Phiên live: {d['session']}\n"
+                f"Lệnh thật: {self.live_text()}\n"
                 f"Vị thế / lệnh chờ: {d['positions']} / {d['orders']}\n"
                 f"Equity: {d['equity']}\n"
                 f"News Guard: {news}\n"
@@ -452,6 +453,26 @@ class Gateway:
                 f"Sentiment: {d['sentiment']}\n"
                 f"AI Bridge: {bridge}\n"
                 f"Supervisor: {self.supervisor_text(d)}")
+
+    def live_text(self) -> str:
+        """G40: current/live_status.json (EA, every 30 s): can the EA send orders, and which setups are LIVE."""
+        st = read_json(self.root / "current" / "live_status.json")
+        if not isinstance(st, dict):
+            return "chưa có live_status.json (EA cũ hoặc chưa chạy)"
+        missing = [label for key, want, label in (("execution_enabled", True, "InpExecutionEnabled=false"),
+                                                  ("observer_only", False, "InpObserverOnly=true"),
+                                                  ("live_trade_armed", True, "InpLiveTradeArmed=false"),
+                                                  ("operator_paused", False, "đang /pause"),
+                                                  ("recovery_blocked", False, "chờ đối soát lệnh"))
+                   if st.get(key) != want]
+        if st.get("session") != "ACTIVE":
+            missing.append(f"phiên {st.get('session')}")
+        age = int(self.clock() - int(st.get("written_at_utc", 0)))
+        modes = st.get("modes") or {}
+        live = [k for k, v in modes.items() if v == "LIVE"]
+        head = "SẴN SÀNG" if not missing else "KHÔNG vào được (" + ", ".join(missing) + ")"
+        stale = f" [cũ {age}s]" if age > 120 else ""
+        return f"{head}; LIVE: {', '.join(live) or 'không setup nào'}{stale}"
 
     @staticmethod
     def supervisor_text(d: dict) -> str:

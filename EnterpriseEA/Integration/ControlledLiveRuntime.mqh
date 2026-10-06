@@ -294,6 +294,9 @@ void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
 #define EEA_S02_ENTRY_LIMIT_AT_ZONE 1
 #define EEA_S02_ENTRY_STOP_ABOVE_TRIGGER 2
 
+// G40: a POSITION engine (T2) follows the SWING rules for news, sentiment, session quota and costs.
+string EEA_RiskProfileOf(const string profile) { return profile=="POSITION" ? "SWING" : profile; }
+
 bool EEA_ControlledLiveTriggerBar(const string broker_symbol,const string timeframe,const datetime bar_time,
                                   MqlRates &bar)
   {
@@ -480,7 +483,7 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    long reset=EEA_PragueDailyResetUtc((long)TimeGMT());
    if(ledger.last_reset_utc!=reset || ledger.last_reset_balance<=0.0)
      { reason="LIVE_DAILY_RESET_SNAPSHOT_STALE"; return false; }
-   bool swing=(strategy.profile[index]=="SWING");
+   bool swing=(EEA_RiskProfileOf(strategy.profile[index])=="SWING");
    MqlTick tick; ZeroMemory(tick);
    if(!SymbolInfoTick(symbol.broker_symbol,tick) || tick.bid<=0.0 || tick.ask<=0.0)
      { reason="LIVE_ENTRY_QUOTE_UNAVAILABLE"; return false; }
@@ -545,9 +548,9 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
      }
    else if(strategy.setup[index]=="T2")
      {
-      // G38 T2 exits by an ATR trail in the research (no target). SHADOW only: a far cap lets the
-      // shared risk checks run and the shadow log show the would-be volume; never sent.
-      target=entry+direction*EEA_T2_SHADOW_TARGET_R*risk_distance;
+      // G38 T2 exits by an ATR trail in the research (no target): the broker target is a far cap
+      // that also lets the shared economics check run; the Trade Manager trail does the exit.
+      target=entry+direction*EEA_T2_TARGET_CAP_R*risk_distance;
      }
    else
      {
@@ -574,7 +577,7 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
      {
       bool known=false;
       double swap=EEA_SwapMoneyPerLotPerNight(symbol,direction,known);
-      if(swap<0.0) cost+=-swap*EEA_S02_SWING_EXPECTED_NIGHTS;
+      if(swap<0.0) cost+=-swap*(strategy.profile[index]=="POSITION" ? EEA_T2_EXPECTED_NIGHTS : EEA_S02_SWING_EXPECTED_NIGHTS);
       if(!known) learned=false;
      }
    double htf=MathMax(0.0,MathMin(1.0,strategy.htf_risk_modifier[index]));
@@ -936,7 +939,7 @@ bool EEA_ControlledLiveApplySentiment(const EEA_SentimentRuntime &sentiment,cons
                                       EEA_ControlledLiveTradePlan &plan,EEA_SentAlignment &alignment,string &reason)
   {
    const EEA_S02Engine engine=strategy.engines[index];
-   const string profile=strategy.profile[index];
+   const string profile=EEA_RiskProfileOf(strategy.profile[index]);
    EEA_SentimentAlignFor(sentiment,engine.canonical_symbol,engine.direction,profile,alignment);
    if(alignment.block) { reason="SENTIMENT_STRONGLY_AGAINST"; return false; }
    if(alignment.factor<=0.0 || alignment.factor>1.0) { reason="SENTIMENT_FACTOR_INVALID"; return false; }
@@ -1159,7 +1162,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(pending_mode ? !pending_granted : !market_granted)
         { state.last_reason="CONTROLLED_LIVE_SCOPE_NOT_GRANTED_"+scope; continue; }
       // News Guard (design 7.1): blocked candidates are not consumed and may enter after the window.
-      const string news_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP");
+      const string news_profile=(strategy.zone_mode ? EEA_RiskProfileOf(strategy.profile[i]) : "SCALP");
       const string news_block=EEA_NewsEntryBlockFor(news,strategy.engines[i].canonical_symbol,news_profile);
       if(news_block!="")
         {
@@ -1188,7 +1191,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       // without a session file the per-intent document remains the only path.
       const long day_reset=EEA_PragueDailyResetUtc((long)TimeGMT());
       const bool session_mode=session.present;
-      const string entry_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP");
+      const string entry_profile=(strategy.zone_mode ? EEA_RiskProfileOf(strategy.profile[i]) : "SCALP");
       if(session_mode)
         {
          const bool real_account=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
@@ -1330,8 +1333,10 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
          if(strategy.zone_mode)
             EEA_TradeManagerRegister(trades,observer.root,intent,result.request_ticket,
                                      pending_order ? "ORDER" : result.request_ticket_kind,strategy.profile[i],
-                                     strategy.engines[i].timeframe,strategy.engines[i].zone_low,
-                                     strategy.engines[i].zone_high,authorization_path,manage_reason);
+                                     strategy.engines[i].timeframe,
+                                     strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_low,     // G40: T2 has no
+                                     strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_high,    // structure exit
+                                     authorization_path,manage_reason);
          if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile))
             session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
          state.recovery_result=result;

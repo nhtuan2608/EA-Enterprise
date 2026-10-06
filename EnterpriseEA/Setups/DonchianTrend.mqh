@@ -5,8 +5,8 @@
 
 // G38 T2: H4 Donchian breakout on the D1 EMA200 side (research/long/discovery.py sig_t2, chosen on
 // 2010-2016 only: channel 60 bars, stop 2 ATR, ATR trailing 3, no target). Pure closed-bar engine,
-// POSITION profile. SHADOW only in this phase (InpT2Mode has no LIVE value): the Trade Manager has
-// no POSITION profile with an ATR trail yet.
+// POSITION profile (G40: the Trade Manager trails it by EEA_T2_TRAIL_ATR x ATR from the first bar, no
+// break-even, no partial, no structure exit). LIVE only by InpT2Mode=T2_LIVE, after the shadow matches.
 //
 // A closed H4 bar triggers when its close is beyond the highest high (lowest low) of the
 // EEA_T2_CHANNEL_BARS closed bars before it and the D1 side agrees (previous closed day's close
@@ -24,7 +24,8 @@
 #define EEA_T2_TRAIL_ATR 3.0
 #define EEA_T2_EMA_DAYS 200
 #define EEA_T2_TIMEOUT_BARS 180
-#define EEA_T2_SHADOW_TARGET_R 10.0     // shadow risk path only (research has no target)
+#define EEA_T2_TARGET_CAP_R 20.0        // broker target cap: the research has no target (largest of 1,037 trades: 17.7R)
+#define EEA_T2_EXPECTED_NIGHTS 10.0     // swap estimate: research holds 18 H4 bars median, 58 at the 90th percentile
 
 void EEA_T2V1Config(EEA_S02Config &c)
   {

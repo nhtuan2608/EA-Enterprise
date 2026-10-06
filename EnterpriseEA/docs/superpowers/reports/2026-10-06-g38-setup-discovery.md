@@ -69,3 +69,21 @@ Thêm T2 giúp qua FTMO nhanh hơn ở **rủi ro thấp hơn** (0,5% thay vì 1
 - Kết quả ảo: `candidates_eval` đi T2 trên nến H4 EA xuất, thoát như research, mỗi symbol một lệnh; `edge_monitor` có dòng
   `T2_POSITION ảo` (ARL0 256 lệnh, phát hiện mất lợi thế sau trung vị 84 lệnh); `/week` so với kỳ vọng +0,17R.
 - 657 test đạt, compile MetaEditor 0/0. Cần nạp lại EA trên chart để T2 bắt đầu chạy ngầm.
+
+## 5. Đường vào lệnh thật của T2 (G40, mặc định TẮT) — audit
+
+- `InpT2Mode` có thêm `T2_LIVE`; mặc định vẫn `T2_SHADOW`. Chỉ bật khi shadow khớp nghiên cứu.
+- Trade Manager profile `POSITION`: không hòa vốn, không chốt một phần, trail 3 ATR trên nến H4 ngay từ nến đầu (chỉ siết,
+  chỉ khi qua hòa vốn), không thoát theo cấu trúc (đăng ký vùng = 0) — cùng quy tắc với nghiên cứu và kết quả ảo.
+- POSITION theo luật SWING cho chặn tin, sentiment, hạn mức lệnh của phiên, tỷ lệ RR tối thiểu và swap (ước 10 đêm).
+- Một lệnh mỗi symbol + chiều + profile (luật EA): T2 có thể cùng chiều với S04/S06B trên một symbol, như trong mô phỏng danh mục G38;
+  trần rủi ro mở và trần phơi nhiễm theo đồng tiền vẫn áp chung.
+- TP đặt ở sàn = 20R chỉ để các kiểm tra kinh tế chạy (lệnh lớn nhất trong 1.037 lệnh nghiên cứu là 17,7R); ban đầu đặt 10R
+  sẽ làm R trung bình giảm 0,187 → 0,17, nên đã nâng lên 20R.
+- Thời gian giữ: nghiên cứu trung vị 18 nến H4, p90 58, lớn nhất 141; Trade Manager không có trần 540 nến như nghiên cứu nhưng
+  không lệnh nào chạm tới.
+- Khác biệt còn lại, cần người dùng quyết: News Guard dời hòa vốn cho lệnh đang lãi ≥ 0,3R trước tin HIGH (áp cho mọi lệnh,
+  kể cả T2); nghiên cứu không có luật này, có thể cắt một phần lệnh xu hướng lớn.
+- `current/live_status.json` (EA ghi mỗi 30 giây): bật thực thi, đã cho phép lệnh thật, phiên, tạm dừng, chế độ từng setup;
+  Telegram `/status` hiện "Lệnh thật: SẴN SÀNG / KHÔNG vào được (lý do)".
+- 669 test đạt, compile MetaEditor 0/0.

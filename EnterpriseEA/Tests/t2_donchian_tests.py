@@ -176,12 +176,10 @@ class SourceTests(unittest.TestCase):
         self.assertIn("while(count<daily_count && (long)daily[count].time<day_start) count++;", side)
         self.assertIn("if(count<EEA_T2_EMA_DAYS) return 0;", side)
 
-    def test_shadow_only(self):
-        self.assertIn("enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1 };", self.shell)
+    def test_default_shadow_live_only_by_choice(self):
+        self.assertIn("enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };", self.shell)
         self.assertIn("input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;", self.shell)
-        self.assertIn('setup=="T2" ? MathMin(runtime.t2_mode,EEA_S04_MODE_SHADOW)', self.rt)
-        self.assertIn("runtime.t2_mode=MathMin(t2_mode,EEA_S04_MODE_SHADOW);", self.rt)
-        self.assertNotIn("T2_LIVE", self.shell)
+        self.assertIn('setup=="T2" ? runtime.t2_mode : runtime.s02_mode;', self.rt)
 
     def test_slot_checkpoint_and_logs(self):
         self.assertIn('setup="T2"; profile="POSITION"; timeframe="H4"; EEA_T2V1Config(config);', self.rt)
@@ -191,7 +189,7 @@ class SourceTests(unittest.TestCase):
         self.assertIn('setup=="T2" ? "/logs/t2_shadow.jsonl"', self.live)
         self.assertIn('timeframe=="H4" ? PERIOD_H4', self.live)
         self.assertIn('if(strategy.setup[index]=="T2") invalidation+=direction*buffer;', self.live)
-        self.assertIn("target=entry+direction*EEA_T2_SHADOW_TARGET_R*risk_distance;", self.live)
+        self.assertIn("target=entry+direction*EEA_T2_TARGET_CAP_R*risk_distance;", self.live)
         arb = (ROOT / "Integration/SetupArbitration.mqh").read_text(encoding="utf-8")
         self.assertIn('if(profile=="POSITION") return 6;', arb)
 

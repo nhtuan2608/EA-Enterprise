@@ -55,8 +55,8 @@ enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
 input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
 input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
-enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1 };
-input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38 T2 (H4 Donchian 60 on the D1 EMA200 side): OFF or SHADOW (no LIVE yet)
+enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
+input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
@@ -1235,6 +1235,45 @@ void OnDeinit(const int reason)
      }
   }
 
+// G40: one small file with what the EA would do now (inputs, session, modes), so an operator or a
+// script can audit live readiness without looking at the chart. Written at most every 30 seconds.
+datetime g_live_status_written=0;
+string EEA_LiveStatusPair(const string key,const string value,const bool quoted)
+  {
+   const string q="\"";
+   return q+key+q+":"+(quoted ? q+EEA_JsonEscape(value)+q : value);
+  }
+
+void EEA_WriteLiveStatus()
+  {
+   const datetime now=TimeGMT();
+   if(now-g_live_status_written<30) return;
+   g_live_status_written=now;
+   string session_reason;
+   const string session=EEA_LiveSessionStateText(session_reason);
+   const bool armed=g_live_config.enabled && g_live_config.armed;
+   string modes="{"+EEA_LiveStatusPair("S02",EEA_SetupModeName((int)InpS02Mode),true)+","+
+                EEA_LiveStatusPair("S04",EEA_SetupModeName((int)InpS04Mode),true)+","+
+                EEA_LiveStatusPair("S06",EEA_SetupModeName((int)InpS06Mode),true)+","+
+                EEA_LiveStatusPair("S06B",EEA_SetupModeName((int)InpS06BMode),true)+","+
+                EEA_LiveStatusPair("SCALP_CAP",EEA_SetupModeName((int)InpScalpMode),true)+","+
+                EEA_LiveStatusPair("T2",EEA_SetupModeName((int)InpT2Mode),true)+"}";
+   string json="{"+EEA_LiveStatusPair("document_version","live-status-v1.0.0",true)+","+
+      EEA_LiveStatusPair("written_at_utc",IntegerToString((long)now),false)+","+
+      EEA_LiveStatusPair("execution_enabled",InpExecutionEnabled ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("observer_only",InpObserverOnly ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("live_trade_armed",InpLiveTradeArmed ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("live_path_armed",armed ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("session",session,true)+","+
+      EEA_LiveStatusPair("operator_paused",EEA_RemoteEntriesPaused() ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("recovery_blocked",g_live_runtime.recovery_blocked ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("last_reason",g_live_runtime.last_reason,true)+","+
+      EEA_LiveStatusPair("modes",modes,false)+","+
+      EEA_LiveStatusPair("s06b_pyramid_live",g_s06b_pyramid_live ? "true" : "false",false)+","+
+      EEA_LiveStatusPair("s06b_require_usd_flow",g_s06b_require_usd_flow ? "true" : "false",false)+"}";
+   EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
+  }
+
 void OnTick()
   {
    // Strategy scanning, risk release and any market request are timer-owned;
@@ -1311,6 +1350,7 @@ void OnTimer()
           EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count,
                               ref_canonical,ref_broker,g_sentiment.count);
           EEA_RemoteModeTimer();
+          EEA_WriteLiveStatus();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
             {
              // REQ-019 / O-12: an operator pause blocks new entries only; management keeps running.

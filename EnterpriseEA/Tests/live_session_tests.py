@@ -65,7 +65,7 @@ class LiveSessionIntegrationTests(unittest.TestCase):
         self.assertIn('"LIVE_AUTHORIZATION_CANDIDATE_MISMATCH"', on_timer)
         self.assertIn("EEA_ControlledLiveApplySessionCap(session_mode,session,ledger,plan,reason)", on_timer)
         self.assertIn("EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile)", on_timer)
-        self.assertIn('entry_profile=(strategy.zone_mode ? strategy.profile[i] : "SCALP")', on_timer)
+        self.assertIn('entry_profile=(strategy.zone_mode ? EEA_RiskProfileOf(strategy.profile[i]) : "SCALP")', on_timer)
         self.assertIn('params.idempotency_key="entry-"+candidate_id;', on_timer)
         cap = section(live, "bool EEA_ControlledLiveApplySessionCap")
         self.assertIn("MathMin(plan.base_risk_fraction,cap)", cap)

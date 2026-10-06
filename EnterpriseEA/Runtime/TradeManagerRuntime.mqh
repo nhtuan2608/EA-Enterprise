@@ -43,6 +43,15 @@ void EEA_TradeProfileFor(const string profile,EEA_TradeProfile &p)
       p.underperform_bars=15; p.underperform_mfe_r=0.5; p.timeout_bars=120;   // H1: 5 days
       return;
      }
+   if(profile=="POSITION")
+     {
+      // G40 T2 (research discovery.trend_rule): no break-even, no partial, ATR trail of 3 x ATR on
+      // the trade's own bars (H4) from the first bar; the trail only ever tightens past break-even.
+      p.be_at_r=1.0e9; p.partial_at_r=1.0e9; p.partial_fraction=0.0; p.trail_start_r=0.0;
+      p.trail_mode=EEA_TM_TRAIL_ATR; p.trail_atr_mult=3.0; p.structure_bars=0;
+      p.underperform_bars=1000000; p.underperform_mfe_r=0.0; p.timeout_bars=180;   // H4: 30 days
+      return;
+     }
    p.be_at_r=1.0; p.partial_at_r=1.0; p.partial_fraction=0.5; p.trail_start_r=1.5;
    p.trail_mode=EEA_TM_TRAIL_ATR; p.trail_atr_mult=1.0; p.structure_bars=0;
    p.underperform_bars=8; p.underperform_mfe_r=0.5; p.timeout_bars=36;        // M5: 3 hours
