@@ -116,6 +116,21 @@ class LiveStatusTests(unittest.TestCase):
         self.assertIn("if(now-g_live_status_written<30) return;", fn)
         self.assertIn('"/current/live_status.json"', fn)
 
+    def test_written_every_timer_with_strategy_diagnostics(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        timer = shell.split("void OnTimer()", 1)[1]
+        # once per timer, before (outside) the strategy branch, so a disabled strategy runtime still reports
+        self.assertEqual(timer.count("EEA_WriteLiveStatus();"), 1)
+        self.assertLess(timer.index("EEA_WriteLiveStatus();"),
+                        timer.index('if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&'))
+        fn = section(shell, "void EEA_WriteLiveStatus()")
+        for key in ("strategy_running", "strategy_enabled", "strategy_checkpoints_loaded", "strategy_reason",
+                    "runtime_state", "runtime_reason"):
+            self.assertIn(f'"{key}"', fn)
+        for reason in ("INPUT_STRATEGY_RUNTIME_DISABLED", '"RUNTIME_"+g_runtime.status.runtime_state',
+                       "CHECKPOINTS_NOT_LOADED_YET"):
+            self.assertIn(reason, fn)
+
 
 class StatusLineTests(GatewayCase):
     def status(self, **kw):
@@ -134,6 +149,12 @@ class StatusLineTests(GatewayCase):
         self.assertIn("KHÔNG vào được", txt)
         self.assertIn("InpLiveTradeArmed=false", txt)
         self.assertIn("phiên EXPIRED", txt)
+
+    def test_strategy_off_blocks_and_names_the_reason(self):
+        txt = self.status(strategy_running=False, strategy_reason="EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT")
+        self.assertIn("KHÔNG vào được", txt)
+        self.assertIn("chiến lược tắt: EEA_STRATEGY_RUNTIME_CHECKPOINT_CORRUPT", txt)
+        self.assertEqual(self.status(strategy_running=True), "SẴN SÀNG; LIVE: S04")
 
     def test_stale_and_missing(self):
         self.assertIn("[cũ", self.status(written_at_utc=int(self.clock()) - 600))
