@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 RAW = Path(r"D:\Work\Private\AI APP\Trading-with-AI\input\raw")
 OUT = HERE / "data"
 SYMBOLS = ["EURUSD", "GBPUSD", "XAUUSD", "BTCUSD", "USDJPY"]
-TIMEFRAMES = ["M5", "H1", "H4"]
+TIMEFRAMES = ["M5", "H1", "H4", "D1"]   # D1: G35 levels for H4 entries
 # Point and digits as on the EA's broker (research/bars_meta.json of 05/10/2026).
 START = {"XAUUSD": 1519862400, "BTCUSD": 1514764800}     # 2018-03-01, 2018-01-01 (dense data from here)
 SPEC = {"EURUSD": (0.00001, 5), "GBPUSD": (0.00001, 5), "XAUUSD": (0.01, 2), "BTCUSD": (0.01, 2), "USDJPY": (0.001, 3)}
@@ -28,6 +28,8 @@ SPEC = {"EURUSD": (0.00001, 5), "GBPUSD": (0.00001, 5), "XAUUSD": (0.01, 2), "BT
 
 def parse_line(line: str):
     parts = line.rstrip("\r\n").split("\t")
+    if len(parts) == 8 and parts[0][:1].isdigit():
+        parts.insert(1, "00:00:00")            # D1 and longer: no <TIME> column
     if len(parts) < 9 or not parts[0][:1].isdigit():
         return None
     y, mo, d = (int(x) for x in parts[0].split("."))
@@ -78,6 +80,15 @@ def time_year(t: int) -> int:
 
 
 def main(argv: list[str]) -> None:
+    if "--tf" in argv:                      # only these timeframes, e.g. --tf D1 (G35)
+        raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
+        for tf in argv[argv.index("--tf") + 1].split(","):
+            for sym in SYMBOLS:
+                files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
+                if files:
+                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv", START.get(sym, 0))
+                    print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
+        return
     if "--tickvol" in argv:                 # only the tick volume files (G28)
         raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
         for sym in SYMBOLS:

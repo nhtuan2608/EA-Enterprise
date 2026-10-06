@@ -25,6 +25,7 @@ S02_BASE = {
               "trigger_progress_atr": 0.05, "fail_on_close_inside_zone": True},
 }
 S02_BASE["SWING"] = dict(S02_BASE["SCALP"], config_version="s02-v1-swing-0.1.0", max_bars_to_retest=10)
+S02_BASE["SWING4"] = S02_BASE["SWING"]   # G35: same engine on H4 entries
 
 TM = {  # EEA_TradeProfileFor
     "SCALP": {"be_at_r": 1.0, "partial_at_r": 1.0, "partial_fraction": 0.5, "trail_start_r": 1.5,
@@ -32,15 +33,16 @@ TM = {  # EEA_TradeProfileFor
     "SWING": {"be_at_r": 1.0, "partial_at_r": 1.5, "partial_fraction": 0.33, "trail_start_r": 2.0,
               "trail": "STRUCTURE", "trail_atr_mult": 0.0, "structure_bars": 5, "timeout_bars": 120},
 }
-HORIZON = {"SCALP": 48, "SWING": 72}
-MIN_RR = {"SCALP": 1.5, "SWING": 2.0}
+TM["SWING4"] = TM["SWING"]   # the EA manages a trade on its own timeframe's bars
+HORIZON = {"SCALP": 48, "SWING": 72, "SWING4": 72}
+MIN_RR = {"SCALP": 1.5, "SWING": 2.0, "SWING4": 2.0}
 
 
 def engine_params(setup: str, profile: str, over: dict | None = None) -> dict:
     if setup == "S02":
         p = dict(S02_BASE[profile])
     else:
-        p = s04_oracle.config(profile)
+        p = s04_oracle.config("SWING" if profile == "SWING4" else profile)
     p.update(over or {})
     return p
 

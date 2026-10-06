@@ -24,12 +24,12 @@ CACHE = HERE / ".cache"
 
 ATR_PERIOD = 14
 WING = 3
-LEVEL_BARS = {"SCALP": 200, "SWING": 320}
-SWING_LOOKBACK = {"SCALP": 120, "SWING": 240}
+LEVEL_BARS = {"SCALP": 200, "SWING": 320, "SWING4": 320}   # SWING4 (G35): H4 entries, D1 levels
+SWING_LOOKBACK = {"SCALP": 120, "SWING": 240, "SWING4": 240}
 MIN_LEVEL_BARS = 48
-ENTRY_TF = {"SCALP": "M5", "SWING": "H1"}
-LEVEL_TF = {"SCALP": "H1", "SWING": "H4"}
-TF_SECONDS = {"M5": 300, "H1": 3600, "H4": 14400}
+ENTRY_TF = {"SCALP": "M5", "SWING": "H1", "SWING4": "H4"}
+LEVEL_TF = {"SCALP": "H1", "SWING": "H4", "SWING4": "D1"}
+TF_SECONDS = {"M5": 300, "H1": 3600, "H4": 14400, "D1": 86400}
 
 
 def load_bars(symbol: str, tf: str) -> list[dict]:
@@ -77,9 +77,9 @@ def server_offset_at(utc: int, current_offset: int, now_utc: int) -> int:
 
 def levels_from_bars(bars: list[dict], profile: str, now_server: int, offset: int) -> list:
     pts = lv.levels_previous_day(bars, now_server)
-    if profile == "SWING":
+    if profile.startswith("SWING"):
         pts += lv.levels_previous_week(bars, now_server)
-        pts += lv.levels_swings(bars, WING, SWING_LOOKBACK["SWING"])
+        pts += lv.levels_swings(bars, WING, SWING_LOOKBACK[profile])
     else:
         pts += lv.levels_session(bars, now_server, offset, 0, 7)
         pts += lv.levels_session(bars, now_server, offset, 7, 12)
