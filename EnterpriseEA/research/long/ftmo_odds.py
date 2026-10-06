@@ -94,7 +94,9 @@ def challenge(rows: list[dict], r: float, start: int, end: int | None = None, ru
         d, w = day_of(t["in"]), (t["in"] // DAY + 3) // 7
         if day_pnl[d] <= -lim["daily"] * CAPITAL or week_pnl[w] <= -lim["weekly"] * CAPITAL:
             continue
-        if any(o["symbol"] == t["symbol"] and (o["dir"] == -t["dir"] or o["dir"] == t["dir"]) for o in open_trades):
+        # EA rules: no opposite position on a symbol; one position per symbol, side and profile (G38).
+        if any(o["symbol"] == t["symbol"] and (o["dir"] == -t["dir"] or
+                                               o.get("profile", "SWING") == t.get("profile", "SWING")) for o in open_trades):
             continue
         risk = r * CAPITAL
         at_risk = sum(o["risk"] for o in open_trades) + risk

@@ -86,7 +86,7 @@ def main(argv: list[str]) -> None:
     if "--extra" in argv:                   # G36: H1, H4 and tick volume of EXTRA_SYMBOLS; meta gets them too
         raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
         for sym in EXTRA_SYMBOLS:
-            for tf in ("H1", "H4"):
+            for tf in ("H1", "H4", "D1"):
                 files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
                 if files:
                     years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv")
