@@ -75,6 +75,33 @@ class LivePathTests(unittest.TestCase):
         self.assertIn("#define EEA_T2_EXPECTED_NIGHTS 10.0", eng)
 
 
+class LiveSymbolsTests(unittest.TestCase):
+    """G41: T2 trades LIVE only on the listed trend assets; the other symbols keep recording in SHADOW."""
+
+    def setUp(self):
+        self.rt = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
+        self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+
+    def test_default_list_and_wiring(self):
+        self.assertIn('input string InpT2LiveSymbols           = "XAUUSD,BTCUSD";', self.shell)
+        init = self.shell.index("(int)InpT2Mode);")
+        self.assertLess(init, self.shell.index("g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;"))
+
+    def test_engine_mode_caps_unlisted_symbols(self):
+        fn = section(self.rt, "int EEA_StrategyRuntimeEngineMode(")
+        self.assertIn('if(runtime.setup[index]=="T2" && mode==EEA_S04_MODE_LIVE &&', fn)
+        self.assertIn("!EEA_StrategyRuntimeSymbolListed(runtime.t2_live_symbols,runtime.engines[index].canonical_symbol))", fn)
+        self.assertIn("mode=EEA_S04_MODE_SHADOW;", fn)
+
+        def listed(lst, sym):          # mirror of EEA_StrategyRuntimeSymbolListed
+            return any(p.strip().upper() == sym.upper() and p.strip() for p in lst.split(","))
+        self.assertTrue(listed("XAUUSD, btcusd", "BTCUSD"))
+        self.assertFalse(listed("XAUUSD,BTCUSD", "EURUSD"))
+        self.assertFalse(listed("", "XAUUSD"))
+        lst = section(self.rt, "bool EEA_StrategyRuntimeSymbolListed(")
+        self.assertIn("StringTrimLeft(s); StringTrimRight(s); StringToUpper(s);", lst)
+
+
 class LiveStatusTests(unittest.TestCase):
     def test_written_on_timer_never_on_tick(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")

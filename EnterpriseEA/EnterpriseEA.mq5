@@ -57,6 +57,7 @@ enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
 input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
 enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
 input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
+input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
@@ -1133,6 +1134,7 @@ int OnInit()
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
                                             (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,
                                             (int)InpT2Mode);
+      g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;   // G41: after the init, which resets the runtime
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
          Print("INIT_PARAMETERS_INCORRECT: strategy runtime configuration invalid: ",

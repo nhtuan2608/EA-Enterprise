@@ -224,7 +224,10 @@ def evaluate(ctx: dict, c: dict, setup: str, profile: str, model: str = "tm", tr
 COMMISSION = {"EURUSD": 0.00006, "GBPUSD": 0.00006, "USDJPY": 0.009, "XAUUSD": 0.06, "BTCUSD": 0.0,
               # G36: USD 6 per lot in the quote currency (approximate rates)
               "AUDUSD": 0.00006, "NZDUSD": 0.00006, "USDCAD": 0.000083, "USDCHF": 0.000048, "EURGBP": 0.000045,
-              "EURJPY": 0.009, "GBPJPY": 0.009, "AUDJPY": 0.009}
+              "EURJPY": 0.009, "GBPJPY": 0.009, "AUDJPY": 0.009,
+              # G41 (assumed, the export has no fees): USD 6 per lot on silver (5,000 oz) and oil (1,000 bbl);
+              # index and crypto CFDs pay the spread only
+              "XAGUSD": 0.0012, "USOUSD": 0.006, "SP500": 0.0, "ETHUSD": 0.0}
 
 
 def _apply_costs(ctx, res, risk, t, factor):

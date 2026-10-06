@@ -55,6 +55,7 @@ struct EEA_StrategyCandidateRuntime
    int scalp_mode;     // G26: cap for every SCALP engine (OFF, SHADOW or LIVE)
    int s02_mode;       // same values: OFF, SHADOW or LIVE
    int t2_mode;        // G38/G40: T2 (H4 Donchian, POSITION profile), OFF, SHADOW or LIVE
+   string t2_live_symbols;   // G41: comma list; a LIVE T2 engine of another symbol stays in SHADOW
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -81,6 +82,7 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.scalp_mode=EEA_S04_MODE_LIVE;
    runtime.s02_mode=EEA_S04_MODE_LIVE;
    runtime.t2_mode=EEA_S04_MODE_OFF;
+   runtime.t2_live_symbols="";
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
      {
@@ -132,9 +134,27 @@ int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,con
 
 // G26: the mode an engine actually runs in: its setup's mode, capped by the SCALP mode for
 // SCALP engines (OFF < SHADOW < LIVE). Every entry, shadow and ledger decision uses this.
+// G41: is the symbol in a comma list (spaces ignored, case-insensitive)?
+bool EEA_StrategyRuntimeSymbolListed(const string list,const string canonical)
+  {
+   string parts[];
+   const int n=StringSplit(list,',',parts);
+   string want=canonical; StringToUpper(want);
+   for(int i=0;i<n;i++)
+     {
+      string s=parts[i]; StringTrimLeft(s); StringTrimRight(s); StringToUpper(s);
+      if(s!="" && s==want) return true;
+     }
+   return false;
+  }
+
 int EEA_StrategyRuntimeEngineMode(const EEA_StrategyCandidateRuntime &runtime,const int index)
   {
-   const int mode=EEA_StrategyRuntimeSetupMode(runtime,runtime.setup[index]);
+   int mode=EEA_StrategyRuntimeSetupMode(runtime,runtime.setup[index]);
+   // G41: T2 trades live only on the listed trend assets; the others keep recording in SHADOW.
+   if(runtime.setup[index]=="T2" && mode==EEA_S04_MODE_LIVE &&
+      !EEA_StrategyRuntimeSymbolListed(runtime.t2_live_symbols,runtime.engines[index].canonical_symbol))
+      mode=EEA_S04_MODE_SHADOW;
    return runtime.profile[index]=="SCALP" ? MathMin(mode,runtime.scalp_mode) : mode;
   }
 

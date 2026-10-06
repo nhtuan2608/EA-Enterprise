@@ -87,6 +87,9 @@ def main() -> None:
         # G38: T2 as chosen by discovery.py (H4 Donchian 60, D1 EMA200 side, stop 2 ATR, ATR trail 3)
         "T2_POSITION": [t["r"] for s in ls.SYMBOLS for t in discovery.trades(
             "T2", {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}, s)],
+        # G41: T2 on the trend assets it may trade live (InpT2LiveSymbols default)
+        "T2_POSITION_TREND": [t["r"] for s in ("XAUUSD", "BTCUSD") for t in discovery.trades(
+            "T2", {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}, s)],
     }
     rng = np.random.default_rng(37)
     params = {"version": "edge-params-v1", "source": "research/long/edge_calibrate.py (G37)",

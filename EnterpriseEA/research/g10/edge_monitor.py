@@ -8,6 +8,7 @@ Streams, each compared with its own research results (edge_params.json, research
   S06B_SWING ảo lọc USD         S06B candidates with the USD flow aligned (shadow)
   S06B_SWING ảo lọc USD + bồi   the same with the +1R add (shadow, G29)
   T2_POSITION ảo                every T2 candidate taken one per symbol at a time (shadow, G38)
+  T2_POSITION ảo XAU+BTC        the same on the trend assets T2 may trade live (InpT2LiveSymbols, G41)
 Checks, in trade order since START_UTC:
   CUSUM     downward CUSUM S_n = max(0, S_{n-1} + k - r_n), k = research mean / 2; WARN above h_warn,
             ALARM above h_alarm (false alarm about once per 250 trades when the edge is intact)
@@ -32,6 +33,7 @@ PARAMS = HERE / "edge_params.json"
 START_UTC = int(datetime(2026, 10, 6, tzinfo=timezone.utc).timestamp())   # G29 fields and the 2-Step session
 LEVEL = {"NO_DATA": 0, "OK": 0, "WARN": 1, "ALARM": 2}
 MIN_MEAN_TEST = 20
+TREND_ASSETS = ("XAUUSD", "BTCUSD")   # G41: InpT2LiveSymbols default
 
 
 def load_params(path: Path = PARAMS) -> dict:
@@ -92,12 +94,14 @@ def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, l
     s04 = [e["r"] for e in ok if e["setup"] == "S04" and e["profile"] == "SWING"]
     s06 = [e for e in ok if e["setup"] == "S06B" and e["profile"] == "SWING" and e.get("usd") == "ALIGNED"]
     t2 = [e["r"] for e in ok if e["setup"] == "T2" and e["profile"] == "POSITION"]
+    t2_trend = [e["r"] for e in ok if e["setup"] == "T2" and e["profile"] == "POSITION" and e["symbol"] in TREND_ASSETS]
     return {
         "S04_SWING thật": ("S04_SWING", [float(t["realized_r"]) for t in real]),
         "S04_SWING ảo": ("S04_SWING", s04),
         "S06B_SWING ảo lọc USD": ("S06B_SWING_USD", [e["r"] for e in s06]),
         "S06B_SWING ảo lọc USD + bồi": ("S06B_SWING_USD_ADD", [e.get("r_add", e["r"]) for e in s06]),
         "T2_POSITION ảo": ("T2_POSITION", t2),
+        "T2_POSITION ảo XAU+BTC": ("T2_POSITION_TREND", t2_trend),
     }
 
 

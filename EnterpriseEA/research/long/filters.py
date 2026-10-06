@@ -34,7 +34,8 @@ import setups  # noqa: E402
 
 FILTERS = ["ADX_LOW", "ADX_HIGH", "D1_TREND", "USD_FLOW", "VOL_MID"]
 USD_SIGN = {"EURUSD": -1, "GBPUSD": -1, "XAUUSD": -1, "BTCUSD": -1, "USDJPY": 1,
-            "AUDUSD": -1, "NZDUSD": -1, "USDCAD": 1, "USDCHF": 1}   # G36; crosses have no USD side
+            "AUDUSD": -1, "NZDUSD": -1, "USDCAD": 1, "USDCHF": 1,   # G36; crosses have no USD side
+            "XAGUSD": -1, "ETHUSD": -1, "USOUSD": -1}            # G41; SP500 has no USD side
 S06B = {"box": 24, "max_box_atr": 3.0, "contraction": 0.85, "mode": "immediate", "sl": "far"}
 
 

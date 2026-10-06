@@ -18,7 +18,7 @@ PARAMS = em.load_params()
 
 class ParamsTests(unittest.TestCase):
     def test_every_stream_calibrated(self):
-        for key in ("S04_SWING", "S06B_SWING_USD", "S06B_SWING_USD_ADD", "T2_POSITION"):
+        for key in ("S04_SWING", "S06B_SWING_USD", "S06B_SWING_USD_ADD", "T2_POSITION", "T2_POSITION_TREND"):
             p = PARAMS[key]
             self.assertGreater(p["mean"], 0)
             self.assertAlmostEqual(p["k"], p["mean"] / 2)
@@ -33,7 +33,7 @@ class ParamsTests(unittest.TestCase):
     def test_monitor_streams_use_existing_params(self):
         names = em.streams([], [])
         self.assertEqual(set(names), {"S04_SWING thật", "S04_SWING ảo", "S06B_SWING ảo lọc USD", "S06B_SWING ảo lọc USD + bồi",
-                                      "T2_POSITION ảo"})
+                                      "T2_POSITION ảo", "T2_POSITION ảo XAU+BTC"})
         for key, _ in names.values():
             self.assertIn(key, PARAMS)
 

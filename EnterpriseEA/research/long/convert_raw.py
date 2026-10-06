@@ -27,6 +27,9 @@ SPEC = {"EURUSD": (0.00001, 5), "GBPUSD": (0.00001, 5), "XAUUSD": (0.01, 2), "BT
 # G36: more pairs exported 06/10/2026 (MT5 bar limit: 2024-02-20 .. 2026-10-06 only), out-of-sample checks.
 EXTRA_SYMBOLS = ["AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "EURJPY", "GBPJPY", "AUDJPY", "EURGBP"]
 SPEC.update({s: (0.001, 3) if s.endswith("JPY") else (0.00001, 5) for s in EXTRA_SYMBOLS})
+# G41: trend assets exported 06/10/2026 (same MT5 window), for the T2 asset-class check.
+TREND_SYMBOLS = ["XAGUSD", "ETHUSD", "USOUSD", "SP500"]
+SPEC.update({"XAGUSD": (0.001, 3), "ETHUSD": (0.01, 2), "USOUSD": (0.001, 3), "SP500": (0.01, 2)})
 
 
 def parse_line(line: str):
@@ -85,7 +88,7 @@ def time_year(t: int) -> int:
 def main(argv: list[str]) -> None:
     if "--extra" in argv:                   # G36: H1, H4 and tick volume of EXTRA_SYMBOLS; meta gets them too
         raw = Path(argv[argv.index("--raw") + 1]) if "--raw" in argv else RAW
-        for sym in EXTRA_SYMBOLS:
+        for sym in EXTRA_SYMBOLS + TREND_SYMBOLS:
             for tf in ("H1", "H4", "D1"):
                 files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
                 if files:
@@ -97,7 +100,7 @@ def main(argv: list[str]) -> None:
         meta = json.loads((OUT / "bars_meta.json").read_text(encoding="utf-8"))
         known = {s["symbol"] for s in meta["symbols"]}
         meta["symbols"] += [{"symbol": s, "broker": s, "point": SPEC[s][0], "digits": SPEC[s][1]}
-                            for s in EXTRA_SYMBOLS if s not in known]
+                            for s in EXTRA_SYMBOLS + TREND_SYMBOLS if s not in known]
         (OUT / "bars_meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
         return
     if "--tf" in argv:                      # only these timeframes, e.g. --tf D1 (G35)
