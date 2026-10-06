@@ -83,6 +83,7 @@ struct EEA_ManagedTrade
    int    action_seq;
    string last_reason;
    string exit_request;          // pending exit (structure/time stop) retried until the broker confirms
+   string add_candidate;         // G31: candidate id of the one pyramiding add sent for this trade ("" none)
    EEA_ExecutionIntent intent;   // entry intent: every management request reuses its lineage
   };
 
@@ -125,7 +126,7 @@ bool EEA_TradeManagerWrite(const string root,const EEA_ManagedTrade &t)
       EEA_PendingL("be_done",t.be_done ? 1 : 0)+EEA_PendingL("partial_done",t.partial_done ? 1 : 0)+
       EEA_PendingL("trail_active",t.trail_active ? 1 : 0)+EEA_PendingL("underperforming",t.underperforming ? 1 : 0)+
       EEA_PendingL("action_seq",t.action_seq)+EEA_PendingS("last_reason",t.last_reason)+
-      EEA_PendingS("exit_request",t.exit_request)+
+      EEA_PendingS("exit_request",t.exit_request)+EEA_PendingS("add_candidate",t.add_candidate)+
       EEA_PendingS("i_schema_version",i.schema_version)+EEA_PendingS("i_intent_id",i.intent_id)+
       EEA_PendingS("i_correlation_id",i.correlation_id)+EEA_PendingS("i_idempotency_key",i.idempotency_key)+
       EEA_PendingS("i_config_version",i.config_version)+EEA_PendingS("i_risk_policy_id",i.risk_policy_id)+
@@ -183,6 +184,7 @@ bool EEA_TradeManagerParse(const string json,EEA_ManagedTrade &t)
    t.action_seq=(int)StringToInteger(EEA_RiskLedgerField(json,"action_seq"));
    t.last_reason=EEA_RiskLedgerField(json,"last_reason");
    t.exit_request=EEA_RiskLedgerField(json,"exit_request");
+   t.add_candidate=EEA_RiskLedgerField(json,"add_candidate");
    EEA_ExecutionIntent i=t.intent;
    i.schema_version=EEA_RiskLedgerField(json,"i_schema_version");
    i.intent_id=EEA_RiskLedgerField(json,"i_intent_id");
@@ -269,7 +271,7 @@ bool EEA_TradeManagerRegister(EEA_TradeManagerRuntime &rt,const string root,cons
    t.zone_low=zone_low; t.zone_high=zone_high; t.registered_at_utc=(long)TimeGMT(); t.opened_at_utc=0; t.exited_at_utc=0;
    t.last_bar_time=0; t.bars=0; t.mfe_r=0.0; t.mae_r=0.0; t.bar_05r=-1; t.bar_1r=-1; t.bar_2r=-1;
    t.state="ENTERED"; t.be_done=false; t.partial_done=false; t.trail_active=false; t.underperforming=false;
-   t.action_seq=0; t.last_reason="REGISTERED"; t.exit_request=""; t.intent=intent;
+   t.action_seq=0; t.last_reason="REGISTERED"; t.exit_request=""; t.add_candidate=""; t.intent=intent;
    rt.items[slot]=t;
    if(!EEA_TradeManagerWrite(root,t)) { reason="TRADE_MANAGER_PERSISTENCE_FAILED"; return false; }
    reason="TRADE_MANAGER_REGISTERED";
