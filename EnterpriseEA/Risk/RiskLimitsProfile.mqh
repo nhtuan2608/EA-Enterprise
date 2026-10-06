@@ -57,6 +57,22 @@ bool EEA_RiskLimitsForPolicy(const string policy_id,EEA_RiskLimits &l,string &re
    l.currency_exposure_fraction=2.5*l.per_trade_fraction;
    l.internal_weekly_fraction=MathMin(2.0*l.internal_daily_fraction,0.4*l.firm_overall_fraction);
    l.safety_buffer_fraction=l.per_trade_fraction;
+   if(g_risk_per_trade_override>0.0)
+     {
+      // Evaluation phase (G42): the same ratios as the derived set (open 4x, day 4x, week 8x the risk of
+      // one trade) around the requested risk, but never beyond 80% of the firm's daily / overall
+      // allowance, and one trade never above half the internal daily limit.
+      const double day_ceiling=0.8*l.firm_daily_fraction;
+      const double p=MathMin(MathMin(g_risk_per_trade_override,EEA_RISK_OVERRIDE_CAP),0.5*day_ceiling);
+      l.per_trade_fraction=p;
+      l.internal_daily_fraction=MathMin(4.0*p,day_ceiling);
+      l.total_open_fraction=l.internal_daily_fraction;
+      l.currency_exposure_fraction=2.5*p;
+      l.internal_weekly_fraction=MathMin(2.0*l.internal_daily_fraction,0.8*l.firm_overall_fraction);
+      l.safety_buffer_fraction=p;
+      reason="RISK_LIMITS_EVALUATION_OVERRIDE";
+      return true;
+     }
    reason="RISK_LIMITS_DERIVED";
    return true;
   }
