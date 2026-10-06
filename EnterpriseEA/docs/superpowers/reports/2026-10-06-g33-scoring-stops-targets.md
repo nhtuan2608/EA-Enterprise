@@ -49,3 +49,17 @@ chỉnh SL/TP không tăng được một cách ổn định. Muốn lãi nhiề
 độc lập** (cùng setup trên nhiều symbol/khung hơn) thay vì cố chọn lệnh giỏi hơn:
 - S06B và S04 trên khung H4 (dữ liệu H4 2010–2025 đã có);
 - S06B trên thêm cặp tiền nếu xuất thêm dữ liệu từ MT5.
+
+## 3. (G33b) Kiểm tra lại với mô hình mạnh hơn
+
+`research/long/scoring_ml.py` (scikit-learn, LightGBM; người dùng cho phép cài thư viện 06/10). Logistic và
+LightGBM (nông, điều chuẩn mạnh), mỗi mô hình theo hai cách: học một lần trên 2010–2016, và học lại mỗi năm
+trên mọi năm trước (walk-forward 2014–2025).
+
+- AUC (0,5 = không có khả năng phân biệt) trên 2017–2020 / 2021–2025: S04 0,28–0,52, S06B 0,38–0,61, S06
+  0,48–0,51, S02 0,36–0,51. Không mô hình nào ổn định trên 0,55 ở cả hai giai đoạn.
+- "Giữ 2/3 điểm cao" thắng việc bỏ ngẫu nhiên đúng 1/16 ô (LightGBM, S06, 2021–2025, +0,08 so với +0,08).
+- LightGBM dùng nhiều nhất: độ lớn nến vào lệnh, thứ hạng ATR, RSI, khoảng trống tới mức giá, tick volume.
+
+Kết luận G33 giữ nguyên: với các đặc trưng lấy từ giá MT5, không mô hình nào dự đoán được lệnh nào của
+S04/S06B sẽ thắng tốt hơn may rủi. Lợi thế nằm ở bản thân setup, không ở việc chọn lệnh.
