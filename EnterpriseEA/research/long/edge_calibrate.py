@@ -23,6 +23,7 @@ import long_study as ls  # sets the research data path and sys.path first
 import exits  # noqa: E402
 import filters  # noqa: E402
 import pyramid  # noqa: E402
+import discovery  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "g10" / "edge_params.json"
 SIMS = 4000
@@ -83,6 +84,9 @@ def main() -> None:
         "S04_SWING": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT)["r"] for t in sig["S04"]],
         "S06B_SWING_USD": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT)["r"] for t in sig["S06B_USD"]],
         "S06B_SWING_USD_ADD": [pyramid.run(c[t["symbol"]], t, pyramid.CURRENT, 1.0)["r"] for t in sig["S06B_USD"]],
+        # G38: T2 as chosen by discovery.py (H4 Donchian 60, D1 EMA200 side, stop 2 ATR, ATR trail 3)
+        "T2_POSITION": [t["r"] for s in ls.SYMBOLS for t in discovery.trades(
+            "T2", {"n": 60, "stop": 2.0, "trail": 3.0, "d1": True, "timeout": 180}, s)],
     }
     rng = np.random.default_rng(37)
     params = {"version": "edge-params-v1", "source": "research/long/edge_calibrate.py (G37)",

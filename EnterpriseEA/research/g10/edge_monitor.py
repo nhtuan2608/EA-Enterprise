@@ -7,6 +7,7 @@ Streams, each compared with its own research results (edge_params.json, research
   S04_SWING ảo                  every S04 SWING candidate, as if it had run alone (candidates_eval)
   S06B_SWING ảo lọc USD         S06B candidates with the USD flow aligned (shadow)
   S06B_SWING ảo lọc USD + bồi   the same with the +1R add (shadow, G29)
+  T2_POSITION ảo                every T2 candidate taken one per symbol at a time (shadow, G38)
 Checks, in trade order since START_UTC:
   CUSUM     downward CUSUM S_n = max(0, S_{n-1} + k - r_n), k = research mean / 2; WARN above h_warn,
             ALARM above h_alarm (false alarm about once per 250 trades when the edge is intact)
@@ -90,11 +91,13 @@ def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, l
     ok.sort(key=lambda e: e["time"])
     s04 = [e["r"] for e in ok if e["setup"] == "S04" and e["profile"] == "SWING"]
     s06 = [e for e in ok if e["setup"] == "S06B" and e["profile"] == "SWING" and e.get("usd") == "ALIGNED"]
+    t2 = [e["r"] for e in ok if e["setup"] == "T2" and e["profile"] == "POSITION"]
     return {
         "S04_SWING thật": ("S04_SWING", [float(t["realized_r"]) for t in real]),
         "S04_SWING ảo": ("S04_SWING", s04),
         "S06B_SWING ảo lọc USD": ("S06B_SWING_USD", [e["r"] for e in s06]),
         "S06B_SWING ảo lọc USD + bồi": ("S06B_SWING_USD_ADD", [e.get("r_add", e["r"]) for e in s06]),
+        "T2_POSITION ảo": ("T2_POSITION", t2),
     }
 
 
@@ -126,12 +129,7 @@ def main(argv: list[str]) -> None:
     now = int(datetime.now(timezone.utc).timestamp())
     trades = wr.load_trades(wr.trades_path(), START_UTC, now + 86400)
     rows = ce.load(ce.ledger_path(), START_UTC)
-    ctxs, evaluated = {}, []
-    for row in rows:
-        key = (row["symbol"], row["profile"])
-        if key not in ctxs:
-            ctxs[key] = context.build(row["symbol"], row["profile"], ce.FROM_UTC)
-        evaluated.append(ce.evaluate_row(row, ctxs[key]))
+    evaluated = ce.evaluate_rows(rows)
     result = run(trades, evaluated, load_params())
     out = context.DATA.parent / "current" / "edge_monitor.json"
     out.parent.mkdir(parents=True, exist_ok=True)

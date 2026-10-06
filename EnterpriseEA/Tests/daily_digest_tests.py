@@ -31,6 +31,7 @@ class DigestCase(unittest.TestCase):
         self.now = [local(2027, 3, 10, 12, 0)]
         self.api = FakeApi()
         cfg = tg.load_config(None)
+        cfg["notify"]["edge"] = False      # G37: no real edge_monitor.py run here
         cfg.update(operators=[1], viewers=[2], digest_local="23:30")
         self.gw = tg.Gateway(self.root, cfg, self.api, "", clock=lambda: self.now[0])
         day = local(2027, 3, 10, 0, 0)

@@ -55,3 +55,17 @@ Thêm T2 giúp qua FTMO nhanh hơn ở **rủi ro thấp hơn** (0,5% thay vì 1
    từ MT5 để kiểm tra ngoài mẫu.
 3. T1, T6: giữ làm ứng viên phụ (p 0,03–0,04, chưa qua ngưỡng đa kiểm định); không dựng lúc này.
 4. Mức rủi ro đề xuất khi T2 đã khớp forward: FTMO 1-Step 0,5%; CUSTOM 0,5%.
+
+## 4. Dựng T2 trong EA (SHADOW) — audit
+
+- Engine `Setups/DonchianTrend.mqh` (cùng bản ghi engine với S02/S04/S06: checkpoint `_t2`, sổ candidate, log
+  `logs/t2_shadow.jsonl`), quét `EEA_StrategyRuntimeScanT2Engine` (H4 đóng, kênh 60 nến trước, ATR14, phía EMA200 trên
+  1.000 nến D1, bù 30 nến H4 sau khi khởi động lại). Input `InpT2Mode` chỉ có OFF/SHADOW (mặc định SHADOW).
+- Không thể vào lệnh thật: input không có LIVE, runtime giới hạn ở SHADOW, vòng vào lệnh bỏ qua engine không LIVE (có test).
+- Kế hoạch lệnh shadow: dừng lỗ đúng 2 ATR từ giá đóng tín hiệu; chốt lời 10R chỉ để các kiểm tra rủi ro chạy (research
+  thoát bằng trail ATR 3, không có TP).
+- Khớp research: mirror Python (`Tests/t2_oracle.py`) cho cùng tín hiệu với `discovery.sig_t2` 99,8–100% trên 5 symbol
+  (EURUSD 609/610, các symbol khác 100%).
+- Kết quả ảo: `candidates_eval` đi T2 trên nến H4 EA xuất, thoát như research, mỗi symbol một lệnh; `edge_monitor` có dòng
+  `T2_POSITION ảo` (ARL0 256 lệnh, phát hiện mất lợi thế sau trung vị 84 lệnh); `/week` so với kỳ vọng +0,17R.
+- 657 test đạt, compile MetaEditor 0/0. Cần nạp lại EA trên chart để T2 bắt đầu chạy ngầm.

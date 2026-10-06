@@ -10,6 +10,9 @@ Groups: EXECUTED, SHADOW_MODE, and one group per blocking reason. "ALL" is the s
 had run alone. A candidate whose trade cannot finish inside the exported bars is NO_BARS_YET.
 G29: S06B also gets ALL_ADD_1R (the same candidates with one add at +1R, pyramid.py, research
 G28) and USD_ALIGNED / USD_COUNTER / USD_UNKNOWN (the USD flow flag the EA logged, research G27).
+G38: T2 (POSITION, H4) is walked on the exported H4 bars with its research exit (ATR trail 3, at most
+180 bars x 3, gap fills at the open); one T2 trade per symbol at a time, so a T2 candidate that starts
+while the previous T2 trade of its symbol is still open is T2_POSITION_OPEN (not counted).
 """
 from __future__ import annotations
 
@@ -31,6 +34,8 @@ TRADE = {
 }
 OUT = Path(__file__).resolve().parent / "results"
 ADD_AT = {"S06B": 1.0}      # G28/G29: virtual add (pyramiding) at +1R
+T2_RULE = {"target": None, "be": None, "partial": None, "trail": ("ATR", 0.0, 3.0), "timeout": 180,
+           "struct_exit": False}   # research/long/discovery.py trend_rule, T2 set (G38)
 
 
 def ledger_path() -> Path:
@@ -57,11 +62,73 @@ def group_of(row: dict) -> str:
     return reason.split(":", 1)[0] if reason.startswith("NOT_EVALUATED") else reason
 
 
+def t2_context(symbol: str) -> dict:
+    """Exported H4 bars with the research ATR (simple mean of 14 true ranges) for the T2 walk."""
+    bars = context.load_bars(symbol, "H4")
+    for i in range(len(bars)):
+        bars[i]["atr"] = context.atr_at(bars, i)
+    return {"entry": bars, "point": float(context.meta()["by_symbol"][symbol]["point"]), "symbol": symbol}
+
+
+def context_for(row: dict, cache: dict) -> dict:
+    key = (row["symbol"], row["profile"])
+    if key not in cache:
+        cache[key] = t2_context(row["symbol"]) if row["profile"] == "POSITION" else \
+            context.build(row["symbol"], row["profile"], FROM_UTC)
+    return cache[key]
+
+
+def evaluate_t2(row: dict, ctx: dict, base: dict) -> dict:
+    bars, point = ctx["entry"], ctx["point"]
+    i = next((k for k, b in enumerate(bars) if b["time"] == int(row["bar_time"])), None)
+    if i is None:
+        return dict(base, status="NO_BARS_YET")
+    d = int(row["direction"])
+    entry = bars[i]["close"] + (bars[i]["spread"] * point if d == 1 else 0.0)
+    stop = float(row["extreme"])
+    if d * (entry - stop) <= 0:
+        return dict(base, status="STRUCTURE_INVALID")
+    t = {"symbol": row["symbol"], "i": i, "dir": d, "entry": entry, "stop": stop, "target": 0.0, "zl": 0.0, "zh": 0.0}
+    gap = pyramid.GAP_FILL
+    pyramid.GAP_FILL = True
+    try:
+        res = pyramid.run(ctx, t, T2_RULE)
+    finally:
+        pyramid.GAP_FILL = gap
+    if res["exit_i"] >= len(bars) - 1:
+        return dict(base, status="NO_BARS_YET")
+    return dict(base, status="EVALUATED", r=res["r"], exit_time=bars[res["exit_i"]]["time"],
+                usd=row.get("usd_alignment", "UNKNOWN"))
+
+
+def mark_t2_overlaps(evaluated: list[dict]) -> None:
+    """One T2 trade per symbol at a time (research discovery.trades): later overlapping ones drop out."""
+    busy = {}
+    for e in sorted((e for e in evaluated if e["setup"] == "T2"), key=lambda e: e["time"]):
+        until = busy.get(e["symbol"], 0)
+        if e["time"] <= until:
+            e["status"] = "T2_POSITION_OPEN"
+            continue
+        if e["status"] == "EVALUATED":
+            busy[e["symbol"]] = e["exit_time"]
+        elif e["status"] == "NO_BARS_YET":
+            busy[e["symbol"]] = 10 ** 12
+
+
+def evaluate_rows(rows: list[dict]) -> list[dict]:
+    cache: dict = {}
+    out = [evaluate_row(r, context_for(r, cache)) for r in rows]
+    mark_t2_overlaps(out)
+    return out
+
+
 def evaluate_row(row: dict, ctx: dict) -> dict:
     """Virtual result of one ledger line against a research context of its symbol/profile."""
     setup, profile = row["setup"], row["profile"]
     base = {"candidate_id": row["candidate_id"], "setup": setup, "profile": profile, "symbol": row["symbol"],
             "group": group_of(row), "time": int(row["bar_time"]), "r": 0.0}
+    if setup == "T2":
+        return evaluate_t2(row, ctx, base)
     bars = ctx["entry"]
     index = {b["time"]: k for k, b in enumerate(bars)}
     i = index.get(int(row["bar_time"]))
@@ -108,12 +175,7 @@ def main(argv: list[str]) -> None:
     if not rows:
         print("no candidates in", ledger_path())
         return
-    ctxs, evaluated = {}, []
-    for row in rows:
-        key = (row["symbol"], row["profile"])
-        if key not in ctxs:
-            ctxs[key] = context.build(row["symbol"], row["profile"], FROM_UTC)
-        evaluated.append(evaluate_row(row, ctxs[key]))
+    evaluated = evaluate_rows(rows)
     rep = report(evaluated)
     OUT.mkdir(exist_ok=True)
     (OUT / "candidates_eval.json").write_text(json.dumps({"report": rep, "rows": evaluated}, indent=1), encoding="utf-8")

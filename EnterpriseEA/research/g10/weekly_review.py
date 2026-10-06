@@ -23,7 +23,8 @@ import context
 
 # Out-of-sample expectancy from the G10 study (R per trade, costs included) for comparison.
 RESEARCH = {"S02_SCALP": -0.36, "S02_SWING": -0.14, "S04_SCALP": -0.22, "S04_SWING": 0.0, "S06_SWING": 0.10,
-            "S06B_SWING": 0.29}  # G23 test 2021-2025
+            "S06B_SWING": 0.29,  # G23 test 2021-2025
+            "T2_POSITION": 0.17}  # G38 test 2021-2025 (gap fills)
 
 
 def trades_path() -> Path:
@@ -119,12 +120,7 @@ def main(argv: list[str]) -> None:
     s, u = int(since.timestamp()), int(until.timestamp())
     trades = load_trades(trades_path(), s, u)
     rows = [r for r in ce.load(ce.ledger_path(), s) if int(r.get("closed_utc", 0)) < u]
-    ctxs, evaluated = {}, []
-    for row in rows:
-        key = (row["symbol"], row["profile"])
-        if key not in ctxs:
-            ctxs[key] = context.build(row["symbol"], row["profile"], ce.FROM_UTC)
-        evaluated.append(ce.evaluate_row(row, ctxs[key]))
+    evaluated = ce.evaluate_rows(rows)
     text = markdown(build(trades, evaluated), s, u) + ai_section(u)
     ce.OUT.mkdir(exist_ok=True)
     (ce.OUT / f"weekly_review_{until.strftime('%Y-%m-%d')}.md").write_text(text, encoding="utf-8")

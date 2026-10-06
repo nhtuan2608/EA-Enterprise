@@ -297,7 +297,7 @@ void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
 bool EEA_ControlledLiveTriggerBar(const string broker_symbol,const string timeframe,const datetime bar_time,
                                   MqlRates &bar)
   {
-   ENUM_TIMEFRAMES tf=(timeframe=="H1" ? PERIOD_H1 : PERIOD_M5);
+   ENUM_TIMEFRAMES tf=(timeframe=="H1" ? PERIOD_H1 : timeframe=="H4" ? PERIOD_H4 : PERIOD_M5);
    int shift=iBarShift(broker_symbol,tf,bar_time,true);
    if(shift<0) return false;
    MqlRates rates[];
@@ -349,6 +349,14 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
    // S06 enters at market after the confirmation close (research), only while price is
    // still outside the box and has not run more than the chase limit past that close.
+   // G38 T2 (shadow): market at the breakout close, while price is still beyond the channel edge.
+   if(strategy.setup[index]=="T2")
+     {
+      if(direction*(price-engine.key_level)<=0.0) { reason="ENTRY_AUTO_T2_BACK_INSIDE_CHANNEL"; return -1; }
+      if(direction*(price-trigger.close)>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
+      reason="ENTRY_AUTO_MARKET_T2_BREAKOUT";
+      return EEA_S02_ENTRY_MARKET;
+     }
    if(strategy.setup[index]=="S06" || strategy.setup[index]=="S06B")
      {
       if(direction*(price-engine.key_level)<=0.0) { reason="ENTRY_AUTO_S06_BACK_INSIDE_BOX"; return -1; }
@@ -511,6 +519,9 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
      { reason="LIVE_STRUCTURE_INVALIDATION_INVALID"; return false; }
    double buffer=MathMax(0.10*engine.signal_atr,1.5*spread_price);
    if(buffer<=0.0) { reason="LIVE_STOP_BUFFER_INVALID"; return false; }
+   // G38 T2: the stop is EEA_T2_STOP_ATR x ATR from the signal close (research), so the buffer is
+   // taken inside the invalidation and the stop lands on the anchor.
+   if(strategy.setup[index]=="T2") invalidation+=direction*buffer;
    double stop=(direction==1 ? invalidation-buffer : invalidation+buffer);
    double risk_distance=MathAbs(entry-stop);
 
@@ -531,6 +542,12 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
          if(usd==0) { reason="S06B_USD_FLOW_UNKNOWN"; return false; }
         }
       target=entry+direction*EEA_S06_TARGET_R*risk_distance;
+     }
+   else if(strategy.setup[index]=="T2")
+     {
+      // G38 T2 exits by an ATR trail in the research (no target). SHADOW only: a far cap lets the
+      // shared risk checks run and the shadow log show the would-be volume; never sent.
+      target=entry+direction*EEA_T2_SHADOW_TARGET_R*risk_distance;
      }
    else
      {
@@ -1057,7 +1074,8 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
       EEAEvent_AddReason(event,reason);
       event.details_json=details;
       audit.Append(event,"EA_"+setup+"_SHADOW");
-      EEA_WriteAtomicAppendText(observer.root+(setup=="S04" ? "/logs/s04_shadow.jsonl" :
+      EEA_WriteAtomicAppendText(observer.root+(setup=="T2" ? "/logs/t2_shadow.jsonl" :
+                                               setup=="S04" ? "/logs/s04_shadow.jsonl" :
                                                setup=="S06" ? "/logs/s06_shadow.jsonl" :
                                                setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
                                 details+"\r\n");
