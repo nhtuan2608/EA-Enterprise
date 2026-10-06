@@ -38,7 +38,7 @@ ETH, dầu xác nhận ngoài mẫu. Kỳ vọng thận trọng nên lấy mức
   vẫn chạy SHADOW để thu bằng chứng (`EEA_StrategyRuntimeEngineMode`).
 - `edge_monitor`: thêm dòng `T2_POSITION ảo XAU+BTC` (ngưỡng từ 243 lệnh nghiên cứu XAU/BTC; vì kỳ vọng nghiên cứu cao
   +0,64R nên dòng này báo động sớm nếu thực tế kém hơn nhiều).
-- 676 test đạt, compile 0/0.
+- 671 test đạt, compile 0/0.
 
 ## Bước tiếp đề xuất
 
