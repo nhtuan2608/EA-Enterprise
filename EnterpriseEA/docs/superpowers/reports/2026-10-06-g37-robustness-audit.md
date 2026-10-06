@@ -29,3 +29,26 @@ Công cụ: `research/long/robustness.py` (số liệu đầy đủ: `research/l
 ## Giám sát sau khi chạy thật
 
 `edge_monitor.py` (CUSUM giảm với k = TB/2, ARL0 ≥ 250 lệnh cho báo động, ≥ 60 cho cảnh báo; sụt vốn so p95/p99 nghiên cứu; cận trên 90% của R TB < 0 từ 20 lệnh) so lệnh thật và candidate ảo với tham số trong `edge_params.json`. Chỉ báo cáo; chuyển về SHADOW là quyết định của người vận hành.
+
+## Bổ sung: lưới hộp mịn (`box_fine.py`, hộp 18–30 từng nến)
+
+Lưới thô (bước 4 nến) rơi vào hộp 20 và 28, nằm ngoài vùng tốt, nên trông như một đỉnh đơn lẻ. Lưới mịn:
+hộp 23 và 24 đều dương ở cả 3 giai đoạn (23: +0,33 / +0,32 / +0,26R; 24: +0,32 / +0,30 / +0,39R); vùng 21–26 dương
+ở 2010–2016 và 2021–2025; riêng 2017–2020 chỉ dương ở 18–24. Đây là một vùng hẹp nhưng không phải một con số
+đơn lẻ, và walk-forward luôn tự chọn 23–24 (một lần 26). Kết luận giữ nguyên: dùng hộp 24, kỳ vọng thận trọng
+khoảng +0,15..0,26R mỗi lệnh.
+
+## Cảnh báo qua Telegram (`bridge/telegram_gateway.py`)
+
+- `/edge`: chạy `edge_monitor.py` (giới hạn 1 lần mỗi 10 phút) và trả kết quả từng dòng theo dõi.
+- Kiểm tra hằng ngày lúc `edge_local` (mặc định 08:05 giờ máy, tắt bằng `notify.edge=false`): chỉ nhắn khi một
+  dòng chuyển xấu hơn (OK → CẢNH BÁO/BÁO ĐỘNG, CẢNH BÁO → BÁO ĐỘNG), kèm đề xuất chuyển về SHADOW. Mỗi ngày một lần.
+- Monitor chỉ báo; không tự đổi chế độ setup.
+
+## Audit phần mềm (bổ sung)
+
+- 640 test Python đạt (thêm test /edge, kiểm tra hằng ngày chỉ nhắn khi xấu hơn, báo động hiếm khi lợi thế còn
+  nguyên: ≤ 10% sau 40 lệnh với trung bình và độ lệch như nghiên cứu, và bắt được phần lớn chuỗi 80 lệnh lỗ).
+- Các bộ test gateway không còn chạy `edge_monitor.py` thật (không còn ResourceWarning).
+- Chạy thật trên dữ liệu EA 06/10: monitor đọc sổ candidate và lệnh thật, ghi `current/edge_monitor.json` (chưa có
+  lệnh nào từ 06/10).

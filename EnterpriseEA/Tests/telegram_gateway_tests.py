@@ -52,6 +52,7 @@ class GatewayCase(unittest.TestCase):
         self.api, self.clock = FakeApi(), Clock()
         self.config = tg.load_config(None)
         self.config.update(operators=[OP], viewers=[VIEWER])
+        self.config["notify"]["edge"] = False      # G37: no real edge_monitor.py run in the shared harness
         (self.root / "current").mkdir()
         self.write("current/operator_mode.json", {"document_version": "operator-mode-v1.0.0", "mode": "RUNNING",
                                                   "operator_paused": False, "account_id": "fnv1a32:abc",

@@ -100,6 +100,7 @@ class RunTests(unittest.TestCase):
             import telegram_gateway as tg
             from telegram_gateway_tests import FakeApi, msg
             cfg = tg.load_config(None)
+            cfg["notify"]["edge"] = False      # G37: no real edge_monitor.py run here
             cfg.update(operators=[1])
             api = FakeApi()
             gw = tg.Gateway(root, cfg, api, "", clock=lambda: T0 + 3600)

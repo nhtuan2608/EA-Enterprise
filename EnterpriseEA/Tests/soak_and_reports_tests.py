@@ -91,6 +91,7 @@ class GatewayReportTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.api, self.clock = FakeApi(), Clock()
         cfg = tg.load_config(None)
+        cfg["notify"]["edge"] = False      # G37: no real edge_monitor.py run here
         cfg.update(operators=[111], viewers=[222])
         self.procs = []
         self.gw = tg.Gateway(self.root, cfg, self.api, "", clock=self.clock, runner=self.runner)

@@ -51,8 +51,9 @@ DEFAULT_CONFIG = {
     "ai_provider": "claude",
     "commands_per_minute": 20,
     "asks_per_hour": 6,
-    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True},
+    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True},
     "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
+    "edge_local": "08:05",      # G37: daily edge check time; a worse status is pushed to every user
 }
 
 TRADE_EVENTS = {"TRADE_ENTERED": "VÀO LỆNH", "TRADE_MANAGEMENT": "QUẢN LÝ LỆNH",
@@ -66,6 +67,7 @@ REPORT_TYPES = {"EA_DIAGNOSTICS": "Chẩn đoán EA", "NEWS_DATA_REVIEW": "Revie
 HELP_VIEWER = ("/status - trạng thái EA\n"
                "/trades - các lệnh đã đóng gần đây\n"
                "/week - báo cáo tuần (lệnh thật và kết quả ảo theo setup)\n"
+               "/edge - lợi thế còn như nghiên cứu không (CUSUM, sụt giảm, R trung bình)\n"
                "/soak - tài nguyên MT5 và độ ổn định EA\n"
                "/ai - chất lượng vận hành AI 7 ngày và các cổng nâng AI\n"
                "/today - tóm tắt hôm nay (lệnh, candidate, tin, cảnh báo)\n"
@@ -142,7 +144,7 @@ def clip(text: str, limit: int = MAX_MESSAGE) -> str:
 # Gateway
 # ---------------------------------------------------------------------------
 class Gateway:
-    def __init__(self, root: Path, config: dict, api, token: str = "", clock=now, runner=None):
+    def __init__(self, root: Path, config: dict, api, token: str = "", clock=now, runner=None, edge_runner=None):
         self.root = Path(root)
         self.config = config
         self.api = api
@@ -157,13 +159,14 @@ class Gateway:
         self.viewers = {int(x) for x in config.get("viewers", [])} - self.operators
         self.state = self._load_state()
         self.runner = runner or self._spawn_week
+        self.edge_runner = edge_runner or self._spawn_edge
         self.jobs = {}          # running /week reports (in memory: a restart drops them)
 
     # -- state and log ------------------------------------------------------
     def _load_state(self) -> dict:
         base = {"offset": 0, "sequence": 0, "seen_updates": [], "pending_commands": {}, "pending_asks": {},
                 "outbox": [], "audit_pos": 0, "audit_size": 0, "reports_seen": {}, "news_seen": [],
-                "alerts_at": {}, "rate": {}, "asks": {}}
+                "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": ""}
         loaded = read_json(self.state_path)
         if isinstance(loaded, dict):
             base.update(loaded)
@@ -274,6 +277,8 @@ class Gateway:
             self.send(uid, self.digest_text(start, end), mid)
         elif cmd == "/week":
             self.cmd_week(uid, mid)
+        elif cmd == "/edge":
+            self.cmd_edge(uid, mid)
         elif cmd == "/ask":
             self.cmd_ask(uid, mid, arg.strip(), uid_update)
         elif cmd in ("/pause", "/resume", "/confirm"):
@@ -599,6 +604,65 @@ class Gateway:
         return subprocess.Popen([sys.executable, str(script)], cwd=str(script.parent), env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+    def _spawn_edge(self):
+        script = HERE.parent / "research" / "g10" / "edge_monitor.py"
+        env = dict(os.environ, EEA_RESEARCH_DATA=str(self.root / "research"), PYTHONIOENCODING="utf-8")
+        return subprocess.Popen([sys.executable, str(script)], cwd=str(script.parent), env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def cmd_edge(self, uid: int, mid):
+        if any(j.get("kind") == "edge" and j["chat_id"] == uid for j in self.jobs.values()):
+            self.send(uid, "Kiểm tra lợi thế đang chạy, chờ kết quả.", mid)
+            return
+        if not self.rate_ok(uid, "edge", WEEK_PER_10MIN, 600):
+            self.send(uid, "/edge chỉ chạy 1 lần mỗi 10 phút.", mid)
+            return
+        try:
+            proc = self.edge_runner()
+        except OSError as exc:
+            self.send(uid, f"Không chạy được kiểm tra lợi thế: {exc}", mid)
+            return
+        self.jobs[id(proc)] = {"proc": proc, "chat_id": uid, "reply_to": mid, "started": self.clock(), "kind": "edge"}
+        self.send(uid, "Đang kiểm tra lợi thế (có thể 1-2 phút)...", mid)
+
+    def notify_edge(self):
+        """G37: once a day after edge_local, run the edge monitor; push only a status that got worse."""
+        if not self.config["notify"].get("edge"):
+            return
+        try:
+            hh, mm = (int(x) for x in str(self.config.get("edge_local", "08:05")).split(":", 1))
+        except ValueError:
+            return
+        lt = time.localtime(self.clock())
+        today = time.strftime("%Y-%m-%d", lt)
+        if (lt.tm_hour, lt.tm_min) < (hh, mm) or self.state.get("edge_day") == today:
+            return
+        if any(j.get("kind") == "edge_auto" for j in self.jobs.values()):
+            return
+        self.state["edge_day"] = today
+        try:
+            proc = self.edge_runner()
+        except OSError as exc:
+            self.log("EDGE_CHECK_FAILED", detail=str(exc)[:200])
+            return
+        self.jobs[id(proc)] = {"proc": proc, "chat_id": None, "reply_to": None, "started": self.clock(),
+                               "kind": "edge_auto"}
+
+    def edge_changes(self) -> list:
+        """Streams whose status is worse than at the last daily check (current/edge_monitor.json)."""
+        rep = read_json(self.root / "current" / "edge_monitor.json") or {}
+        level = {"NO_DATA": 0, "OK": 0, "WARN": 1, "ALARM": 2}
+        out = []
+        for name, r in (rep.get("streams") or {}).items():
+            new = r.get("status", "NO_DATA")
+            old = self.state["edge_status"].get(name, "OK")
+            if level.get(new, 0) > level.get(old, 0):
+                why = "; ".join(r.get("reasons", []))
+                out.append(f"{'BÁO ĐỘNG' if new == 'ALARM' else 'CẢNH BÁO'} lợi thế {name}: {r.get('n', 0)} lệnh, "
+                           f"TB {r.get('mean', 0):+.2f}R (nghiên cứu {r.get('research_mean', 0):+.2f}R) - {why}")
+            self.state["edge_status"][name] = new
+        return out
+
     def cmd_week(self, uid: int, mid):
         if any(j["chat_id"] == uid for j in self.jobs.values()):
             self.send(uid, "Báo cáo tuần đang chạy, chờ kết quả.", mid)
@@ -620,18 +684,32 @@ class Gateway:
             if proc.poll() is None:
                 if self.clock() - j["started"] > WEEK_TIMEOUT:
                     proc.kill()
-                    self.send(j["chat_id"], "Báo cáo tuần quá thời gian, đã dừng.", j["reply_to"])
+                    if j["chat_id"] is not None:
+                        label = "Kiểm tra lợi thế" if j.get("kind") == "edge" else "Báo cáo tuần"
+                        self.send(j["chat_id"], f"{label} quá thời gian, đã dừng.", j["reply_to"])
+                    else:
+                        self.log("EDGE_CHECK_TIMEOUT")
                     del self.jobs[key]
                 continue
             out, err = proc.communicate()
             text = out.decode("utf-8", "replace").strip()
+            kind = j.get("kind", "week")
+            if kind == "edge_auto":
+                if proc.returncode == 0:
+                    changes = self.edge_changes()
+                    if changes:
+                        self.broadcast("\n".join(changes) + "\nĐề xuất: chuyển setup đó về SHADOW và xem /week; không tăng rủi ro.")
+                self.log("EDGE_CHECK", returncode=proc.returncode)
+                del self.jobs[key]
+                continue
             if proc.returncode != 0 or not text:
-                text = "Báo cáo tuần lỗi: " + err.decode("utf-8", "replace").strip()[-300:]
+                label = "Kiểm tra lợi thế" if kind == "edge" else "Báo cáo tuần"
+                text = f"{label} lỗi: " + err.decode("utf-8", "replace").strip()[-300:]
             else:
                 # Plain text: drop the markdown table rule and emphasis.
                 text = "\n".join(l for l in text.splitlines() if not l.startswith("|---")).replace("**", "")
             self.send(j["chat_id"], text, j["reply_to"])
-            self.log("WEEK_REPORT", returncode=proc.returncode)
+            self.log("EDGE_REPORT" if kind == "edge" else "WEEK_REPORT", returncode=proc.returncode)
             del self.jobs[key]
 
     # -- notifications (N1) -------------------------------------------------
@@ -746,6 +824,7 @@ class Gateway:
         self.notify_reports()
         self.notify_news()
         self.notify_digest()
+        self.notify_edge()
         self.flush()
         self.save()
 
