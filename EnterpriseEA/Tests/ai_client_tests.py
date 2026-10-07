@@ -1,4 +1,5 @@
 """AI Bridge v1, EA side: queue, validation, circuit breaker, schedule, never trades."""
+import re
 import unittest
 from pathlib import Path
 
@@ -111,6 +112,24 @@ class AiClientTests(unittest.TestCase):
         panel = read("Runtime/SymbolSelectionPanel.mqh")
         handler = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Ai_BtnAsk" ||', 1)[1].split("return;\n     }", 1)[0]
         self.assertIn("GetTickCount()-g_panel_state.ai_request_tick<60000", handler)
+
+    def test_panel_ai_view_shows_every_report_slot(self):
+        panel = read("Runtime/SymbolSelectionPanel.mqh")
+        types = re.search(r"#define EEA_AI_TYPES (\d+)", self.client).group(1)
+        self.assertIn("#define EEA_AI_VIEW_SLOTS " + types, panel)
+        for decl in ("string ai_title[EEA_AI_VIEW_SLOTS];", "int ai_line_count[EEA_AI_VIEW_SLOTS];",
+                     "string ai_lines[EEA_AI_VIEW_SLOTS*8];"):
+            self.assertIn(decl, panel)
+        dash = section(panel, "void EEA_SymbolPanelDashAi")
+        self.assertIn("for(int t=0;t<EEA_AI_VIEW_SLOTS;t++)", dash)
+        # tighter pitch so five slots end above the status bar (y 572): 128+104+(15+5*13+4)+4*(15+3*13+4)=548
+        self.assertIn("ry+=15;", dash)
+        self.assertIn("ry+=13;", dash)
+        self.assertIn("ry+=4;", dash)
+        publish = section(self.shell, "void EEA_PublishAiView")
+        self.assertIn("t<EEA_AI_TYPES && t<EEA_AI_VIEW_SLOTS", publish)
+        self.assertNotIn("t<4", publish)
+        self.assertIn('"Pre-news brief"', publish)
 
 
 if __name__ == "__main__":
