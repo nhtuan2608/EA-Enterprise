@@ -26,6 +26,7 @@
 #include "Integration/RemoteModeRuntime.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
+#include "Runtime/CalendarExport.mqh"
 // S02 v1: confluence levels drive the strategy runtime; O-04 limits are wired with the risk path (plan step 5).
 #include "Market/ConfluenceLevels.mqh"
 #include "Risk/RiskLimitsProfile.mqh"
@@ -72,6 +73,7 @@ input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
 input datetime InpResearchExportFrom    = D'2023.01.01 00:00'; // G10: H1/H4 export start (SWING research on long history)
+input bool   InpResearchExportCalendar  = true;   // G53: export the MT5 economic calendar since 2010 to research/calendar/ (read-only)
 input string InpStrategyConfigVersion  = "";
 input double InpS02BreakBufferAtr      = 0.0;
 input double InpS02AcceptanceBufferAtr = 0.0;
@@ -140,6 +142,7 @@ EEA_StrategyCandidateRuntime g_strategy_runtime;
 bool g_strategy_checkpoints_loaded=false;
 EEA_ReplayRuntime g_setup_replay;
 EEA_BarExportRuntime g_bar_export;
+EEA_CalendarExportRuntime g_calendar_export;
 EEA_ExecutionControllerState g_controller;
 EEA_ControllerStateLoadStatus g_controller_load_status=EEA_CONTROLLER_STATE_MISSING;
 bool g_controller_allows_market=false;
@@ -1226,6 +1229,7 @@ int OnInit()
                        !InpS02UsePrototype,(long)InpSetupReplayFrom);
    EEA_BarExportInit(g_bar_export,g_config.data_root,InpResearchExportBars,(long)InpSetupReplayFrom,
                      (long)InpResearchExportFrom);
+   EEA_CalendarExportInit(g_calendar_export,g_config.data_root,InpResearchExportCalendar);
    if(g_runtime.initialized) EEA_SentimentUpdate(g_sentiment,g_config.data_root);
    if(g_runtime.initialized)
       EEA_NewsUpdate(g_news,g_audit,g_config.data_root,g_runtime.canonical_symbols,g_runtime.broker_symbols,
@@ -1330,7 +1334,8 @@ void EEA_WriteLiveStatus()
       EEA_LiveStatusPair("strategy_checkpoints_loaded",g_strategy_checkpoints_loaded ? "true" : "false",false)+","+
       EEA_LiveStatusPair("strategy_reason",strategy_reason,true)+","+
       EEA_LiveStatusPair("runtime_state",g_runtime.status.runtime_state,true)+","+
-      EEA_LiveStatusPair("runtime_reason",g_runtime.status.reason_code,true)+"}";
+      EEA_LiveStatusPair("runtime_reason",g_runtime.status.reason_code,true)+","+
+      EEA_LiveStatusPair("calendar_export",g_calendar_export.reason,true)+"}";
    EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
   }
 
@@ -1411,6 +1416,8 @@ void OnTimer()
           for(int r=0;r<g_sentiment.count;r++) { ref_canonical[r]=g_sentiment.pairs[r].canonical; ref_broker[r]=g_sentiment.brokers[r]; }
           EEA_BarExportUpdate(g_bar_export,g_runtime.canonical_symbols,g_runtime.broker_symbols,g_runtime.symbol_count,
                               ref_canonical,ref_broker,g_sentiment.count);
+          // G53: the calendar history, one year per pass, only while the bar export is idle.
+          EEA_CalendarExportUpdate(g_calendar_export,g_bar_export.done || !g_bar_export.enabled);
           EEA_RemoteModeTimer();
           if(g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked)
             {

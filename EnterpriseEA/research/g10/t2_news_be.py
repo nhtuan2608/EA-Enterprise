@@ -120,14 +120,16 @@ def paired_ci(diff: list[float], runs: int = 5000, seed: int = 51) -> tuple[floa
     return means[int(0.05 * runs)], means[int(0.95 * runs) - 1]
 
 
-def trades(symbol: str) -> list[dict]:
+def trades(symbol: str, from_utc: int = FROM_UTC, all_daily: bool = False) -> list[dict]:
+    """Research T2 trades of a symbol from `from_utc`; all_daily = every D1 bar (long history: the T2 side takes
+    the 1,000 days before each bar itself), else the last 1,000 like the EA's copy."""
     h4 = context.load_bars(symbol, "H4")
     for i in range(len(h4)):
         h4[i]["atr"] = context.atr_at(h4, i)
     d1 = context.DATA / f"bars_{symbol}_D1.csv"
-    daily = context.load_bars(symbol, "D1")[-1000:] if d1.exists() else sp.daily_from_h1(context.load_bars(symbol, "H1"))
+    daily = context.load_bars(symbol, "D1")[None if all_daily else -1000:] if d1.exists() else sp.daily_from_h1(context.load_bars(symbol, "H1"))
     offset = int(context.meta()["server_offset_now"])
-    first = max(75, next((i for i, b in enumerate(h4) if b["time"] - offset >= FROM_UTC), len(h4)))
+    first = max(75, next((i for i, b in enumerate(h4) if b["time"] - offset >= from_utc), len(h4)))
     point = float(context.meta()["by_symbol"][symbol]["point"])
     c = {"entry": h4, "point": point, "symbol": symbol}
     out, busy = [], -1
