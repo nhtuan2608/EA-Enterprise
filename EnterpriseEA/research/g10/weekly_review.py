@@ -109,6 +109,18 @@ def ai_section(until: int) -> str:
         return f"\n## AI (REQ-012)\n\nKhông tính được: {type(exc).__name__}\n"
 
 
+def parity_section() -> str:
+    """G48: does the EA emit the signals the research finds on the same bars (forward and its own replay)?"""
+    head = "\n## Khớp tín hiệu EA ↔ nghiên cứu (G48)\n\n"
+    try:
+        import signal_parity as sp
+        res = sp.run()
+        res["replay"] = sp.replay_parity()
+        return head + sp.text(res).replace("\n", "  \n") + "\n"
+    except Exception as exc:      # the weekly review must not fail on the parity check
+        return head + f"không chạy được: {exc}\n"
+
+
 def main(argv: list[str]) -> None:
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     until = today + timedelta(days=1)
@@ -122,6 +134,7 @@ def main(argv: list[str]) -> None:
     rows = [r for r in ce.load(ce.ledger_path(), s) if int(r.get("closed_utc", 0)) < u]
     evaluated = ce.evaluate_rows(rows)
     text = markdown(build(trades, evaluated), s, u) + ai_section(u)
+    text += parity_section()
     ce.OUT.mkdir(exist_ok=True)
     (ce.OUT / f"weekly_review_{until.strftime('%Y-%m-%d')}.md").write_text(text, encoding="utf-8")
     print(text)
