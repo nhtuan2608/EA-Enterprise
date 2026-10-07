@@ -1,5 +1,7 @@
 # MT5 Runtime Evidence Adapter Implementation Plan
 
+> **Kiểm tra ô tick (07/10/2026, bằng cách đối chiếu mã nguồn):** các ô `[x]` được tick sau khi grep mã nguồn và `Tests/` xác nhận tính năng tồn tại (RuntimeEvidence, ba adapter, RuntimeEvidenceStore, ObserverRuntime, `EnterpriseEA.mq5`), `runtime_evidence_tests` hiện đạt, và báo cáo `...-implementation-report.md` ghi bằng chứng RED/GREEN, compile, quan sát runtime. Các bước chạy lại (RED, quét API) tick theo bản ghi đó, không chạy lại. **Chưa xong, để trống:** Task 5 Bước 1 (chưa có test bắt buộc sáu nhãn trạng thái trong báo cáo; các nhãn có trong báo cáo nhưng không có test khoá) và Task 5 Bước 4 (không có bằng chứng về lần review độc lập). Ghi chú: Bước 1 Task 4 ghi snapshot trước khi chạy vào báo cáo thực hiện, không có `artifacts/mt5-runtime-verification.md`; Bước 6 Task 4 chạy trên tester không chứng minh checkpoint sống qua lần chạy, bằng chứng sau này là 3 lần nạp lại EA trên demo 05/10 (checkpoint COMPATIBLE); quét `OrderSend` ở Bước 8 đúng tại thời điểm đó, nay `ExecutionAdapter.mqh` có chủ ý chứa lệnh gửi.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a read-only MT5 runtime evidence adapter that compiles and runs against VTMarkets-Demo, persists account/symbol/order/position/deal observations, reconciles safely after restart, and never enables or executes trading.
@@ -53,11 +55,11 @@
 - Consumes: `EEA_SCHEMA_VERSION` from `Core/Config.mqh`; finite-number behavior from MQL5 `MathIsValidNumber`.
 - Produces: `EEA_RuntimeAccountSnapshot`, `EEA_RuntimeSymbolSpec`, `EEA_RuntimePositionRow`, `EEA_RuntimeOrderRow`, `EEA_RuntimeDealRow`, `EEA_RuntimeReconciliationSnapshot`, `EEA_RuntimeStatus`; `EEA_RuntimeDefaults`, `EEA_RuntimeValidate`, and `EEA_RuntimeMaterialSpecEqual`.
 
-- [ ] **Step 1: Create fixture with exact valid and invalid cases**
+- [x] **Step 1: Create fixture with exact valid and invalid cases**
 
 Create a JSON fixture whose base snapshot contains schema/config version, opaque account fingerprint, `VTMarkets-Demo`, USD currency, `HEDGING`, complete source flags, zero rows, a nonnegative deal watermark, and `observed_at_utc <= valid_until_utc`. Invalid cases must mutate exactly one of: missing identity, expired evidence, incomplete positions/orders/deals, duplicate position ticket, duplicate order ticket, duplicate or descending deal ticket/time, regressed deal watermark, invalid symbol volume range/step, and non-finite numeric input represented by an oracle override rather than invalid JSON.
 
-- [ ] **Step 2: Write failing pure-contract tests**
+- [x] **Step 2: Write failing pure-contract tests**
 
 ```python
 class RuntimeEvidenceContractTests(unittest.TestCase):
@@ -103,7 +105,7 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
 
 Replace the illustrative ellipsis before saving the test with a concrete loop over `FIXTURE["blocked_cases"]`; the committed test file must contain no placeholder.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Run:
 
@@ -113,7 +115,7 @@ python -m unittest Tests/runtime_evidence_tests.py -v
 
 Expected: import failure for `runtime_evidence_oracle` or missing `Runtime/RuntimeEvidence.mqh`, proving the new contract is absent.
 
-- [ ] **Step 4: Implement the Python oracle minimally**
+- [x] **Step 4: Implement the Python oracle minimally**
 
 Implement:
 
@@ -136,11 +138,11 @@ def material_spec_equal(left: dict, right: dict) -> bool:
     return all(left.get(name) == right.get(name) for name in fields)
 ```
 
-- [ ] **Step 5: Implement the MQL pure contract**
+- [x] **Step 5: Implement the MQL pure contract**
 
 Define fixed-capacity arrays sized for the observer increment (`EEA_RUNTIME_MAX_SYMBOLS=32`, `EEA_RUNTIME_MAX_POSITIONS=256`, `EEA_RUNTIME_MAX_ORDERS=256`, `EEA_RUNTIME_MAX_DEALS=2048`) and explicit counts. Validation order and reason codes must match the oracle. `EEA_RuntimeDefaults` sets `runtime_state="BLOCKED"`, `reason_code="RUNTIME_RECONCILIATION_REQUIRED"`, and `new_entries_blocked=true`. No MT5 account, symbol, position, order, history, file, or trade API appears in this file.
 
-- [ ] **Step 6: Run the targeted and full offline suites**
+- [x] **Step 6: Run the targeted and full offline suites**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -149,7 +151,7 @@ python -m unittest discover -s Tests -p '*tests.py' -v
 
 Expected: targeted tests pass; full count is greater than 111 with zero failures.
 
-- [ ] **Step 7: Record Task 1 changes**
+- [x] **Step 7: Record Task 1 changes**
 
 Because Git is unavailable, append exact created paths and test commands/results to `docs/superpowers/plans/2026-09-30-mt5-runtime-evidence-adapter-implementation-report.md`.
 
@@ -167,7 +169,7 @@ Because Git is unavailable, append exact created paths and test commands/results
 - Consumes: Task 1 structures and validation; MT5 `AccountInfo*`, `TerminalInfo*`, `SymbolInfo*`, `PositionsTotal`, `PositionGet*`, `OrdersTotal`, `OrderGet*`, `HistorySelect`, `HistoryDealsTotal`, and `HistoryDealGet*` read APIs.
 - Produces: `EEA_ReadRuntimeAccount`, `EEA_ReadRuntimeSymbolSpec`, `EEA_ReadRuntimeReconciliation`; none can mutate broker state.
 
-- [ ] **Step 1: Add failing static-boundary tests**
+- [x] **Step 1: Add failing static-boundary tests**
 
 ```python
 def test_runtime_adapters_are_read_only(self):
@@ -186,7 +188,7 @@ def test_runtime_adapters_are_read_only(self):
 
 Add exact tests asserting the account adapter source never serializes `ACCOUNT_NAME` and that symbol resolution requires caller-provided canonical and broker symbols.
 
-- [ ] **Step 2: Run targeted tests and verify RED**
+- [x] **Step 2: Run targeted tests and verify RED**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -194,15 +196,15 @@ python -m unittest Tests/runtime_evidence_tests.py -v
 
 Expected: missing adapter files.
 
-- [ ] **Step 3: Implement account adapter**
+- [x] **Step 3: Implement account adapter**
 
 `EEA_ReadRuntimeAccount(snapshot, reason)` reads server, currency, margin mode, terminal connected state, and trade-permission observations. Build an opaque local fingerprint with a deterministic FNV-1a-style hash over `server|login|currency|margin_mode`; only the hash is stored in the structure. Reject empty server/currency, nonpositive login, unsupported margin mode, or disconnected terminal with explicit reason. Do not read or persist `ACCOUNT_NAME`.
 
-- [ ] **Step 4: Implement symbol adapter**
+- [x] **Step 4: Implement symbol adapter**
 
 `EEA_ReadRuntimeSymbolSpec(canonical, broker_symbol, account_server, spec, reason)` requires nonempty explicit names, selects/reads the broker symbol, and fills every material field named in the spec. Validate `volume_min > 0`, `volume_max >= volume_min`, `volume_step > 0`, `tick_size > 0`, `point > 0`, nonnegative stop/freeze levels, and nonempty currency identities. The function may report discovered prefix/suffix matches through a separate suggestion helper but may not mark them resolved.
 
-- [ ] **Step 5: Implement broker reconciliation adapter**
+- [x] **Step 5: Implement broker reconciliation adapter**
 
 `EEA_ReadRuntimeReconciliation(account, lookback_days, snapshot, reason)`:
 
@@ -215,7 +217,7 @@ Expected: missing adapter files.
 7. sets each completeness flag only after its full loop succeeds;
 8. records maximum deal ticket/time as bounded watermark evidence.
 
-- [ ] **Step 6: Run targeted and full suites**
+- [x] **Step 6: Run targeted and full suites**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -224,7 +226,7 @@ python -m unittest discover -s Tests -p '*tests.py' -v
 
 Expected: all tests pass and forbidden API scan stays clean.
 
-- [ ] **Step 7: Record Task 2 changes**
+- [x] **Step 7: Record Task 2 changes**
 
 Append paths and fresh test output summary to the implementation report.
 
@@ -242,7 +244,7 @@ Append paths and fresh test output summary to the implementation report.
 - Consumes: Task 1 validation, Task 2 adapters, `EEA_WriteAtomicText`, `CAuditLog`, `EEAEvent`.
 - Produces: `EEA_ObserverRuntimeInit`, `EEA_ObserverRuntimeRefresh`, `EEA_ObserverRuntimeMarkStale`, `EEA_ObserverRuntimeShutdown`, plus four current JSON documents.
 
-- [ ] **Step 1: Add failing persistence and shell-integration tests**
+- [x] **Step 1: Add failing persistence and shell-integration tests**
 
 ```python
 def test_store_uses_atomic_writer_and_redacts_identity(self):
@@ -266,7 +268,7 @@ def test_shell_integrates_observer_without_execution(self):
 
 Also assert `OnTick` contains no refresh/file/history call, and `OnDeinit` calls `EventKillTimer`.
 
-- [ ] **Step 2: Run targeted tests and verify RED**
+- [x] **Step 2: Run targeted tests and verify RED**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -274,7 +276,7 @@ python -m unittest Tests/runtime_evidence_tests.py -v
 
 Expected: missing store/coordinator and missing shell integration.
 
-- [ ] **Step 3: Implement deterministic serializers and checkpoint check**
+- [x] **Step 3: Implement deterministic serializers and checkpoint check**
 
 `RuntimeEvidenceStore.mqh` serializes account, symbol registry, reconciliation, and status documents with JSON escaping through `EEA_JsonEscape` and UTC formatting through `EEA_IsoUtc`. Implement:
 
@@ -289,11 +291,11 @@ EEAStateLoadResult EEA_RuntimeStoreCheckStatus(const string path,const string co
 
 The compatibility check requires document version, config version, and account fingerprint markers but never promotes stored evidence to current.
 
-- [ ] **Step 4: Implement observer coordinator**
+- [x] **Step 4: Implement observer coordinator**
 
 Define `EEA_ObserverRuntimeContext` containing current account, symbol array/count, reconciliation snapshot, status, stale flag, refresh interval, history lookback, root, and config version. Initialization receives explicit canonical/broker arrays parsed by the shell, performs a fresh refresh regardless of checkpoint result, persists all documents, and audits the checkpoint result. Refresh failure persists/audits `DEGRADED` or `BLOCKED` if possible. A persistence failure sets `BLOCKED/RUNTIME_PERSISTENCE_FAILED`.
 
-- [ ] **Step 5: Integrate the EA shell**
+- [x] **Step 5: Integrate the EA shell**
 
 Add inputs:
 
@@ -318,7 +320,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
 The handler ignores request/result content and performs no broker mutation. `OnDeinit` kills the timer and shuts down runtime before closing audit. `OnTick` remains empty of scanning/history/file writes.
 
-- [ ] **Step 6: Run targeted and full offline tests**
+- [x] **Step 6: Run targeted and full offline tests**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -327,7 +329,7 @@ python -m unittest discover -s Tests -p '*tests.py' -v
 
 Expected: all tests pass and count remains above 111.
 
-- [ ] **Step 7: Record Task 3 changes**
+- [x] **Step 7: Record Task 3 changes**
 
 Append paths and test evidence to the implementation report.
 
@@ -345,11 +347,11 @@ Append paths and test evidence to the implementation report.
 - Consumes: completed source tree and installed MetaEditor/MT5.
 - Produces: compiler log, deployed EX5, runtime JSON/audit evidence, before/after account/order/position comparison.
 
-- [ ] **Step 1: Capture the pre-run broker snapshot**
+- [x] **Step 1: Capture the pre-run broker snapshot**
 
 Use the MT5 status/account/positions/pending-order tools and record timestamp, account server/currency/mode, balance/equity, position tickets/count, and pending order tickets/count in `artifacts/mt5-runtime-verification.md`. Do not place or cancel anything.
 
-- [ ] **Step 2: Deploy source tree to the terminal data path**
+- [x] **Step 2: Deploy source tree to the terminal data path**
 
 Copy `EnterpriseEA.mq5` and its required `Core`, `Storage`, and `Runtime` include files into:
 
@@ -359,7 +361,7 @@ C:\Users\Zbook Studio\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF5
 
 Keep the project source authoritative; deployment is a reproducible copy.
 
-- [ ] **Step 3: Compile with MetaEditor build 6230**
+- [x] **Step 3: Compile with MetaEditor build 6230**
 
 Run:
 
@@ -371,23 +373,23 @@ Run:
 
 Inspect the log. Required: `0 errors`. Review every warning; fix and recompile any unsafe warning.
 
-- [ ] **Step 4: Run the observer EA without trading side effects**
+- [x] **Step 4: Run the observer EA without trading side effects**
 
 Attach/run the compiled EA on a VTMarkets-Demo chart with `InpObserverOnly=true`, runtime evidence enabled, a 30-second refresh, 7-day history, and an explicit broker symbol that exists. If GUI attachment cannot be automated safely, use the existing terminal configuration/profile mechanism only if it does not alter unrelated charts; otherwise record runtime attachment as pending rather than claiming it.
 
-- [ ] **Step 5: Inspect runtime files**
+- [x] **Step 5: Inspect runtime files**
 
 Verify the four `current/*.json` files and `logs/audit.jsonl` parse, carry current schema/config/account fingerprint, declare the bounded history window, and contain no raw login/name. Check that runtime state and reason accurately reflect evidence completeness.
 
-- [ ] **Step 6: Verify restart behavior**
+- [x] **Step 6: Verify restart behavior**
 
 Restart/reinitialize the EA once in observer mode. Confirm a fresh broker observation timestamp and audit event, compatible checkpoint handling, unchanged account/order/position state, and no duplicate side effect.
 
-- [ ] **Step 7: Capture the post-run broker snapshot**
+- [x] **Step 7: Capture the post-run broker snapshot**
 
 Repeat MT5 account/positions/pending-order reads. Compare ticket sets/counts and balance. Required: the observer created, modified, or cancelled no order/position and caused no balance change.
 
-- [ ] **Step 8: Run final verification commands**
+- [x] **Step 8: Run final verification commands**
 
 ```powershell
 python -m unittest discover -s Tests -p '*tests.py' -v
@@ -397,7 +399,7 @@ Select-String -Path (Get-ChildItem -Recurse -Include *.mq5,*.mqh).FullName `
 
 Expected: all tests pass; forbidden execution search returns no executable integration path (comments/test literals must be reviewed explicitly).
 
-- [ ] **Step 9: Record Task 4 evidence**
+- [x] **Step 9: Record Task 4 evidence**
 
 Update the implementation report with compiler result, runtime artifact paths, exact before/after comparison, constraints encountered, and classification achieved.
 
@@ -428,7 +430,7 @@ for label in ("OFFLINE_VERIFIED", "MQL_COMPILED", "RUNTIME_OBSERVED",
 
 Run the targeted test and verify it fails before documentation is updated.
 
-- [ ] **Step 2: Update project documentation from actual evidence only**
+- [x] **Step 2: Update project documentation from actual evidence only**
 
 Record:
 
@@ -440,7 +442,7 @@ Record:
 
 Do not mark Phase 3 or Phase 4 complete unless every existing gate in their traceability tables has evidence.
 
-- [ ] **Step 3: Run targeted and full tests**
+- [x] **Step 3: Run targeted and full tests**
 
 ```powershell
 python -m unittest Tests/runtime_evidence_tests.py -v
@@ -453,10 +455,10 @@ Expected: all tests pass.
 
 Provide the reviewer the spec, this plan, implementation report, complete changed-file list, compiler log, runtime verification artifact, and full test output. Require separate verdicts for spec compliance, safety boundary, code quality, test quality, and accuracy of evidence claims. Fix all Critical/Important findings and re-run affected verification.
 
-- [ ] **Step 5: Run final fresh verification**
+- [x] **Step 5: Run final fresh verification**
 
 Re-run the full Python suite, MetaEditor compile, forbidden execution scan, JSON parse checks, and MT5 before/after position/order/account checks. Record exact outputs in the implementation report.
 
-- [ ] **Step 6: Record final status**
+- [x] **Step 6: Record final status**
 
 List all changed source/document paths, evidence achieved, remaining gaps, and any rulings. Because no Git repository exists, do not claim a commit, branch, merge, or clean working tree.

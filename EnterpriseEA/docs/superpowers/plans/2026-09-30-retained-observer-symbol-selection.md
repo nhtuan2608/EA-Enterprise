@@ -1,5 +1,7 @@
 # Retained-Terminal Observer and Symbol Selection Implementation Plan
 
+> **Kiểm tra ô tick (07/10/2026, bằng cách đối chiếu mã nguồn):** ô `[x]` chỉ tick khi grep xác nhận hàm/file mà bước nêu có trong mã (`EEA_ResolveSymbolsBatch`, `EEA_RankSymbolCandidate`, `EEA_RuntimeTelemetryValidate`, `EEA_RuntimeStoreWriteSymbolSelection`/`CheckSymbolSelection`, `Runtime/SymbolSelectionPanel.mqh`, `InpCanonicalSymbols`/`InpShowSymbolPanel`), `symbol_registry_tests` và `runtime_evidence_tests` hiện đạt, và lịch sử git có commit tương ứng. Bước RED/GREEN tick theo test hiện có, không chạy lại RED. **Chưa xong, để trống:** Task 4 Bước 3 (soak 60 phút kèm đối chiếu lịch sử độc lập; `artifacts/retained-terminal-verification.md` ghi PENDING, soak sau này là `bridge/soak_monitor.py` nhưng không phải phép kiểm tra mà bước mô tả). Ghi chú: không có hàm tên `EEA_DiscoverBrokerSymbols`; việc dò symbol làm trực tiếp bằng `SymbolsTotal`/`SymbolName` trong `ObserverRuntime.mqh` và `SymbolSelectionPanel.mqh` rồi gọi `EEA_ResolveSymbolsBatch`. Task 4 Bước 2 (khởi động lại giữ checkpoint) có bằng chứng từ 3 lần nạp lại EA trên demo 05/10, không phải từ báo cáo retained-terminal gốc.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement broker-aware multi-symbol discovery, multi-select symbol resolution, a chart checkbox selection panel, retained-terminal restart/checkpoint proof, monotonic refresh telemetry, coalesced transaction invalidation, and bounded-history parity verification.
@@ -53,7 +55,7 @@
 - Consumes: canonical CSV list, available broker symbols list, alias table (`DXY -> USDX`).
 - Produces: `EEA_ResolveSymbolsBatch`, `EEA_DiscoverBrokerSymbols`, `EEA_RankSymbolCandidate`.
 
-- [ ] **Step 1: Add failing tests for batch symbol resolution and ranking**
+- [x] **Step 1: Add failing tests for batch symbol resolution and ranking**
 
 ```python
 def test_batch_resolution_and_ranking(self):
@@ -73,25 +75,25 @@ def test_batch_resolution_and_ranking(self):
     self.assertEqual(rows[2]["reason_code"], "UNIQUE_ALIAS_ROOT_MATCH")
 ```
 
-- [ ] **Step 2: Run pytest/unittest to verify RED**
+- [x] **Step 2: Run pytest/unittest to verify RED**
 
 Run: `python -m unittest EnterpriseEA/Tests/symbol_registry_tests.py -v`
 Expected: FAIL due to missing batch resolver functions.
 
-- [ ] **Step 3: Implement minimal Python oracle changes**
+- [x] **Step 3: Implement minimal Python oracle changes**
 
 Add candidate ranking, alias expansion (`DXY -> USDX`), and multi-symbol batch evaluation in `symbol_registry_oracle.py`.
 
-- [ ] **Step 4: Implement MQL5 enhanced symbol registry**
+- [x] **Step 4: Implement MQL5 enhanced symbol registry**
 
 Implement `EEA_DiscoverBrokerSymbols`, versioned aliases, ranking rules, and multi-symbol batch resolution in `SymbolRegistry.mqh`.
 
-- [ ] **Step 5: Run tests and verify GREEN**
+- [x] **Step 5: Run tests and verify GREEN**
 
 Run: `python -m unittest EnterpriseEA/Tests/symbol_registry_tests.py -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit changes**
+- [x] **Step 6: Commit changes**
 
 Record changed files in the implementation report (or git commit if in worktree).
 
@@ -109,25 +111,25 @@ Record changed files in the implementation report (or git commit if in worktree)
 - Consumes: Telemetry counters, selection revision, audit event records.
 - Produces: `EEA_RuntimeTelemetryValidate`, `EEA_RuntimeStoreWriteSymbolSelection`, `EEA_RuntimeStoreCheckSymbolSelection`.
 
-- [ ] **Step 1: Add failing telemetry and audit deduplication tests**
+- [x] **Step 1: Add failing telemetry and audit deduplication tests**
 
 Add Python unit tests asserting duplicate audit records, generation gaps, or non-monotonic telemetry counters are rejected.
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run: `python -m unittest EnterpriseEA/Tests/runtime_evidence_tests.py -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement minimal MQL5/Python telemetry and store extensions**
+- [x] **Step 3: Implement minimal MQL5/Python telemetry and store extensions**
 
 Add instance ID, refresh generation, telemetry fields, and atomic symbol selection serialization (`symbol_selection.json`).
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `python -m unittest EnterpriseEA/Tests/runtime_evidence_tests.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ---
 
@@ -143,29 +145,29 @@ Expected: PASS.
 - Consumes: Chart events (`CHARTEVENT_CLICK`), symbol discovery results, selection Apply action.
 - Produces: UI multi-select checkbox matrix, atomic selection commit, updated observer runtime context.
 
-- [ ] **Step 1: Add failing static and integration checks**
+- [x] **Step 1: Add failing static and integration checks**
 
 Assert chart panel source exists, contains no trade execution tokens, and integrates with `ObserverRuntime.mqh` and `EnterpriseEA.mq5`.
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run: `python -m unittest EnterpriseEA/Tests/runtime_evidence_tests.py -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement SymbolSelectionPanel.mqh and update ObserverRuntime.mqh**
+- [x] **Step 3: Implement SymbolSelectionPanel.mqh and update ObserverRuntime.mqh**
 
 Build narrow chart UI controls (checkboxes, status labels, Refresh, Apply) and connect selection revision increments to fresh reconciliation.
 
-- [ ] **Step 4: Update EnterpriseEA.mq5**
+- [x] **Step 4: Update EnterpriseEA.mq5**
 
 Remove `InpBrokerSymbols`, add `InpCanonicalSymbols` and `InpShowSymbolPanel`, route `OnChartEvent` to the panel handler, and initialize multi-symbol coordinator.
 
-- [ ] **Step 5: Run all unit tests**
+- [x] **Step 5: Run all unit tests**
 
 Run: `python -m unittest discover -s EnterpriseEA/Tests -p '*tests.py' -v`
 Expected: ALL PASS.
 
-- [ ] **Step 6: Commit changes**
+- [x] **Step 6: Commit changes**
 
 ---
 
@@ -180,11 +182,11 @@ Expected: ALL PASS.
 - Consumes: MetaEditor build 6230, connected MT5 terminal.
 - Produces: build log, retained checkpoint files, soak telemetry records, before/after account state comparison.
 
-- [ ] **Step 1: Compile with MetaEditor build 6230**
+- [x] **Step 1: Compile with MetaEditor build 6230**
 
 Compile `EnterpriseEA.mq5` and verify `0 errors, 0 warnings`.
 
-- [ ] **Step 2: Deploy and verify retained terminal checkpoint & restart**
+- [x] **Step 2: Deploy and verify retained terminal checkpoint & restart**
 
 Attach EA in observer mode, verify checkpoint survival across terminal restart, and verify fresh reconciliation after compatible checkpoint.
 
@@ -192,6 +194,6 @@ Attach EA in observer mode, verify checkpoint survival across terminal restart, 
 
 Run 60-minute soak test, inspect audit JSONL for single-completion / zero-backlog invariants, and perform independent bounded history parity check.
 
-- [ ] **Step 4: Final verification and traceability update**
+- [x] **Step 4: Final verification and traceability update**
 
 Run full offline test suite and update traceability markdown files.

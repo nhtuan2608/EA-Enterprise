@@ -1,5 +1,7 @@
 # Disabled-by-Default Execution Adapter Implementation Plan
 
+> **Kiểm tra ô tick (07/10/2026, bằng cách đối chiếu mã nguồn):** ô `[x]` chỉ tick khi grep xác nhận file/hàm có trong mã (`ExecutionContracts.mqh`, `ExecutionGate.mqh` với `EEA_ExecutionGateCheck`, `ExecutionReconciliation.mqh` với `EEA_ExecutionReconcileResult`, `ExecutionAdapter.mqh` với `EEA_ExecutionPreflight`/`Submit`/`ModifyProtective`/`CancelPending`, `RiskDecisionBinding.mqh`, `InpExecutionEnabled=false` mặc định), `execution_adapter_tests` hiện đạt, và lịch sử git có commit tương ứng (`be70e5c`, `b1c4b78`, `029090c`, `39c4398`). **Chưa xong, để trống:** Task 5 Bước 1 và Bước 2 (test bắt buộc năm nhãn `IMPLEMENTED_DISABLED_BY_DEFAULT`, `PAPER_EXCLUDED_PERMANENTLY`, `NOT_AUTHORIZED`, `EXECUTION_UNKNOWN`, `RUNTIME_EVIDENCE_PENDING` trong báo cáo: các nhãn có trong tài liệu nhưng `execution_adapter_tests.py` không kiểm). Ghi chú: mã lý do `ACCOUNT_IDENTITY_MISMATCH`, `SYMBOL_SPEC_INVALID`, `RECONCILIATION_STALE` nằm ở `ExecutionGate.mqh`, `DUPLICATE_IDEMPOTENCY_KEY` ở `ExecutionAdapter.mqh` (không phải `ExecutionContracts.mqh`); `ControlledLiveRuntime.mqh` nay gọi adapter có chủ ý (controlled live), nên 'không có đường gọi tự động' của Task 4 chỉ đúng tại thời điểm viết.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a real MT5 order/modify/cancel adapter that is disabled by default, fail-closed, demo-first, idempotent and reconciliation-driven, without implementing a Paper ledger or automatically sending orders. Define the later paperless controlled-live route without declaring live readiness.
@@ -38,7 +40,7 @@
 - Produces Python `preflight(intent, context) -> dict`, `apply_result(state, result) -> dict`, `idempotency_decision(state, key) -> dict`.
 - Produces MQL structs `EEA_ExecutionIntent`, `EEA_ExecutionResult`, `EEA_ExecutionGate`, defaults and pure validators.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 def test_disabled_default_rejects_without_request():
@@ -65,22 +67,22 @@ def test_acknowledgement_requires_reconciliation_confirmation():
     assert result["confirmation_state"] == "EXECUTION_UNKNOWN"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `python -m unittest Tests/execution_adapter_tests.py -v`  
 Expected: import failure because execution oracle/contracts do not exist.
 
-- [ ] **Step 3: Implement Python oracle and pure MQL contracts**
+- [x] **Step 3: Implement Python oracle and pure MQL contracts**
 
 Use exact reason codes `EXECUTION_DISABLED`, `RECONCILIATION_STALE`, `ACCOUNT_IDENTITY_MISMATCH`, `SYMBOL_SPEC_INVALID`, `DUPLICATE_IDEMPOTENCY_KEY`, `EXECUTION_UNKNOWN`, `REQUEST_ACCEPTED`, `CONFIRMED`, `REJECTED`. Keep all results entries-blocked unless fresh confirmation exists.
 
-- [ ] **Step 4: Run targeted and full tests**
+- [x] **Step 4: Run targeted and full tests**
 
 Run: `python -m unittest Tests/execution_adapter_tests.py -v`  
 Run: `python -m unittest discover -s Tests -p '*tests.py' -v`  
 Expected: targeted tests pass and pre-existing suite remains green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Tests/Fixtures/execution-adapter-v0.1.0.json Tests/execution_adapter_oracle.py Tests/execution_adapter_tests.py Runtime/ExecutionContracts.mqh
@@ -101,20 +103,20 @@ git commit -m "feat: add disabled execution contracts"
 - `bool EEA_ExecutionGateCheck(const EEA_ExecutionIntent&, const EEA_RuntimeAccountSnapshot&, const EEA_RuntimeReconciliationSnapshot&, const EEA_RuntimeSymbolSpec&, const bool execution_enabled, EEA_ExecutionResult&)`.
 - `bool EEA_ExecutionStoreWriteIntent(...)` and `bool EEA_ExecutionStoreWriteResult(...)`, both atomic and redacted.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Assert the gate rejects disabled/stale/identity-mismatch/spec-invalid/duplicate requests, stores idempotency marker before any future request, writes no raw login/name, and has no Paper ledger path.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `python -m unittest Tests/execution_adapter_tests.py -v`  
 Expected: FAIL because gate/store interfaces are absent.
 
-- [ ] **Step 3: Implement gate and atomic audit persistence**
+- [x] **Step 3: Implement gate and atomic audit persistence**
 
 The gate must check `execution_enabled`, observer mode, account fingerprint/server/config binding, `OBSERVING` reconciliation, age/window, symbol fingerprint, volume/price validity, nonempty correlation/idempotency, and duplicate key. Store files under `current/execution_intent.json`, `current/execution_result.json`, and `logs/execution_audit.jsonl`; no Paper ledger.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 Run targeted/full suites and commit:
 
@@ -136,19 +138,19 @@ git commit -m "feat: add fail-closed execution gate"
 - `bool EEA_ExecutionReconcileResult(EEA_ExecutionResult&, const EEA_RuntimeReconciliationSnapshot&, const long request_ticket, const string request_action)`.
 - `EEA_ExecutionResult` transitions `REQUEST_ACCEPTED` to `CONFIRMED` only when active/history evidence proves it; otherwise `EXECUTION_UNKNOWN`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Cover market fill in deal/position history, pending order remaining active, confirmed cancel only after active order disappears and history proves terminal state, modify confirmation from active protective fields, timeout/missing evidence/race => unknown, and duplicate callback idempotency.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run focused execution tests and verify missing bridge functions fail.
 
-- [ ] **Step 3: Implement pure read-only reconciliation bridge**
+- [x] **Step 3: Implement pure read-only reconciliation bridge**
 
 No trade API call. Use existing broker reconciliation rows and watermarks. Preserve entries blocked on unknown/race.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```powershell
 git add Runtime/ExecutionReconciliation.mqh Runtime/ObserverRuntime.mqh Tests/execution_adapter_tests.py
@@ -193,24 +195,24 @@ bool EEA_ExecutionCancelPending(CAuditLog &audit,
                                 EEA_ExecutionResult &result);
 ```
 
-- [ ] **Step 1: Add failing static-boundary tests**
+- [x] **Step 1: Add failing static-boundary tests**
 
 Assert execution source includes the expected MT5 APIs only behind gate functions, no call site exists in `OnInit`, `OnTimer`, `OnTick`, `OnChartEvent`, or `OnTradeTransaction`, and default input is `false`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `python -m unittest Tests/execution_adapter_tests.py -v`  
 Expected: FAIL because adapter/input are absent.
 
-- [ ] **Step 3: Implement adapter**
+- [x] **Step 3: Implement adapter**
 
 Use `MqlTradeRequest`/`OrderSend` for submit, `TRADE_ACTION_SLTP` with a position ticket for position protective changes, `TRADE_ACTION_MODIFY` with an order ticket for pending-order protective changes, and `TRADE_ACTION_REMOVE` for pending cancel. Every function immediately records request acknowledgement, never confirmation, and returns with `EXECUTION_UNKNOWN` until an external caller supplies fresh reconciliation. Never call these from EA lifecycle events.
 
-- [ ] **Step 4: Compile and run tests**
+- [x] **Step 4: Compile and run tests**
 
 Run full Python suite and MetaEditor build 6230. Require `0 errors, 0 warnings`. Static scan must confirm all APIs are confined to `Runtime/ExecutionAdapter.mqh` and no automatic call path exists.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Runtime/ExecutionAdapter.mqh EnterpriseEA.mq5 Runtime/ExecutionGate.mqh Tests/execution_adapter_tests.py
@@ -238,11 +240,11 @@ Require exact labels `IMPLEMENTED_DISABLED_BY_DEFAULT`, `PAPER_EXCLUDED_PERMANEN
 
 Run execution tests and confirm report/status labels are absent.
 
-- [ ] **Step 3: Write runbook**
+- [x] **Step 3: Write runbook**
 
 Document preflight, demo-only activation, one controlled operation, confirmation/reconciliation, rollback/unknown handling, side-effect before/after snapshots, and explicit no-live/no-Paper boundaries. The paperless controlled-live documents must also list the seven mandatory gates and record evidence status without claiming readiness. Do not put secrets or raw account-holder identity in artifacts.
 
-- [ ] **Step 4: Run final verification and commit**
+- [x] **Step 4: Run final verification and commit**
 
 Run full test suite, MetaEditor compile, static API scan, inspect clean Git status and commit:
 
