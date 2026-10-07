@@ -91,9 +91,14 @@ def base_rows() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Account
 # ---------------------------------------------------------------------------
-def simulate(rows: list[dict], mult=None, open_risk: float = OPEN_RISK, skip: set | None = None,
+def simulate(rows: list[dict], mult=None, open_risk: float | None = None, skip: set | None = None,
              start: int = 0, end: int = END) -> dict:
-    """fixed_lot.simulate with a risk multiplier mult(trade, state) -> factor (0 = skip)."""
+    """fixed_lot.simulate with a risk multiplier mult(trade, state) -> factor (0 = skip).
+
+    open_risk None = the module's OPEN_RISK at call time (G58: a default bound at definition time ignored a later
+    change of OPEN_RISK, so a per-trade risk above 1.2% was never taken)."""
+    if open_risk is None:
+        open_risk = OPEN_RISK
     eq = peak = CAPITAL
     max_dd, ulcer = 0.0, []
     open_trades: list[dict] = []

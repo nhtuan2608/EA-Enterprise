@@ -48,7 +48,8 @@ def main(argv: list[str]) -> None:
     res = {}
     for name, setups in MIXES.items():
         rs = [t for t in rows if t["setup"] in setups]
-        res[name] = (rs, g.by_period(rs, mult=mult))
+        # open_risk passed explicitly: simulate() binds its default (1.2%) at definition time
+        res[name] = (rs, g.by_period(rs, mult=mult, open_risk=g.OPEN_RISK))
         lines += g.table(name, res[name][1])
     order = sorted(res, key=lambda k: res[k][1]["train"]["score"], reverse=True)
     pick = next((k for k in order if res[k][1]["validate"]["per_year"] > 0 and res[k][1]["test"]["per_year"] > 0), None)
@@ -70,7 +71,15 @@ def main(argv: list[str]) -> None:
                      f"{pair('fail')} | {med} |")
         print(lines[-1], flush=True)
     lines += ["", "## Theo năm (%, 0,5%/lệnh)", "", "| Năm | " + " | ".join(MIXES) + " |", "|---|" + "---|" * len(MIXES)]
-    by_year = {name: g.simulate(rs, mult=mult)["by_year"] for name, (rs, _) in res.items()}
+    by_year = {name: g.simulate(rs, mult=mult, open_risk=g.OPEN_RISK)["by_year"] for name, (rs, _) in res.items()}
+    lines += ["", "## Theo mức rủi ro mỗi lệnh (toàn kỳ; mở/ngày = 4×, tuần = 8×, tối đa 4% / 8% như EA)", "",
+              "| Rủi ro/lệnh | Phương án | %/năm | DD | DD p90 (xáo tháng) | Năm tệ nhất |", "|---|---|---|---|---|---|"]
+    for per in (0.005, 0.0075, 0.01, 0.015):
+        g.PER_TRADE, g.OPEN_RISK, g.DAILY, g.WEEKLY = per, min(4 * per, 0.04), min(4 * per, 0.04), min(8 * per, 0.08)
+        for name in ("V0 S04 (đang LIVE)", "V2 S04 + S06B", "V3 S04 + S06B + T2 XAU/BTC"):
+            m = g.metrics(g.simulate(res[name][0], mult=mult, open_risk=g.OPEN_RISK))
+            lines.append(f"| {per:.2%} | {name} | {m['per_year']:+.2f}% | {m['dd']:.1f}% | {m['dd_p90']:.1f}% | {m['worst_year']:+.1f}% |")
+    g.PER_TRADE, g.OPEN_RISK, g.DAILY, g.WEEKLY = 0.005, 0.02, 0.02, 0.04
     for y in sorted({y for v in by_year.values() for y in v}):
         lines.append(f"| {y} | " + " | ".join(f"{by_year[n].get(y, 0) / g.CAPITAL * 100:+.1f}" for n in MIXES) + " |")
     text = "\n".join(lines) + "\n"
