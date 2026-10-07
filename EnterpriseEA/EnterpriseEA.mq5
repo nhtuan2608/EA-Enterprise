@@ -58,6 +58,7 @@ input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entr
 enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
 input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
 input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
+input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD"; // G42: extra trend assets that run T2 only (no S02/S04/S06/S06B)
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
@@ -1007,10 +1008,29 @@ void EEA_PublishPanelEngineView()
             view.setup_state[row]=state;
         }
    string universe[];
-   int count=EEA_NormalizeCanonicalCsv(InpCanonicalSymbols,universe);
+   int count=EEA_UniverseSymbols(universe);
    for(int i=0;i<count && i<EEA_PANEL_MAX_ROWS;i++) view.universe[i]=universe[i];
    view.universe_count=count<EEA_PANEL_MAX_ROWS ? count : EEA_PANEL_MAX_ROWS;
    EEA_SymbolPanelSetEngineView(view);
+  }
+
+// G42: the EA universe is InpCanonicalSymbols plus, while T2 is not OFF, the T2-only trend assets
+// (InpT2OnlySymbols). Those get a T2 engine only; every other setup keeps to InpCanonicalSymbols.
+int EEA_UniverseSymbols(string &out[])
+  {
+   int n=EEA_NormalizeCanonicalCsv(InpCanonicalSymbols,out);
+   if(n<=0 || InpT2Mode==T2_OFF || InpT2OnlySymbols=="") return n;
+   string extra[];
+   const int m=EEA_NormalizeCanonicalCsv(InpT2OnlySymbols,extra);
+   for(int k=0;k<m;k++)
+     {
+      bool known=false;
+      for(int i=0;i<n;i++) if(out[i]==extra[k]) { known=true; break; }
+      if(known || n>=EEA_RUNTIME_MAX_SYMBOLS) continue;
+      ArrayResize(out,n+1);
+      out[n++]=extra[k];
+     }
+   return n;
   }
 
 int OnInit()
@@ -1109,7 +1129,7 @@ int OnInit()
    if(InpRuntimeEvidenceEnabled)
      {
       string canonical[];
-      int count = EEA_NormalizeCanonicalCsv(InpCanonicalSymbols, canonical);
+      int count = EEA_UniverseSymbols(canonical);
       if(count <= 0)
         {
          Print("INIT_PARAMETERS_INCORRECT: InpCanonicalSymbols is empty or invalid.");
@@ -1133,7 +1153,7 @@ int OnInit()
                                           strategy_config,InpStrategyRuntimeEnabled) :
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
                                             (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,
-                                            (int)InpT2Mode);
+                                            (int)InpT2Mode,InpT2OnlySymbols);
       g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;   // G41: after the init, which resets the runtime
       if(!strategy_ready && InpStrategyRuntimeEnabled)
         {
