@@ -4,6 +4,8 @@
 
 Streams, each compared with its own research results (edge_params.json, research/long/edge_calibrate.py):
   S04_SWING thật                real S04 trades (logs/trades.jsonl, realized R)
+  S06B_SWING thật               real S06B SWING first entries (trades.jsonl, realized R) since S06B_START_UTC
+  S06B_SWING thật + bồi         the same per signal with its "-ADD1" leg added (R of both legs summed)
   S04_SWING ảo                  every S04 SWING candidate, as if it had run alone (candidates_eval)
   S06B_SWING ảo lọc USD         S06B candidates with the USD flow aligned (shadow)
   S06B_SWING ảo lọc USD + bồi   the same with the +1R add (shadow, G29)
@@ -37,6 +39,8 @@ START_UTC = int(datetime(2026, 10, 6, tzinfo=timezone.utc).timestamp())   # G29 
 LEVEL = {"NO_DATA": 0, "OK": 0, "WARN": 1, "ALARM": 2}
 MIN_MEAN_TEST = 20
 TREND_ASSETS = ("XAUUSD", "BTCUSD")   # G41: InpT2LiveSymbols default
+S06B_START_UTC = int(datetime(2026, 10, 7, 16, 35, tzinfo=timezone.utc).timestamp())   # S06B switched to LIVE
+ADD_SUFFIX = "-ADD1"   # EEA_S06B_ADD_SUFFIX: the +1R add is its own position, candidate_id = first id + suffix
 T2_START_UTC = int(datetime(2026, 10, 6, 16, 36, tzinfo=timezone.utc).timestamp())   # G44 deployed (momentum filter)
 
 
@@ -88,11 +92,36 @@ def check(rs: list[float], p: dict) -> dict:
             "research_mean": p["mean"], "status": status, "reasons": reasons}
 
 
+def _s06b_real(trades: list[dict]) -> tuple[list[float], list[float]]:
+    """Real S06B SWING results since S06B_START_UTC: (first entries alone, first entry + its add), exit order.
+
+    The add's realized_r is in units of its own risk. The research r_add adds the add's money at the same
+    risk unit, so the sum of the two R values is the matching measure. A signal whose add is still open
+    (row present, not realized_known) is skipped until it closes."""
+    legs = [t for t in trades if t.get("setup") == "S06B" and t.get("profile") == "SWING"]
+    adds = {str(t.get("candidate_id")): t for t in legs if str(t.get("candidate_id", "")).endswith(ADD_SUFFIX)}
+    firsts = sorted((t for t in legs if not str(t.get("candidate_id", "")).endswith(ADD_SUFFIX)
+                     and t.get("realized_known") and t.get("realized_r") is not None
+                     and int(t.get("exit_utc") or 0) >= S06B_START_UTC),
+                    key=lambda t: int(t.get("exit_utc") or 0))
+    alone, with_add = [], []
+    for t in firsts:
+        r = float(t["realized_r"])
+        alone.append(r)
+        add = adds.get(str(t.get("candidate_id")) + ADD_SUFFIX)
+        if add is None:
+            with_add.append(r)
+        elif add.get("realized_known") and add.get("realized_r") is not None:
+            with_add.append(r + float(add["realized_r"]))
+    return alone, with_add
+
+
 def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, list[float]]]:
     """name -> (params key, results in time order)."""
     real = sorted((t for t in trades if t.get("setup") == "S04" and t.get("profile") == "SWING"
                    and t.get("realized_known") and t.get("realized_r") is not None),
                   key=lambda t: int(t.get("exit_utc") or 0))
+    s06b_real, s06b_real_add = _s06b_real(trades)
     ok = [e for e in evaluated if e.get("status") == "EVALUATED"]
     ok.sort(key=lambda e: e["time"])
     s04 = [e["r"] for e in ok if e["setup"] == "S04" and e["profile"] == "SWING"]
@@ -103,6 +132,8 @@ def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, l
     t2_trend = [e["r"] for e in t2_trend_rows]
     return {
         "S04_SWING thật": ("S04_SWING", [float(t["realized_r"]) for t in real]),
+        "S06B_SWING thật": ("S06B_SWING_USD", s06b_real),
+        "S06B_SWING thật + bồi": ("S06B_SWING_USD_ADD", s06b_real_add),
         "S04_SWING ảo": ("S04_SWING", s04),
         "S06B_SWING ảo lọc USD": ("S06B_SWING_USD", [e["r"] for e in s06]),
         "S06B_SWING ảo lọc USD + bồi": ("S06B_SWING_USD_ADD", [e.get("r_add", e["r"]) for e in s06]),
