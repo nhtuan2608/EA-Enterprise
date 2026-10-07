@@ -1258,7 +1258,13 @@ int OnInit()
       EEA_PublishPanelEngineView();
       if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
      }
-   Print("EnterpriseEA observer runtime initialized without execution authority.");
+   // G60: say what the EA may do (the old text said "without execution authority" even when live was armed).
+   if(g_live_config.enabled && g_live_config.armed)
+      Print("EnterpriseEA initialized: live entries armed (each entry still needs an ACTIVE live session).");
+   else if(g_live_config.enabled)
+      Print("EnterpriseEA initialized: execution enabled, live entries NOT armed (InpLiveTradeArmed=false).");
+   else
+      Print("EnterpriseEA initialized: observer only, no execution authority.");
    return INIT_SUCCEEDED;
   }
 
@@ -1292,6 +1298,30 @@ string EEA_LiveStatusPair(const string key,const string value,const bool quoted)
   {
    const string q="\"";
    return q+key+q+":"+(quoted ? q+EEA_JsonEscape(value)+q : value);
+  }
+
+// G60: the risk and News Guard settings the EA really uses, so they can be audited without the chart profile
+// (it is saved only when the terminal closes). Per-setup risk = the policy's per-trade risk x the setup weight.
+string EEA_LiveStatusRiskJson()
+  {
+   EEA_PolicySettings policy;
+   string reason;
+   if(!EEA_ControlledLiveResolvePolicy(g_config.data_root,g_config.config_version,g_runtime.account,policy,reason))
+      return "{"+EEA_LiveStatusPair("reason",reason,true)+"}";
+   EEA_RiskLimits limits;
+   if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason))
+      return "{"+EEA_LiveStatusPair("policy",policy.committed_policy,true)+","+EEA_LiveStatusPair("reason",reason,true)+"}";
+   const double p=100.0*limits.per_trade_fraction;
+   return "{"+EEA_LiveStatusPair("policy",policy.committed_policy,true)+","+
+      EEA_LiveStatusPair("reason",reason,true)+","+
+      EEA_LiveStatusPair("account_phase",InpAccountPhase==PHASE_EVALUATION ? "EVALUATION" : "FUNDED",true)+","+
+      EEA_LiveStatusPair("per_trade_percent",DoubleToString(p,3),false)+","+
+      EEA_LiveStatusPair("open_percent",DoubleToString(100.0*limits.total_open_fraction,3),false)+","+
+      EEA_LiveStatusPair("daily_percent",DoubleToString(100.0*limits.internal_daily_fraction,3),false)+","+
+      EEA_LiveStatusPair("weekly_percent",DoubleToString(100.0*limits.internal_weekly_fraction,3),false)+","+
+      EEA_LiveStatusPair("S04_percent",DoubleToString(p*EEA_SetupRiskWeight("S04"),3),false)+","+
+      EEA_LiveStatusPair("S06B_percent",DoubleToString(p*EEA_SetupRiskWeight("S06B"),3),false)+","+
+      EEA_LiveStatusPair("T2_percent",DoubleToString(p*EEA_SetupRiskWeight("T2"),3),false)+"}";
   }
 
 void EEA_WriteLiveStatus()
@@ -1335,7 +1365,11 @@ void EEA_WriteLiveStatus()
       EEA_LiveStatusPair("strategy_reason",strategy_reason,true)+","+
       EEA_LiveStatusPair("runtime_state",g_runtime.status.runtime_state,true)+","+
       EEA_LiveStatusPair("runtime_reason",g_runtime.status.reason_code,true)+","+
-      EEA_LiveStatusPair("calendar_export",g_calendar_export.reason,true)+"}";
+      EEA_LiveStatusPair("calendar_export",g_calendar_export.reason,true)+","+
+      EEA_LiveStatusPair("risk",EEA_LiveStatusRiskJson(),false)+","+
+      EEA_LiveStatusPair("news",
+         "{"+EEA_LiveStatusPair("allow_when_unknown",g_news.cfg.allow_when_unknown ? "true" : "false",false)+","+
+         EEA_LiveStatusPair("ignore_keywords",g_news.cfg.ignore_keywords,true)+"}",false)+"}";
    EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
   }
 
