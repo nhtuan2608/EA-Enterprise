@@ -56,18 +56,53 @@ class AiClientTests(unittest.TestCase):
         enqueue = section(self.shell, "void EEA_AiEnqueueReport")
         self.assertIn('EEA_AiEnqueue(g_ai,g_audit,type,"codex"', enqueue)       # diagnostics go to codex
 
+    def test_pre_news_brief_rule(self):  # REQ-007
+        self.assertIn("input int    InpAiPreNewsMinutes        = 45;", self.shell)
+        self.assertIn('if(i==4) return "NEWS_PRE_BRIEF";', self.client)
+        self.assertIn("#define EEA_AI_TYPES 5", self.client)
+        due = section(self.shell, "long EEA_AiPreBriefDue")
+        self.assertIn("InpAiPreNewsMinutes<=0", due)                                   # 0 = off
+        self.assertIn("now<t-(long)InpAiPreNewsMinutes*60 || now>t-300", due)           # [T-N min, T-5 min]
+        self.assertIn("EEA_AiPreBriefDone(g_ai,t)", due)                                # once per cluster
+        self.assertIn("g_news.events[e-1].time_utc==t", due)                            # one cluster per time_utc
+        timer = section(self.shell, "void EEA_AiTimer")
+        self.assertIn("EEA_AiPreBriefDue()", timer)
+        self.assertIn('EEA_AiEnqueueReport("NEWS_PRE_BRIEF",reason);', timer)
+        self.assertIn("EEA_AiPreBriefRemember(g_ai,g_ai_pre_brief_time); EEA_AiSaveState(g_ai);", timer)
+        # remembered clusters survive a restart (persisted next to last_news_review_day), newest 32 kept
+        self.assertIn("#define EEA_AI_PRE_BRIEF_KEEP 32", self.client)
+        self.assertIn('\\"pre_brief_times\\":', section(self.client, "void EEA_AiSaveState"))
+        self.assertIn('EEA_AiField(json,"pre_brief_times")', section(self.client, "void EEA_AiClientInit"))
+        enqueue = section(self.shell, "void EEA_AiEnqueueReport")
+        brief = enqueue.split('type=="NEWS_PRE_BRIEF"', 1)[1]
+        self.assertIn('"[\\"REPORT\\",\\"WARN\\",\\"RECOMMEND_REVIEW\\"]"', brief)
+        self.assertIn("EEA_AiAnalysisProvider()", brief)
+        for forbidden in ("OPEN", "TRADE", "RECOMMEND_WINDOW_CHANGE", "EEA_Execution"):
+            self.assertNotIn(forbidden, brief)
+
+    def test_pre_news_context_fields(self):  # REQ-007
+        body = section(self.shell, "string EEA_AiContextPreBrief")
+        for token in ("minutes_to_release", "forecast", "previous", "news_state", "swing_block_from_utc",
+                      "scalp_block_from_utc", "EEA_NewsReactionStatsForCluster(g_news_reaction", "median_move15_atr",
+                      "p80_move60_atr", "reversal_rate", "median_recovery_min", "current_r", "break_even_rule",
+                      "be_before_min", "be_min_r", "EEA_JsonEscape(g_news.events[e].name)"):
+            self.assertIn(token, body)
+        for forbidden in ("account_fingerprint", "ACCOUNT_LOGIN", "FileOpen", "logs/"):   # memory only, no log re-read
+            self.assertNotIn(forbidden, body)
+
     def test_ai_never_reaches_orders(self):  # TC-AI-09
         for forbidden in ("OrderSend", "EEA_ExecutionSubmit", "EEA_ExecutionClosePosition",
                           "EEA_ExecutionModifyProtective", "base_risk_fraction"):
             self.assertNotIn(forbidden, self.client)
-        for name in ("void EEA_AiTimer", "void EEA_AiHandlePanelRequest", "void EEA_AiEnqueueReport"):
+        for name in ("void EEA_AiTimer", "void EEA_AiHandlePanelRequest", "void EEA_AiEnqueueReport",
+                     "string EEA_AiContextPreBrief", "long EEA_AiPreBriefDue"):
             body = section(self.shell, name)
             for forbidden in ("EEA_Execution", "OrderSend", "risk_fraction"):
                 self.assertNotIn(forbidden, body)
 
     def test_contexts_have_no_account_identifiers(self):  # TC-AI-05
         for name in ("string EEA_AiContextNewsData", "string EEA_AiContextNewsEvent",
-                     "string EEA_AiContextDiagnostics", "string EEA_AiContextStatus"):
+                     "string EEA_AiContextDiagnostics", "string EEA_AiContextStatus", "string EEA_AiContextPreBrief"):
             body = section(self.shell, name)
             for forbidden in ("account_fingerprint", "ACCOUNT_LOGIN", "login", "password", "data_root+\"/current"):
                 self.assertNotIn(forbidden, body)

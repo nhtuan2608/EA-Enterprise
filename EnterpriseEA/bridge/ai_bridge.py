@@ -26,11 +26,12 @@ from pathlib import Path
 
 VERSION = "ai-bridge-v1.0.0"
 SCHEMA_VERSION = "1.0"
-REQUEST_TYPES = {"NEWS_DATA_REVIEW", "NEWS_EVENT_REVIEW", "EA_DIAGNOSTICS", "ASK_AI"}
+REQUEST_TYPES = {"NEWS_DATA_REVIEW", "NEWS_EVENT_REVIEW", "NEWS_PRE_BRIEF", "EA_DIAGNOSTICS", "ASK_AI"}
 ACTION_WHITELIST = {"REPORT", "WARN", "RECOMMEND_WINDOW_CHANGE", "RECOMMEND_REVIEW"}
 PROVIDERS = {"claude", "codex"}
 TTL_SECONDS = {"NEWS_DATA_REVIEW": 24 * 3600, "NEWS_EVENT_REVIEW": 12 * 3600,
-               "EA_DIAGNOSTICS": 24 * 3600, "ASK_AI": 4 * 3600}
+               "EA_DIAGNOSTICS": 24 * 3600, "ASK_AI": 4 * 3600,
+               "NEWS_PRE_BRIEF": 2 * 3600}   # valid until the release plus ~30 min
 MAX_REQUEST_BYTES = 50 * 1024
 MAX_STRING = 300
 MAX_DISPLAY_LINES = 8
@@ -183,6 +184,11 @@ TASKS = {
     "NEWS_DATA_REVIEW": "Đánh giá chất lượng và ý nghĩa của số liệu phản ứng giá sau tin (data health + thống kê theo cụm tin x symbol). "
                         "Chỉ ra điều đáng chú ý, nhóm tin nào khoảng chặn đang quá dài hoặc quá ngắn so với số liệu, và số liệu nào cần người kiểm tra lại.",
     "NEWS_EVENT_REVIEW": "Giải thích ngắn cụm tin vừa ra: kết quả so với dự báo, phản ứng giá trên từng symbol so với lịch sử của chính cụm tin đó, điểm bất thường.",
+    "NEWS_PRE_BRIEF": "Tóm tắt NGẮN trước cụm tin HIGH sắp ra (trường minutes_to_release trong DATA): thị trường kỳ vọng gì (so dự báo với kỳ trước của từng tin), "
+                      "symbol nào đang bị ảnh hưởng và trạng thái News Guard của chúng, các symbol đó từng phản ứng thế nào với đúng cụm tin này "
+                      "(median move 15m/60m theo ATR, tỷ lệ đảo chiều, thời gian hồi phục, số mẫu), ghi chú rủi ro cho các lệnh đang mở "
+                      "và quy tắc dời hoà vốn trước tin. KHÔNG đưa chỉ dẫn giao dịch: không nói mua/bán, không đề xuất giá, lot, entry/exit hay hướng đi; "
+                      "chỉ mô tả bối cảnh và rủi ro. Nếu thiếu số liệu (không có dự báo, chưa đủ mẫu lịch sử, không có lệnh mở) thì nói rõ là thiếu.",
     "EA_DIAGNOSTICS": "Chẩn đoán vận hành EA trong 24 giờ qua từ thống kê audit: lỗi, trạng thái DEGRADED/BLOCKED, refresh thất bại, kết quả gửi lệnh không rõ. "
                       "Nêu nguyên nhân khả dĩ và việc người vận hành nên kiểm tra. Không đề xuất sửa code hay đổi cấu hình tự động.",
     "ASK_AI": "Tóm tắt tình trạng hệ thống và thị trường hiện tại cho người vận hành, nêu cảnh báo cần chú ý.",

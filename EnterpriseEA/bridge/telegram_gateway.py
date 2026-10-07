@@ -51,7 +51,8 @@ DEFAULT_CONFIG = {
     "ai_provider": "claude",
     "commands_per_minute": 20,
     "asks_per_hour": 6,
-    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True},
+    "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True,
+               "pre_news": True},
     "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
     "edge_local": "08:05",      # G37: daily edge check time; a worse status is pushed to every user
 }
@@ -62,7 +63,9 @@ ALERT_EVENTS = {"EA_STOPPED", "EA_INITIALIZED", "RUNTIME_REFRESH_FAILED", "LIVE_
                 "OPERATOR_MODE_FAIL_CLOSED", "EXECUTION_RECOVERY_CONFIRMED", "EXECUTION_RECOVERY_OPERATOR_RESOLVED",
                 "TRADE_MANAGER_PERSISTENCE_FAILED"}
 ALERT_REASONS = ("LOSS_LIMIT_REACHED", "RECOVERY_REQUIRED", "EXECUTION_UNKNOWN")
-REPORT_TYPES = {"EA_DIAGNOSTICS": "Chẩn đoán EA", "NEWS_DATA_REVIEW": "Review dữ liệu tin"}
+REPORT_TYPES = {"EA_DIAGNOSTICS": "Chẩn đoán EA", "NEWS_DATA_REVIEW": "Review dữ liệu tin",
+                "NEWS_PRE_BRIEF": "Tóm tắt trước tin"}
+REPORT_FLAGS = {"NEWS_PRE_BRIEF": "pre_news"}   # per-kind notify flag on top of ai_reports
 
 HELP_VIEWER = ("/status - trạng thái EA\n"
                "/trades - các lệnh đã đóng gần đây\n"
@@ -811,6 +814,9 @@ class Gateway:
                 continue
             self.state["reports_seen"][kind] = rid
             if initial:
+                continue
+            flag = REPORT_FLAGS.get(kind)
+            if flag and not self.config["notify"].get(flag, True):
                 continue
             lines = [str(rep.get("summary", ""))] + [f"[{f.get('severity')}] {f.get('detail')}"
                                                      for f in rep.get("findings", [])[:6]]

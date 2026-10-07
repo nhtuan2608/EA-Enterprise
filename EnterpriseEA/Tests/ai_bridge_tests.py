@@ -85,6 +85,26 @@ class BridgeFlowTests(BridgeHarness):
                 self.bridge.process_once()
                 self.assertEqual(self.response(body["request_id"])["error"], code)
 
+    def test_pre_brief_type_ttl_and_task(self):  # REQ-007
+        self.assertIn("NEWS_PRE_BRIEF", ai_bridge.REQUEST_TYPES)
+        self.assertEqual(ai_bridge.TTL_SECONDS["NEWS_PRE_BRIEF"], 2 * 3600)
+        task = ai_bridge.TASKS["NEWS_PRE_BRIEF"]
+        for token in ("dự báo", "News Guard", "lệnh đang mở", "hoà vốn", "KHÔNG đưa chỉ dẫn giao dịch", "thiếu số liệu"):
+            self.assertIn(token, task)
+        body = request(req_id="req-brief-0001", request_type="NEWS_PRE_BRIEF", actions=["REPORT", "WARN", "RECOMMEND_REVIEW"],
+                       context={"minutes_to_release": 40, "events": [{"currency": "USD", "name": "NFP", "forecast": "180", "previous": "150"}]})
+        self.answers.append(json.dumps({"summary": "NFP sau 40 phút", "findings": [], "recommendations": []}))
+        self.put(body)
+        self.bridge.process_once()
+        res = self.response("req-brief-0001")
+        self.assertEqual(res["status"], "OK")
+        self.assertEqual(res["valid_until_utc"] - res["created_at_utc"], 2 * 3600)
+        self.assertIn(task, self.prompts[0])
+        # the brief can never carry a trade action
+        self.put(request(req_id="req-brief-0002", request_type="NEWS_PRE_BRIEF", actions=["OPEN_TRADE"]))
+        self.bridge.process_once()
+        self.assertEqual(self.response("req-brief-0002")["error"], "AI_ALLOWED_ACTIONS_INVALID")
+
     def test_malformed_answer(self):
         self.answers.append("I think you should buy gold")
         self.put(request())
