@@ -92,12 +92,19 @@ def check(rs: list[float], p: dict) -> dict:
             "research_mean": p["mean"], "status": status, "reasons": reasons}
 
 
-def _s06b_real(trades: list[dict]) -> tuple[list[float], list[float]]:
+ADD_AT_R = 1.0            # EEA_S06B_ADD_AT_R: the add is placed after a bar closes at >= +1R
+ADD_WAIT_SECONDS = 7 * 86400
+
+
+def _s06b_real(trades: list[dict], now_utc: int) -> tuple[list[float], list[float]]:
     """Real S06B SWING results since S06B_START_UTC: (first entries alone, first entry + its add), exit order.
 
     The add's realized_r is in units of its own risk. The research r_add adds the add's money at the same
     risk unit, so the sum of the two R values is the matching measure. A signal whose add is still open
-    (row present, not realized_known) is skipped until it closes."""
+    (row present, not realized_known) is skipped until it closes. A first leg with no add row: mfe_r < 1R
+    means no add was ever placed (count it alone); mfe_r >= 1R means the add may still be open or blocked,
+    so skip until its row appears, and after 7 days past the first exit treat it as no add; mfe_r missing
+    is unknown (skipped, then treated like the >= 1R case after 7 days)."""
     legs = [t for t in trades if t.get("setup") == "S06B" and t.get("profile") == "SWING"]
     adds = {str(t.get("candidate_id")): t for t in legs if str(t.get("candidate_id", "")).endswith(ADD_SUFFIX)}
     firsts = sorted((t for t in legs if not str(t.get("candidate_id", "")).endswith(ADD_SUFFIX)
@@ -110,18 +117,22 @@ def _s06b_real(trades: list[dict]) -> tuple[list[float], list[float]]:
         alone.append(r)
         add = adds.get(str(t.get("candidate_id")) + ADD_SUFFIX)
         if add is None:
-            with_add.append(r)
+            mfe = t.get("mfe_r")
+            no_add = mfe is not None and float(mfe) < ADD_AT_R
+            if no_add or now_utc - int(t.get("exit_utc") or 0) > ADD_WAIT_SECONDS:
+                with_add.append(r)
         elif add.get("realized_known") and add.get("realized_r") is not None:
             with_add.append(r + float(add["realized_r"]))
     return alone, with_add
 
 
-def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, list[float]]]:
-    """name -> (params key, results in time order)."""
+def streams(trades: list[dict], evaluated: list[dict], now_utc: int | None = None) -> dict[str, tuple[str, list[float]]]:
+    """name -> (params key, results in time order). now_utc (default: now) dates the pending-add wait."""
+    now_utc = int(datetime.now(timezone.utc).timestamp()) if now_utc is None else now_utc
     real = sorted((t for t in trades if t.get("setup") == "S04" and t.get("profile") == "SWING"
                    and t.get("realized_known") and t.get("realized_r") is not None),
                   key=lambda t: int(t.get("exit_utc") or 0))
-    s06b_real, s06b_real_add = _s06b_real(trades)
+    s06b_real, s06b_real_add = _s06b_real(trades, now_utc)
     ok = [e for e in evaluated if e.get("status") == "EVALUATED"]
     ok.sort(key=lambda e: e["time"])
     s04 = [e["r"] for e in ok if e["setup"] == "S04" and e["profile"] == "SWING"]
@@ -143,9 +154,9 @@ def streams(trades: list[dict], evaluated: list[dict]) -> dict[str, tuple[str, l
     }
 
 
-def run(trades: list[dict], evaluated: list[dict], params: dict) -> dict:
+def run(trades: list[dict], evaluated: list[dict], params: dict, now_utc: int | None = None) -> dict:
     out = {}
-    for name, (key, rs) in streams(trades, evaluated).items():
+    for name, (key, rs) in streams(trades, evaluated, now_utc).items():
         out[name] = dict(check(rs, params[key]), params=key)
     return out
 
