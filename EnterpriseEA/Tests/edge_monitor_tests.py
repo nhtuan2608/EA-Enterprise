@@ -33,7 +33,7 @@ class ParamsTests(unittest.TestCase):
 
     def test_monitor_streams_use_existing_params(self):
         names = em.streams([], [])
-        self.assertEqual(set(names), {"S04_SWING thật", "S04_SWING ảo", "S06B_SWING ảo lọc USD", "S06B_SWING ảo lọc USD + bồi",
+        self.assertEqual(set(names), {"S04_SWING thật", "S06B_SWING thật", "S06B_SWING thật + bồi", "S04_SWING ảo", "S06B_SWING ảo lọc USD", "S06B_SWING ảo lọc USD + bồi",
                                       "T2_POSITION ảo", "T2_POSITION ảo XAU+BTC", "T2_POSITION ảo XAU+BTC + bồi"})
         for key, _ in names.values():
             self.assertIn(key, PARAMS)
@@ -60,6 +60,56 @@ class T2SinceG44Tests(unittest.TestCase):
         # G43: the momentum filter lifts T2 from +0.19R to about +0.25R per trade on five symbols
         self.assertGreater(PARAMS["T2_POSITION"]["mean"], 0.2)
         self.assertGreater(PARAMS["T2_POSITION_TREND_ADD"]["mean"], PARAMS["T2_POSITION_TREND"]["mean"])
+
+
+class S06BRealTests(unittest.TestCase):
+    """Real S06B streams: first entries alone, and first entry + its -ADD1 leg, since the go-live time."""
+
+    def tr(self, cid, r, exit_utc, known=True, setup="S06B", mfe=0.5):
+        return {"mfe_r": mfe, "setup": setup, "profile": "SWING", "candidate_id": cid, "realized_known": known,
+                "realized_r": r if known else None, "exit_utc": exit_utc}
+
+    def test_first_entries_and_add_legs(self):
+        t0 = em.S06B_START_UTC
+        trades = [self.tr("B", -1.0, t0 + 300), self.tr("A-ADD1", 0.5, t0 + 250), self.tr("A", 2.0, t0 + 200),
+                  self.tr("B-ADD1", 0.0, t0 + 301, known=False),        # add still open: B skipped in the add stream
+                  self.tr("C", 1.0, t0 + 400),                            # mfe 0.5: no add, its R alone
+                  self.tr("X", 5.0, t0 + 500, setup="S04"),
+                  self.tr("D", 9.0, t0 - 60)]                             # exited before go-live
+        s = em.streams(trades, [])
+        self.assertEqual(s["S06B_SWING thật"][1], [2.0, -1.0, 1.0])       # exit order, no ADD1 as a first entry
+        self.assertEqual(s["S06B_SWING thật + bồi"][1], [2.5, 1.0])       # A + A-ADD1, C; B waits for its add
+        self.assertEqual(s["S06B_SWING thật"][0], "S06B_SWING_USD")
+        self.assertEqual(s["S06B_SWING thật + bồi"][0], "S06B_SWING_USD_ADD")
+
+    def test_first_leg_without_add_row(self):
+        t0 = em.S06B_START_UTC
+        day = 86400
+
+        def add_stream(trades, now):
+            return em.streams(trades, [], now)["S06B_SWING thật + bồi"][1]
+        low = [self.tr("A", 1.0, t0 + 10, mfe=0.6)]
+        self.assertEqual(add_stream(low, t0 + 11), [1.0])                  # never reached +1R: no add, counted alone
+        high = [self.tr("A", 1.0, t0 + 10, mfe=1.4)]
+        self.assertEqual(add_stream(high, t0 + 10 + 2 * day), [])          # add may still be open: wait
+        self.assertEqual(add_stream(high, t0 + 10 + 8 * day), [1.0])       # after 7 days: no add
+        self.assertEqual(add_stream(high + [self.tr("A-ADD1", 0.5, t0 + 10 + 3 * day)], t0 + 10 + 3 * day), [1.5])
+        unknown = [dict(self.tr("A", 1.0, t0 + 10), mfe_r=None)]
+        self.assertEqual(add_stream(unknown, t0 + 11), [])                 # mfe unknown: wait
+
+    def test_add_alone_is_never_a_first_entry(self):
+        s = em.streams([self.tr("A-ADD1", 3.0, em.S06B_START_UTC + 10)], [])
+        self.assertEqual(s["S06B_SWING thật"][1], [])
+        self.assertEqual(s["S06B_SWING thật + bồi"][1], [])
+
+    def test_run_reports_both_with_their_params(self):
+        t0 = em.S06B_START_UTC
+        res = em.run([self.tr("A", 1.0, t0 + 1), self.tr("A-ADD1", 1.0, t0 + 2)], [], PARAMS, t0 + 3)
+        self.assertEqual(res["S06B_SWING thật"]["params"], "S06B_SWING_USD")
+        self.assertEqual(res["S06B_SWING thật + bồi"]["params"], "S06B_SWING_USD_ADD")
+        self.assertEqual(res["S06B_SWING thật"]["n"], 1)
+        self.assertAlmostEqual(res["S06B_SWING thật + bồi"]["total"], 2.0)
+        self.assertEqual(em.run([], [], PARAMS)["S06B_SWING thật"]["status"], "NO_DATA")
 
 
 class CheckTests(unittest.TestCase):

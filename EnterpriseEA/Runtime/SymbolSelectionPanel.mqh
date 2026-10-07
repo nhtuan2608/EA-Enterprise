@@ -6,6 +6,7 @@
 #include "..\Market\SymbolRegistry.mqh"
 #include "..\Storage\PolicySettingsStore.mqh"
 #include "..\Storage\DailyStatsStore.mqh"
+#include "..\Storage\DailyFloatingStore.mqh"
 
 // Control center layout (spec 9.1): a persistent shell (header, view tabs, status
 // bar) plus exactly one active view (Dashboard or Settings). Views never stack, so
@@ -2521,7 +2522,16 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
              " / "+EEA_SymbolPanelSigned(gross_loss[sd],2);
       detail_color=active[sd] ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR;
      }
-   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetailTitle",EEA_PANEL_CONTENT_X,detail_y+8,"DAY DETAIL");
+   // TC-029: floating P/L of the selected day (end-of-day snapshot; today = live) goes on the title line.
+   string detail_title="DAY DETAIL";
+   if(sd>=1 && sd<=days_in_month)
+     {
+      double floating_value=0.0;
+      if(!EEA_DailyFloatingLookup(first_day+sd-1,floating_value)) detail_title+=EEA_SymbolPanelSep()+"floating EOD unavailable";
+      else if(first_day+sd-1==today) detail_title+=EEA_SymbolPanelSep()+"floating now "+EEA_SymbolPanelSigned(floating_value,2);
+      else detail_title+=EEA_SymbolPanelSep()+"floating EOD "+EEA_SymbolPanelSigned(floating_value,2);
+     }
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetailTitle",EEA_PANEL_CONTENT_X,detail_y+8,detail_title);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetail",EEA_PANEL_CONTENT_X,detail_y+26,detail,detail_color,
                           EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalSummary",EEA_PANEL_CONTENT_X,detail_y+56,

@@ -22,7 +22,7 @@ class DefaultsTests(unittest.TestCase):
         for token in ("input EEA_S02ModeInput InpS02Mode       = S02_SHADOW;",
                       "input EEA_S04ModeInput InpS04Mode       = S04_LIVE;",
                       "input EEA_S06ModeInput InpS06Mode       = S06_SHADOW;",
-                      "input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW;",
+                      "input EEA_S06BModeInput InpS06BMode     = S06B_LIVE;",
                       "input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW;"):
             self.assertIn(token, self.shell)
 

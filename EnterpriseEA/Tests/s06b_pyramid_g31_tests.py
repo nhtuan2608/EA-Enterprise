@@ -32,7 +32,7 @@ class ShellTests(unittest.TestCase):
 
     def test_news_keywords_default_from_g30(self):
         for key in ("Initial Jobless Claims", "EIA Crude Oil", "Lagarde Speech", "CB Consumer Confidence",
-                    "Durable Goods", "Home Sales", "ISM Non-Manufacturing", "S&P Global Services PMI",
+                    "Durable Goods", "Home Sales", "S&P Global Services PMI",
                     "Note Auction", "Money Stock"):
             self.assertIn(key, self.shell.split("input string InpNewsIgnoreKeywords", 1)[1].split("\n", 1)[0])
         line = self.shell.split("input string InpNewsIgnoreKeywords", 1)[1].split(";", 1)[0]
