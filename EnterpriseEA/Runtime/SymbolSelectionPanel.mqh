@@ -56,6 +56,7 @@
 #define EEA_PANEL_CONTROL_HEIGHT 30
 #define EEA_PANEL_BODY_FONT_SIZE 9
 #define EEA_PANEL_META_FONT_SIZE 8
+#define EEA_AI_VIEW_SLOTS 5   // must equal EEA_AI_TYPES (AiBridgeClient.mqh); one report slot per request type
 #define EEA_PANEL_TITLE_FONT_SIZE 12
 #define EEA_PANEL_VALUE_FONT_SIZE 13
 #define EEA_PANEL_VISIBLE_ROWS 9
@@ -213,9 +214,9 @@ struct EEA_SymbolPanelEngineView
    long ea_order_ticket[16];
    string ai_status;              // AI Bridge: ONLINE | BRIDGE OFFLINE | CIRCUIT OPEN | DISABLED
    string ai_status_line;
-   string ai_title[4];
-   int ai_line_count[4];
-   string ai_lines[32];
+   string ai_title[EEA_AI_VIEW_SLOTS];
+   int ai_line_count[EEA_AI_VIEW_SLOTS];
+   string ai_lines[EEA_AI_VIEW_SLOTS*8];
    bool sentiment_ok;             // market sentiment (cross-pair flow)
    string sentiment_reason;
    string sentiment_regime;
@@ -292,8 +293,8 @@ void EEA_SymbolPanelEngineViewDefaults(EEA_SymbolPanelEngineView &view)
    view.recovery_detail=""; view.recovery_message="";
    view.cmd_armed=false; view.cmd_last=""; view.ea_position_count=0; view.ea_order_count=0;
    view.ai_status="DISABLED"; view.ai_status_line="";
-   for(int i=0;i<4;i++) { view.ai_title[i]=""; view.ai_line_count[i]=0; }
-   for(int i=0;i<32;i++) view.ai_lines[i]="";
+   for(int i=0;i<EEA_AI_VIEW_SLOTS;i++) { view.ai_title[i]=""; view.ai_line_count[i]=0; }
+   for(int i=0;i<EEA_AI_VIEW_SLOTS*8;i++) view.ai_lines[i]="";
    view.sentiment_ok=false; view.sentiment_reason="SENTIMENT_NOT_PUBLISHED"; view.sentiment_regime="UNKNOWN";
    view.sentiment_bar_time=0; view.sentiment_summary=""; view.sentiment_symbol_count=0;
    view.operator_paused=false; view.operator_mode_reason="";
@@ -2368,10 +2369,10 @@ void EEA_SymbolPanelDashAi(const long chart_id,EEA_ObserverRuntimeContext &ctx)
    EEA_SymbolPanelSetButtonEx(chart_id,p+"BtnReview",EEA_PANEL_CONTENT_X+158,y+68,170,26,"Review news data now",
                               EEA_PANEL_BUTTON_SECONDARY);
    int ry=y+104;
-   for(int t=0;t<4;t++)
+   for(int t=0;t<EEA_AI_VIEW_SLOTS;t++)
      {
       EEA_SymbolPanelSetCaption(chart_id,p+"RT_"+IntegerToString(t),EEA_PANEL_CONTENT_X,ry,g_panel_engine.ai_title[t]);
-      ry+=16;
+      ry+=15;   // 5 slots must fit above the status bar (y 572): tighter header/line/gap pitch
       int shown=MathMin(g_panel_engine.ai_line_count[t],t==0 ? 5 : 3);
       for(int i=0;i<5;i++)
         {
@@ -2383,9 +2384,9 @@ void EEA_SymbolPanelDashAi(const long chart_id,EEA_ObserverRuntimeContext &ctx)
          EEA_SymbolPanelSetText(chart_id,n,EEA_PANEL_CONTENT_X+8,ry,line,tone,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,
                                 ANCHOR_LEFT_UPPER,96);
          ObjectSetString(chart_id,n,OBJPROP_TOOLTIP,line);
-         ry+=15;
+         ry+=13;
         }
-      ry+=6;
+      ry+=4;
      }
   }
 

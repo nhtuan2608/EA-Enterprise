@@ -901,10 +901,10 @@ void EEA_PublishAiView(EEA_SymbolPanelEngineView &view)
       EEA_SymbolPanelSep()+"calls today "+IntegerToString(g_ai.calls_today)+"/"+IntegerToString(g_ai.max_calls_per_day)+
       EEA_SymbolPanelSep()+"pending "+IntegerToString(g_ai.pending_count)+EEA_SymbolPanelSep()+g_ai.last_reason;
    long offset=EEA_SymbolPanelLocalOffsetSeconds();
-   for(int t=0;t<EEA_AI_TYPES && t<4;t++)         // the panel shows 4 slots; NEWS_PRE_BRIEF goes to Telegram
+   for(int t=0;t<EEA_AI_TYPES && t<EEA_AI_VIEW_SLOTS;t++)   // every request type has a panel slot
      {
       EEA_AiReport r=g_ai.reports[t];
-      view.ai_title[t]=EEA_AiType(t)+(r.present ? "  "+TimeToString((datetime)(r.created_at_utc+offset),TIME_DATE|TIME_MINUTES)+
+      view.ai_title[t]=(t==4 ? "Pre-news brief" : EEA_AiType(t))+(r.present ? "  "+TimeToString((datetime)(r.created_at_utc+offset),TIME_DATE|TIME_MINUTES)+
                        "  "+r.provider+(r.status=="ERROR" ? "  ERROR "+r.error : "") : "  no report yet");
       view.ai_line_count[t]=r.present ? r.line_count : 0;
       for(int i=0;i<8;i++) view.ai_lines[t*8+i]=(i<r.line_count ? r.lines[i] : "");
