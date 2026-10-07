@@ -56,6 +56,21 @@ class WalkTests(unittest.TestCase):
         self.assertTrue(nb.walk(self.c, self.t, ce.T2_RULE, [event], 3600)[2])     # UTC+1 server: trigger in bar 2
 
 
+    def test_g52_tightened_trail_instead_of_break_even(self):
+        event = 2 * H4 + 3600                 # bar 2 opens at 101.5 (+0.75R), dips to 99.9
+        # k=1: stop 100.5 (above entry) -> out at +0.25R; k=2: stop 99.5 -> survives the dip and runs on
+        r1, exit1, used1 = nb.walk(self.c, self.t, ce.T2_RULE, [event], 0, news_k=1.0)
+        self.assertTrue(used1)
+        self.assertEqual(exit1, 2)
+        self.assertAlmostEqual(r1, 0.25)
+        r2, _, used2 = nb.walk(self.c, self.t, ce.T2_RULE, [event], 0, news_k=2.0)
+        self.assertTrue(used2)
+        self.assertGreater(r2, 2.0)
+        # looser than the current stop: nothing changes
+        self.assertFalse(nb.walk(self.c, self.t, ce.T2_RULE, [event], 0, news_k=5.0)[2])
+        self.assertEqual(nb.TRAIL_K, (1.0, 1.5, 2.0))
+
+
 class EventTests(unittest.TestCase):
     def test_direct_events_of_the_symbol_without_ignored_names(self):
         with tempfile.TemporaryDirectory() as d:

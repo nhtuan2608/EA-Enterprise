@@ -14,6 +14,8 @@ for the symbol). Each trade is walked twice with the T2 walk of pyramid: as the 
 break-even set at the start of the H4 bar that holds the moment event - 15 min, when the trade is >= 0.3R at that
 bar's open. H4 bars do not tell whether the bar's extreme came before or after that moment, so a single trade can
 be off either way. The sample is small (nine months): it measures the size of the gap, not a new rule.
+G52 (07/10, user: "break-even, or else find a trailing distance"): the same trades with a tightened trail
+(k ATR from the bar's open, k in TRAIL_K) instead of the break-even, each compared with the break-even.
 """
 from __future__ import annotations
 
@@ -37,6 +39,9 @@ FROM_UTC = int(datetime(2026, 1, 6, tzinfo=timezone.utc).timestamp())
 BE_BEFORE_MIN = 15
 BE_MIN_R = 0.3
 SYMBOLS = ("EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD")
+# G52 (registered before the run): instead of break-even, tighten the stop to k ATR before the event.
+# Adopted only if a k beats break-even with the 90% paired interval above zero.
+TRAIL_K = (1.0, 1.5, 2.0)
 
 
 def ignore_keywords() -> list[str]:
@@ -61,12 +66,15 @@ def news_times(path: Path, symbol: str, keys: list[str]) -> list[int]:
     return sorted(out)
 
 
-def walk(c: dict, t: dict, rule: dict, triggers: list[int] = (), offset: int = 0) -> tuple[float, int, bool]:
+def walk(c: dict, t: dict, rule: dict, triggers: list[int] = (), offset: int = 0,
+         news_k: float | None = None) -> tuple[float, int, bool]:
     """pyramid.walk for the T2 rule (no target, partial, break-even or structure exit; ATR trail), plus the News
     Guard break-even: (R before costs, exit bar, break-even used). Without triggers it is pyramid.walk exactly.
 
     At the start of a bar holding a trigger (event - 15 min, server time), a trade >= BE_MIN_R at the bar's open
-    gets its stop at entry + spread, unless the trail already holds it there or beyond."""
+    gets its stop at entry + spread, unless the trail already holds it there or beyond.
+    G52: news_k set = instead of break-even, the stop goes to news_k ATR (H4, the bar before) from the bar's open,
+    when that is tighter than the current stop (it may stay below the entry)."""
     bars, point, d = c["entry"], c["point"], t["dir"]
     entry = t["entry"]
     risk = d * (entry - t["stop"])
@@ -80,7 +88,7 @@ def walk(c: dict, t: dict, rule: dict, triggers: list[int] = (), offset: int = 0
         if triggers and not used and any(bar["time"] <= x + offset - BE_BEFORE_MIN * 60 < bar["time"] + 4 * 3600
                                          for x in triggers):
             if d * (bar["open"] - entry) / risk >= BE_MIN_R:
-                be_stop = entry + d * bar["spread"] * point
+                be_stop = entry + d * bar["spread"] * point if news_k is None else                     bar["open"] - d * news_k * bars[b - 1]["atr"]
                 if d * (be_stop - sl) > 0:
                     sl = be_stop
                     used = True
@@ -153,8 +161,11 @@ def main() -> None:
                 base, _, _ = walk(c, t, ce.T2_RULE)
                 assert abs(base - pyramid.walk(c, t, ce.T2_RULE, t["i"], t["entry"], t["stop"], None)[0]) < 1e-9
                 be, _, used = walk(c, t, ce.T2_RULE, ev, offset)
-                rows.append({"symbol": s, "time": c["entry"][t["i"]]["time"] - offset, "base": base - fee,
-                             "be": be - fee, "used": used, "open": x["open"]})
+                row = {"symbol": s, "time": c["entry"][t["i"]]["time"] - offset, "base": base - fee,
+                       "be": be - fee, "used": used, "open": x["open"]}
+                for k in TRAIL_K:
+                    row[f"k{k}"] = walk(c, t, ce.T2_RULE, ev, offset, news_k=k)[0] - fee
+                rows.append(row)
     finally:
         pyramid.GAP_FILL = gap
     print(f"T2 từ {datetime.fromtimestamp(FROM_UTC, timezone.utc):%Y-%m-%d}, {len(rows)} lệnh "
@@ -173,10 +184,18 @@ def main() -> None:
     lo, hi = paired_ci(diff)
     print(f"Chênh lệch mỗi lệnh (có BE tin − mô hình): {statistics.fmean(diff):+.3f}R, "
           f"khoảng 90% bootstrap [{lo:+.3f}, {hi:+.3f}]")
+    print("G52 — thay hòa vốn bằng siết trailing trước tin (stop = giá mở − k ATR H4, nếu chặt hơn stop đang có):")
+    for k in TRAIL_K:
+        dk = [r[f"k{k}"] - r["be"] for r in rows]
+        lo_k, hi_k = paired_ci(dk)
+        verdict = "THẮNG hòa vốn" if lo_k > 0 else "không hơn hòa vốn (trong nhiễu)" if hi_k > 0 else "THUA hòa vốn"
+        print(f"  k={k}: {statistics.fmean(r[f'k{k}'] for r in rows):+.3f}R/lệnh, so với hòa vốn "
+              f"{statistics.fmean(dk):+.3f}R [{lo_k:+.3f}, {hi_k:+.3f}] → {verdict}")
     for r in rows:
         if r["used"]:
             print(f"  {r['symbol']} {datetime.fromtimestamp(r['time'], timezone.utc):%Y-%m-%d %H:%M} "
-                  f"{r['base']:+.2f}R → {r['be']:+.2f}R{' (còn mở)' if r['open'] else ''}")
+                  f"{r['base']:+.2f}R → hòa vốn {r['be']:+.2f}R, "
+                  + ", ".join(f"k={k} {r[f'k{k}']:+.2f}R" for k in TRAIL_K) + (" (còn mở)" if r["open"] else ""))
 
 
 if __name__ == "__main__":
