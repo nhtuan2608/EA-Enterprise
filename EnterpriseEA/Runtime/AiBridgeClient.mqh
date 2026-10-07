@@ -14,7 +14,8 @@
 #include "../Storage/AtomicWriter.mqh"
 #include "../Storage/AuditLog.mqh"
 
-#define EEA_AI_TYPES 4
+#define EEA_AI_TYPES 5
+#define EEA_AI_PRE_BRIEF_KEEP 32
 #define EEA_AI_MAX_PENDING 4
 #define EEA_AI_LINES 8
 #define EEA_AI_DEADLINE_SECONDS 300
@@ -28,6 +29,7 @@ string EEA_AiType(const int i)
    if(i==1) return "NEWS_EVENT_REVIEW";
    if(i==2) return "EA_DIAGNOSTICS";
    if(i==3) return "ASK_AI";
+   if(i==4) return "NEWS_PRE_BRIEF";      // REQ-007: before a HIGH release
    return "";
   }
 
@@ -61,6 +63,8 @@ struct EEA_AiClient
    long   circuit_until_utc;
    long   last_news_review_day;
    long   last_diag_day;
+   int    pre_brief_count;                  // clusters (time_utc) already briefed, newest last
+   long   pre_brief_times[EEA_AI_PRE_BRIEF_KEEP];
    int    pending_count;
    string pending_id[EEA_AI_MAX_PENDING];
    string pending_type[EEA_AI_MAX_PENDING];
@@ -135,13 +139,39 @@ bool EEA_AiReadText(const string path,string &text)
 
 string EEA_AiStatePath(const EEA_AiClient &c) { return c.root+"/ai/client_state.json"; }
 
+// Clusters already briefed, comma separated (persisted so a restart or chart change does not repeat a brief).
+string EEA_AiPreBriefText(const EEA_AiClient &c)
+  {
+   string text="";
+   for(int i=0;i<c.pre_brief_count;i++) text+=(i>0 ? "," : "")+IntegerToString(c.pre_brief_times[i]);
+   return text;
+  }
+
+bool EEA_AiPreBriefDone(const EEA_AiClient &c,const long cluster_utc)
+  {
+   for(int i=0;i<c.pre_brief_count;i++) if(c.pre_brief_times[i]==cluster_utc) return true;
+   return false;
+  }
+
+// Remembers a briefed cluster; only the newest EEA_AI_PRE_BRIEF_KEEP are kept.
+void EEA_AiPreBriefRemember(EEA_AiClient &c,const long cluster_utc)
+  {
+   if(EEA_AiPreBriefDone(c,cluster_utc)) return;
+   if(c.pre_brief_count>=EEA_AI_PRE_BRIEF_KEEP)
+     {
+      for(int i=1;i<c.pre_brief_count;i++) c.pre_brief_times[i-1]=c.pre_brief_times[i];
+      c.pre_brief_count--;
+     }
+   c.pre_brief_times[c.pre_brief_count++]=cluster_utc;
+  }
+
 void EEA_AiSaveState(const EEA_AiClient &c)
   {
    string json="{\"document_version\":\"ai-client-v1.0.0\",\"day_local\":"+IntegerToString(c.day_local)+
       ",\"calls_today\":"+IntegerToString(c.calls_today)+",\"failures\":"+IntegerToString(c.failures)+
       ",\"circuit_until_utc\":"+IntegerToString(c.circuit_until_utc)+
       ",\"last_news_review_day\":"+IntegerToString(c.last_news_review_day)+
-      ",\"last_diag_day\":"+IntegerToString(c.last_diag_day)+"}";
+      ",\"last_diag_day\":"+IntegerToString(c.last_diag_day)+",\"pre_brief_times\":\""+EEA_AiPreBriefText(c)+"\"}";
    EEA_WriteAtomicText(EEA_AiStatePath(c),json);
   }
 
@@ -164,7 +194,7 @@ bool EEA_AiParseReport(const string json,EEA_AiReport &r)
 void EEA_AiClientInit(EEA_AiClient &c,const string root,const bool enabled,const int max_calls_per_day)
   {
    c.enabled=enabled; c.root=root; c.max_calls_per_day=max_calls_per_day; c.day_local=0; c.calls_today=0;
-   c.failures=0; c.circuit_until_utc=0; c.last_news_review_day=0; c.last_diag_day=0; c.pending_count=0;
+   c.failures=0; c.circuit_until_utc=0; c.last_news_review_day=0; c.last_diag_day=0; c.pre_brief_count=0; c.pending_count=0;
    c.bridge_seen_utc=0; c.bridge_version=""; c.last_reason=enabled ? "AI_CLIENT_READY" : "AI_DISABLED";
    string json;
    if(EEA_AiReadText(EEA_AiStatePath(c),json))
@@ -175,6 +205,13 @@ void EEA_AiClientInit(EEA_AiClient &c,const string root,const bool enabled,const
       c.circuit_until_utc=StringToInteger(EEA_AiField(json,"circuit_until_utc"));
       c.last_news_review_day=StringToInteger(EEA_AiField(json,"last_news_review_day"));
       c.last_diag_day=StringToInteger(EEA_AiField(json,"last_diag_day"));
+      string times[];
+      int n=StringSplit(EEA_AiField(json,"pre_brief_times"),',',times);
+      for(int i=0;i<n;i++)
+        {
+         long t=StringToInteger(times[i]);
+         if(t>0) EEA_AiPreBriefRemember(c,t);
+        }
      }
    for(int i=0;i<EEA_AI_TYPES;i++)
      {
