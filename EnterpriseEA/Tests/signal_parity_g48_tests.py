@@ -71,6 +71,27 @@ class PureTests(unittest.TestCase):
         self.assertIn('daily = context.load_bars(symbol, "D1")[-1000:] if d1_path.exists() else daily_from_h1(h1)', src)
         self.assertIn('context.DATA, context.CACHE = scratch, scratch / ".cache"', src)   # live mode never touches the export cache
 
+    def test_t2_only_symbols_match_the_ea_default_and_run_t2_alone(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        line = shell.split("input string InpT2OnlySymbols", 1)[1].split(";", 1)[0]
+        self.assertEqual(tuple(line.split('"')[1].split(",")), sp.T2_ONLY)
+        calls = []
+        orig = sp.research_keys, sp.ce.load, sp.refresh_times, sp.ea_symbols, dict(sp.SYMBOL_START)
+        try:
+            sp.research_keys = lambda s, setup, start: (calls.append((s, setup)) or (set(), {}, 0))
+            sp.ce.load = lambda path, since: []
+            sp.refresh_times = lambda audit, since: []
+            sp.ea_symbols = lambda root, rows: ["EURUSD", "XAGUSD", "ETHUSD"]
+            sp.SYMBOL_START.clear()
+            sp.SYMBOL_START["XAGUSD"] = sp.START["T2"] + 86400
+            r = sp.run(root=Path("."))
+        finally:
+            sp.research_keys, sp.ce.load, sp.refresh_times, sp.ea_symbols = orig[:4]
+            sp.SYMBOL_START.clear(); sp.SYMBOL_START.update(orig[4])
+        self.assertEqual(sorted(calls), [("EURUSD", "S04"), ("EURUSD", "S06B"), ("EURUSD", "T2"), ("XAGUSD", "T2")])
+        self.assertEqual(r["not_followed"], ["ETHUSD"])         # no start yet: never counted as missed
+        self.assertIn("T2 chưa có mốc theo dõi (chưa so): ETHUSD", sp.text(r))
+
     def test_starts_follow_the_deploys(self):
         self.assertLess(sp.START["S04"], sp.START["S06B"])
         self.assertLess(sp.START["S06B"], sp.START["T2"])     # T2 counted from the G44 momentum filter only

@@ -45,6 +45,10 @@ TF_SECONDS = {"SWING": 3600, "POSITION": 14400}
 S06B = {"box": 24, "max_box_atr": 3.0, "contraction": 0.85, "mode": "immediate", "sl": "far"}   # filters.S06B
 OFFLINE_GAP = 600
 HEARTBEAT_DAYS = 30        # research signals this far before the window prove the generators still run
+# G49: InpT2OnlySymbols (EA default) run T2 alone; each counts from the day the EA started watching it
+# (set at deploy; a T2-only symbol without a start is reported as not followed yet, never as missed).
+T2_ONLY = ("XAGUSD", "ETHUSD", "USOUSD")
+SYMBOL_START: dict[str, int] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -158,20 +162,27 @@ def run(since: int | None = None, root: Path | None = None) -> dict:
         research, close, last_bar = set(), {}, {}
         before = []
         for s in symbols:
+            if s in T2_ONLY and setup != "T2":
+                continue
+            if s in T2_ONLY and s not in SYMBOL_START:
+                result.setdefault("not_followed", []).append(s)
+                continue
+            s_start = max(start, SYMBOL_START.get(s, 0))
             try:
-                k, c, lb = research_keys(s, setup, start - HEARTBEAT_DAYS * 86400)
+                k, c, lb = research_keys(s, setup, s_start - HEARTBEAT_DAYS * 86400)
             except Exception as exc:          # a symbol without exported bars must not stop the others
                 result.setdefault("errors", []).append(f"{setup} {s}: {exc}")
                 continue
             # Signals before the window only show that the generators work (heartbeat); they are not compared.
-            before += [x for x in k if c[x] < start]
-            k = {x for x in k if c[x] >= start}
+            before += [x for x in k if c[x] < s_start]
+            k = {x for x in k if c[x] >= s_start}
             research |= k
             close.update({x: c[x] for x in k})
             last_bar[s] = lb
         ea = {(r["setup"], r["symbol"], int(r["direction"]), int(r["bar_time"])) for r in rows
               if r["setup"] == setup and r["profile"] == PROFILE[setup] and r.get("bar_time")
-              and int(r["bar_time"]) <= last_bar.get(r["symbol"], 0) and int(r.get("closed_utc", 0)) >= start - 86400}
+              and int(r["bar_time"]) <= last_bar.get(r["symbol"], 0)
+              and int(r.get("closed_utc", 0)) >= max(start, SYMBOL_START.get(r["symbol"], 0)) - 86400}
         cmp = compare(research, ea, close, refreshes)
         result[setup] = {k: [list(x) for x in v] for k, v in cmp.items()}
         result[setup]["start_utc"] = start
@@ -256,6 +267,8 @@ def text(result: dict) -> str:
     for key, r in result.get("replay", {}).items():
         lines.append(f"Replay lịch sử của EA {key}: khớp {r['match']}/{max(r['ea'], r['research'])} "
                      f"(EA {r['ea']}, nghiên cứu {r['research']})")
+    if result.get("not_followed"):
+        lines.append("T2 chưa có mốc theo dõi (chưa so): " + ", ".join(sorted(set(result["not_followed"]))))
     for e in result.get("errors", []):
         lines.append(f"lỗi: {e}")
     return "\n".join(lines)

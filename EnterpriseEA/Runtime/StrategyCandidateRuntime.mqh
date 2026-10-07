@@ -57,6 +57,7 @@ struct EEA_StrategyCandidateRuntime
    int t2_mode;        // G38/G40: T2 (H4 Donchian, POSITION profile), OFF, SHADOW or LIVE
    string t2_live_symbols;   // G41: comma list; a LIVE T2 engine of another symbol stays in SHADOW
    bool t2_momentum_filter;  // G43/G44: T2 signals need a momentum close (signal bar or the bar before)
+   string t2_only_symbols;   // G49: comma list of symbols that get the T2 engine and no other
    long last_scan_utc;
    string reason_code;
    string persistence_root;
@@ -85,6 +86,7 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.t2_mode=EEA_S04_MODE_OFF;
    runtime.t2_live_symbols="";
    runtime.t2_momentum_filter=false;
+   runtime.t2_only_symbols="";
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
      {
@@ -129,13 +131,6 @@ bool EEA_StrategyCandidateRuntimeInit(EEA_StrategyCandidateRuntime &runtime,
    return true;
   }
 
-// Entry mode of a setup: OFF, SHADOW (record only) or LIVE.
-int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,const string setup)
-  { return setup=="S04" ? runtime.s04_mode : setup=="S06" ? runtime.s06_mode : setup=="S06B" ? runtime.s06b_mode :
-           setup=="T2" ? runtime.t2_mode : runtime.s02_mode; }
-
-// G26: the mode an engine actually runs in: its setup's mode, capped by the SCALP mode for
-// SCALP engines (OFF < SHADOW < LIVE). Every entry, shadow and ledger decision uses this.
 // G41: is the symbol in a comma list (spaces ignored, case-insensitive)?
 bool EEA_StrategyRuntimeSymbolListed(const string list,const string canonical)
   {
@@ -150,6 +145,13 @@ bool EEA_StrategyRuntimeSymbolListed(const string list,const string canonical)
    return false;
   }
 
+// Entry mode of a setup: OFF, SHADOW (record only) or LIVE.
+int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,const string setup)
+  { return setup=="S04" ? runtime.s04_mode : setup=="S06" ? runtime.s06_mode : setup=="S06B" ? runtime.s06b_mode :
+           setup=="T2" ? runtime.t2_mode : runtime.s02_mode; }
+
+// G26: the mode an engine actually runs in: its setup's mode, capped by the SCALP mode for
+// SCALP engines (OFF < SHADOW < LIVE). Every entry, shadow and ledger decision uses this.
 int EEA_StrategyRuntimeEngineMode(const EEA_StrategyCandidateRuntime &runtime,const int index)
   {
    int mode=EEA_StrategyRuntimeSetupMode(runtime,runtime.setup[index]);
@@ -197,6 +199,16 @@ void EEA_StrategyRuntimeSlot(const EEA_StrategyCandidateRuntime &runtime,const i
    else EEA_S02V1Config(config,profile);
   }
 
+// G49: does slot p of the stride exist for this symbol? A T2-only symbol has the T2 slot alone.
+bool EEA_StrategyRuntimeSlotFor(const EEA_StrategyCandidateRuntime &runtime,const int p,const string canonical)
+  {
+   if(!EEA_StrategyRuntimeSymbolListed(runtime.t2_only_symbols,canonical)) return true;
+   string setup,profile,timeframe;
+   EEA_S02Config c;
+   EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,c);
+   return setup=="T2";
+  }
+
 // S02 v1: a SCALP (M5) and a SWING (H1) engine per symbol with the v1 seed configs.
 bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
                                         const string &canonical[],const int count,const bool enabled,
@@ -205,9 +217,11 @@ bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
                                         const int s06_mode=EEA_S04_MODE_OFF,
                                         const int s06b_mode=EEA_S04_MODE_OFF,
                                         const int scalp_mode=EEA_S04_MODE_LIVE,
-                                        const int t2_mode=EEA_S04_MODE_OFF)
+                                        const int t2_mode=EEA_S04_MODE_OFF,
+                                        const string t2_only_symbols="")
   {
    EEA_StrategyCandidateRuntimeDefaults(runtime);
+   runtime.t2_only_symbols=t2_only_symbols;
    runtime.enabled=enabled;
    runtime.zone_mode=true;
    runtime.t2_mode=t2_mode;
@@ -229,6 +243,7 @@ bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
       if(canonical[i]=="") { runtime.reason_code="EEA_STRATEGY_RUNTIME_SYMBOL_INVALID"; return false; }
       for(int p=0;p<stride;p++)
         {
+         if(!EEA_StrategyRuntimeSlotFor(runtime,p,canonical[i])) continue;
          string setup,profile,timeframe;
          EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,runtime.profile_config[engine_count]);
          if(!EEA_S02ConfigValid(runtime.profile_config[engine_count]))
@@ -764,10 +779,21 @@ bool EEA_StrategyRuntimeSyncSymbols(EEA_StrategyCandidateRuntime &runtime,const 
    if(!runtime.enabled || !runtime.zone_mode) return true;
    const int stride=EEA_StrategyRuntimeStride(runtime);
    if(count<1 || count*stride>EEA_STRATEGY_RUNTIME_MAX_ENGINES) return false;
-   bool same=(runtime.symbol_count==count*stride);
+   // G49: the expected engine list (symbol, setup) in order; T2-only symbols have one slot.
+   bool same=true;
+   int expected=0;
    for(int i=0;i<count && same;i++)
-      if(runtime.engines[stride*i].canonical_symbol!=canonical[i]) same=false;
-   if(same) return true;
+      for(int p=0;p<stride;p++)
+        {
+         if(!EEA_StrategyRuntimeSlotFor(runtime,p,canonical[i])) continue;
+         string setup,profile,timeframe;
+         EEA_S02Config c;
+         EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,c);
+         if(expected>=runtime.symbol_count || runtime.engines[expected].canonical_symbol!=canonical[i] ||
+            runtime.setup[expected]!=setup) { same=false; break; }
+         expected++;
+        }
+   if(same && expected==runtime.symbol_count) return true;
    EEA_StrategyCandidateRuntime next=runtime;
    bool persistence=(runtime.persistence_root!="" && runtime.account_fingerprint!="" && runtime.broker_server!="");
    bool ok=true;
@@ -777,6 +803,7 @@ bool EEA_StrategyRuntimeSyncSymbols(EEA_StrategyCandidateRuntime &runtime,const 
       if(canonical[i]=="") return false;
       for(int p=0;p<stride;p++)
         {
+         if(!EEA_StrategyRuntimeSlotFor(runtime,p,canonical[i])) continue;
          string setup,profile,timeframe;
          EEA_S02Config slot_config;
          EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,slot_config);
