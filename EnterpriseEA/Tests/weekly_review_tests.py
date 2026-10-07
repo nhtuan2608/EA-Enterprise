@@ -78,10 +78,36 @@ class WeeklyReviewTests(unittest.TestCase):
         self.assertEqual((s06["real"]["n"], s06["model_exec"]["n"], s06["alone"]["n"]), (1, 1, 2))
         self.assertIn("DUPLICATE_SAME_SIDE", s06["blocked"])
         self.assertEqual(review["S02_SCALP"]["no_bars_yet"], 1)
-        md = wr.markdown(review, 0, 7 * 86400)
-        self.assertIn("| S06_SWING | n=1 exp=+2.40R win=100% tiền +24.00 | n=1 exp=+3.00R", md)
+        md = wr.markdown(review, 0, 7 * 86400, {"S06": "LIVE", "S02": "LIVE", "SCALP_CAP": "SHADOW"})
+        self.assertIn("| S06_SWING | LIVE | n=1 exp=+2.40R win=100% tiền +24.00 | n=1 exp=+3.00R", md)
+        self.assertIn("| S02_SCALP | SHADOW |", md)              # G26: the SCALP cap wins
         self.assertIn("+0.10R", md)
         self.assertIn("chưa đủ nến: 1", md)
+
+    def test_g50_setups_always_listed_with_research(self):
+        import weekly_review as wr
+        review = wr.build([], [])
+        self.assertEqual(sorted(review), sorted(wr.ALWAYS))
+        self.assertEqual((review["S04_SWING"]["research"], review["T2_POSITION"]["research"]), (0.11, 0.25))
+        md = wr.markdown(review, 0, 7 * 86400)
+        self.assertIn("| T2_POSITION | ? | n=0 |", md)                 # mode unknown without live_status
+
+    def test_g50_modes_read_from_live_status(self):
+        import weekly_review as wr
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "current").mkdir()
+            self.assertEqual(wr.modes(Path(d)), {})
+            (Path(d) / "current" / "live_status.json").write_text(json.dumps({"modes": {"S04": "LIVE"}}), encoding="utf-8")
+            self.assertEqual(wr.modes(Path(d)), {"S04": "LIVE"})
+
+    def test_g50_sections_never_break_the_review(self):
+        import weekly_review as wr
+        with mock.patch.object(wr, "load_trades", side_effect=OSError("x")):
+            self.assertIn("không chạy được", wr.edge_section(0))
+        with mock.patch("soak_monitor.load_samples", return_value=[]):
+            self.assertIn("Soak", wr.soak_section(0))
+        src = (ROOT / "research" / "g10" / "weekly_review.py").read_text(encoding="utf-8")
+        self.assertIn("text += edge_section(u) + parity_section() + soak_section(u)", src)
 
 
 class ExitNotificationTests(unittest.TestCase):
