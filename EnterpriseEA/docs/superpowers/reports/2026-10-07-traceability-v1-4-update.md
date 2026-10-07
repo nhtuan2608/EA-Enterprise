@@ -139,3 +139,10 @@ Chưa có mục nào lên RT nhờ lệnh thật.
 9. **Đổi token Telegram** (đã lộ trong chat 05/10): người dùng `/revoke` rồi đặt lại biến môi trường.
 10. Lỗi nhỏ không ảnh hưởng giao dịch: lệch replay S04 SCALP 1/353 (G59 mục E). Hai mục khác của G59 mục E đã xử lý ở G60 (X-16).
 11. Điều kiện đo lại đăng ký trước: G51/G52 (T2 trước tin HIGH) khi có ≥ 100 lệnh T2; hiện BE giữ nguyên (G53b trên 957 lệnh nghiên cứu: trail 1,5 ATR không vượt BE theo tiêu chí).
+
+## Cập nhật 08/10 (G63, G64)
+
+- REQ-007 AI News Interpreter: **CT** (G63 `NEWS_PRE_BRIEF`; `ai_bridge_tests`, `ai_client_tests`, `telegram_gateway_tests`); chạy thật lần đầu dự kiến trước tin 17:00 UTC 08/10.
+- REQ-010, CHK-CAL-01, CHK-CAL-02: **CT** (G64; `calendar_req010_tests`, `daily_floating_tc029_tests`); `daily_floating.json` v1.1.0 đã ghi trên terminal (RT phần lưu trữ).
+- TC-014 (quản lý riêng khi compression mất đà): **không áp dụng theo quyết định nghiên cứu** — G43 C3 (thoát khi đảo chiều/mất đà) làm xấu kết quả ngoài mẫu; S06B dùng Trade Manager SWING + bồi lệnh (G28/G31).
+- TC-007 (xếp hạng candidate theo điểm): **không áp dụng** — G33: điểm (logistic, LightGBM) không dự đoán được lệnh thắng; giữ ưu tiên theo bằng chứng (G18).
