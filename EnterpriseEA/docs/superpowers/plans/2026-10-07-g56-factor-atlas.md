@@ -69,3 +69,23 @@ chọn trên train, kiểm validate/test như trên. Chỉ nới TP khi trung b�
 
 Không chỉnh tham số yếu tố sau khi thấy validate/test; không thêm yếu tố mới vào lần chạy này (yếu tố mới = kế hoạch mới).
 Kết quả nào cũng báo cáo, kể cả khi không yếu tố nào sống sót.
+
+## Bổ sung trước khi chạy B + C (07/10/2026, sau audit A, trước mọi con số của B/C)
+
+Hai yếu tố sống sót A → hai setup (`research/long/factor_setups.py`):
+- **SW1 — quét đỉnh/đáy ngày trước, đi tiếp (H1 SWING).** Sự kiện PDHL_SWEEP; chiều vào = chiều quét (quét đỉnh → mua,
+  quét đáy → bán); sự kiện đầu tiên trong ngày của symbol; 5 symbol.
+- **SC1 — phá giá tròn, đi tiếp (M15 SCALP).** Sự kiện ROUND_BREAK; chiều phá; 5 symbol.
+
+Vào ở giá đóng nến sự kiện (mua trả spread), mỗi symbol một lệnh một lúc, phí như replay. Tập lựa chọn (30 cấu hình):
+dừng lỗ ∈ {1,0; 1,5; 2,0} ATR × thoát ∈ {TIME (đóng sau 24 nến, đúng tầm đã đo), TP2R, TP3R, RUNNER (chốt 50% ở +1R,
+dời hòa vốn, trail 2 ATR, không TP), TRAIL3 (trail 3 ATR, không TP)} × lọc MACD (histogram cùng chiều) ∈ {tắt, bật}.
+
+Walk-forward: H1 mỗi năm kiểm 2014–2025 chọn cấu hình trên 4 năm trước đó; M15 năm kiểm 2024 (chọn trên 2021-10..2023)
+và 2025 (chọn trên 2021-10..2024). Trong mỗi cửa sổ: chọn cấu hình có R trung bình cao nhất (≥ 30 lệnh), và chỉ giữ symbol
+có R trung bình > 0 trong cửa sổ train với cấu hình đó (không dùng kết quả cả kỳ để chọn symbol).
+
+Đạt khi: (1) R trung bình gộp các năm kiểm > 0 sau phí; (2) ≥ 70% năm kiểm dương; (3) vượt p90 của vào lệnh ngẫu nhiên
+(cùng symbol, cùng số lệnh mỗi năm, nến ngẫu nhiên trong cùng giờ UTC, chiều ngẫu nhiên, cùng cấu hình đã chọn), 200 lần.
+C (giãn TP / giữ xa): báo cáo kết quả walk-forward theo từng kiểu thoát (cố định kiểu thoát, vẫn chọn dừng lỗ và lọc
+trong cửa sổ train) để so TP cố định với runner/trail; chỉ khuyên giãn TP nếu runner/trail hơn TP cố định ngoài mẫu.
