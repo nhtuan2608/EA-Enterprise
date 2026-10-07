@@ -55,7 +55,7 @@ input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, 
 enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
 input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
-input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
+input EEA_S06BModeInput InpS06BMode     = S06B_LIVE; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
 enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
 input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
 input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
@@ -98,7 +98,7 @@ input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait fo
 input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries when the calendar is unreadable
-input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,ISM Non-Manufacturing,S&P Global Services PMI,Note Auction,Money Stock"; // News Guard: HIGH event names to ignore (G30: no larger move than a normal hour)
+input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // News Guard: HIGH event names to ignore (G30: no larger move than a normal hour; G57: ISM Non-Manufacturing removed, ISM Services measured x1.46 normal range, 15% shocks on the corrected calendar clock)
 input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
 input bool   InpSentimentEnabled        = true;   // Market sentiment: reduce-only filter from cross-pair flow
 input bool   InpAiEnabled               = true;   // AI Bridge v1 (Level 0/1: reports only, never trades)
@@ -210,6 +210,9 @@ void EEA_NewsHealthUpdate()
   }
 bool g_risk_ledger_loaded=false;
 bool g_daily_stats_loaded=false;
+bool g_daily_floating_loaded=false;
+long g_daily_floating_last_write=0;   // TC-029: UTC of the last daily_floating.json write
+long g_daily_floating_last_day=0;
 
 // Restores and maintains data that must survive EA removal: per-day realized stats
 // for the calendar and the FTMO risk ledger (initial capital, Prague reset balance,
@@ -228,6 +231,23 @@ void EEA_MaintainDurableState()
    if(EEA_DailyStatsMerge(g_daily_stats,g_runtime.reconciliation,offset,(long)TimeGMT()) && g_daily_stats.dirty &&
       EEA_DailyStatsWrite(root,g_daily_stats,g_config.config_version,g_runtime.account.account_fingerprint))
       g_daily_stats.dirty=false;
+   // TC-029: floating P/L (equity - balance) per local day; the last refresh of a day is its end-of-day snapshot.
+   if(!g_daily_floating_loaded)
+     {
+      EEA_DailyFloatingLoad(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint,offset);
+      g_daily_floating_loaded=true;
+     }
+   if(g_runtime.account.equity>0.0)
+     {
+      long now_utc=(long)TimeGMT();
+      long today_day=(now_utc+offset)/86400;
+      EEA_DailyFloatingUpdate(g_daily_floating,today_day,g_runtime.account.equity-g_runtime.account.balance,now_utc);
+      if(g_daily_floating.dirty && (today_day!=g_daily_floating_last_day || now_utc-g_daily_floating_last_write>=300) &&
+         EEA_DailyFloatingWrite(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint))
+        {
+         g_daily_floating.dirty=false; g_daily_floating_last_write=now_utc; g_daily_floating_last_day=today_day;
+        }
+     }
    if(!g_risk_ledger_loaded)
      {
       if(!EEA_RiskLedgerLoad(root,g_config.config_version,g_runtime.account.account_fingerprint,
@@ -1258,7 +1278,13 @@ int OnInit()
       EEA_PublishPanelEngineView();
       if(InpRuntimeEvidenceEnabled) EEA_SymbolPanelRefresh(0, g_runtime);
      }
-   Print("EnterpriseEA observer runtime initialized without execution authority.");
+   // G60: say what the EA may do (the old text said "without execution authority" even when live was armed).
+   if(g_live_config.enabled && g_live_config.armed)
+      Print("EnterpriseEA initialized: live entries armed (each entry still needs an ACTIVE live session).");
+   else if(g_live_config.enabled)
+      Print("EnterpriseEA initialized: execution enabled, live entries NOT armed (InpLiveTradeArmed=false).");
+   else
+      Print("EnterpriseEA initialized: observer only, no execution authority.");
    return INIT_SUCCEEDED;
   }
 
@@ -1292,6 +1318,30 @@ string EEA_LiveStatusPair(const string key,const string value,const bool quoted)
   {
    const string q="\"";
    return q+key+q+":"+(quoted ? q+EEA_JsonEscape(value)+q : value);
+  }
+
+// G60: the risk and News Guard settings the EA really uses, so they can be audited without the chart profile
+// (it is saved only when the terminal closes). Per-setup risk = the policy's per-trade risk x the setup weight.
+string EEA_LiveStatusRiskJson()
+  {
+   EEA_PolicySettings policy;
+   string reason;
+   if(!EEA_ControlledLiveResolvePolicy(g_config.data_root,g_config.config_version,g_runtime.account,policy,reason))
+      return "{"+EEA_LiveStatusPair("reason",reason,true)+"}";
+   EEA_RiskLimits limits;
+   if(!EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason))
+      return "{"+EEA_LiveStatusPair("policy",policy.committed_policy,true)+","+EEA_LiveStatusPair("reason",reason,true)+"}";
+   const double p=100.0*limits.per_trade_fraction;
+   return "{"+EEA_LiveStatusPair("policy",policy.committed_policy,true)+","+
+      EEA_LiveStatusPair("reason",reason,true)+","+
+      EEA_LiveStatusPair("account_phase",InpAccountPhase==PHASE_EVALUATION ? "EVALUATION" : "FUNDED",true)+","+
+      EEA_LiveStatusPair("per_trade_percent",DoubleToString(p,3),false)+","+
+      EEA_LiveStatusPair("open_percent",DoubleToString(100.0*limits.total_open_fraction,3),false)+","+
+      EEA_LiveStatusPair("daily_percent",DoubleToString(100.0*limits.internal_daily_fraction,3),false)+","+
+      EEA_LiveStatusPair("weekly_percent",DoubleToString(100.0*limits.internal_weekly_fraction,3),false)+","+
+      EEA_LiveStatusPair("S04_percent",DoubleToString(p*EEA_SetupRiskWeight("S04"),3),false)+","+
+      EEA_LiveStatusPair("S06B_percent",DoubleToString(p*EEA_SetupRiskWeight("S06B"),3),false)+","+
+      EEA_LiveStatusPair("T2_percent",DoubleToString(p*EEA_SetupRiskWeight("T2"),3),false)+"}";
   }
 
 void EEA_WriteLiveStatus()
@@ -1335,7 +1385,11 @@ void EEA_WriteLiveStatus()
       EEA_LiveStatusPair("strategy_reason",strategy_reason,true)+","+
       EEA_LiveStatusPair("runtime_state",g_runtime.status.runtime_state,true)+","+
       EEA_LiveStatusPair("runtime_reason",g_runtime.status.reason_code,true)+","+
-      EEA_LiveStatusPair("calendar_export",g_calendar_export.reason,true)+"}";
+      EEA_LiveStatusPair("calendar_export",g_calendar_export.reason,true)+","+
+      EEA_LiveStatusPair("risk",EEA_LiveStatusRiskJson(),false)+","+
+      EEA_LiveStatusPair("news",
+         "{"+EEA_LiveStatusPair("allow_when_unknown",g_news.cfg.allow_when_unknown ? "true" : "false",false)+","+
+         EEA_LiveStatusPair("ignore_keywords",g_news.cfg.ignore_keywords,true)+"}",false)+"}";
    EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
   }
 
