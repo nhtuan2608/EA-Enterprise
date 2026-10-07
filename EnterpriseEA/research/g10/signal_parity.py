@@ -48,7 +48,8 @@ HEARTBEAT_DAYS = 30        # research signals this far before the window prove t
 # G49: InpT2OnlySymbols (EA default) run T2 alone; each counts from the day the EA started watching it
 # (set at deploy; a T2-only symbol without a start is reported as not followed yet, never as missed).
 T2_ONLY = ("XAGUSD", "ETHUSD", "USOUSD")
-SYMBOL_START: dict[str, int] = {}
+SYMBOL_START: dict[str, int] = {s: int(datetime(2026, 10, 7, 13, 9, tzinfo=timezone.utc).timestamp())
+                                 for s in T2_ONLY}   # selected in the panel (audit NEWS_STATE_CHANGED 13:09 UTC)
 
 
 # ---------------------------------------------------------------------------

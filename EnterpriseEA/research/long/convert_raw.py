@@ -30,6 +30,26 @@ SPEC.update({s: (0.001, 3) if s.endswith("JPY") else (0.00001, 5) for s in EXTRA
 # G41: trend assets exported 06/10/2026 (same MT5 window), for the T2 asset-class check.
 TREND_SYMBOLS = ["XAGUSD", "ETHUSD", "USOUSD", "SP500"]
 SPEC.update({"XAGUSD": (0.001, 3), "ETHUSD": (0.01, 2), "USOUSD": (0.001, 3), "SP500": (0.01, 2)})
+# G57: these raw files are on the UTC clock (not the broker's server clock like every other file): their M5 range
+# correlates with the M15 file of the same symbol at a 3 h lag in US summer and 2 h in winter (0.85 at a constant 3 h),
+# 1.0 after this conversion. They are moved to the server clock: UTC+3 in US summer time, UTC+2 otherwise.
+UTC_CLOCK = {("EURUSD", "M5"), ("GBPUSD", "M5")}
+
+
+def us_dst(utc: int) -> bool:
+    """US daylight saving time (second Sunday of March 07:00 UTC .. first Sunday of November 06:00 UTC)."""
+    import time as _t
+    y = _t.gmtime(utc).tm_year
+
+    def sunday(month: int, nth: int) -> int:
+        first = calendar.timegm((y, month, 1, 0, 0, 0))
+        wd = _t.gmtime(first).tm_wday                 # Monday 0
+        return first + ((6 - wd) % 7 + 7 * (nth - 1)) * 86400
+    return sunday(3, 2) + 7 * 3600 <= utc < sunday(11, 1) + 6 * 3600
+
+
+def to_server(utc: int) -> int:
+    return utc + (10800 if us_dst(utc) else 7200)
 
 
 def parse_line(line: str):
@@ -45,9 +65,11 @@ def parse_line(line: str):
     return t, o, h, lo, c, int(parts[8])
 
 
-def convert(src: Path, dst: Path, start: int = 0) -> Counter:
-    rows = [r for r in (parse_line(l) for l in src.read_text(encoding="utf-8", errors="replace").splitlines())
-            if r and r[0] >= start]
+def convert(src: Path, dst: Path, start: int = 0, utc_clock: bool = False) -> Counter:
+    rows = [r for r in (parse_line(l) for l in src.read_text(encoding="utf-8", errors="replace").splitlines()) if r]
+    if utc_clock:
+        rows = [(to_server(r[0]),) + tuple(r[1:]) for r in rows]
+    rows = [r for r in rows if r[0] >= start]
     rows.sort()
     rows = [r for i, r in enumerate(rows) if i == 0 or r[0] != rows[i - 1][0]]   # one bar per time
     recent = [r[5] for r in rows if r[5] > 0 and r[0] >= 1704067200]          # 2024-01-01 onwards
@@ -109,7 +131,7 @@ def main(argv: list[str]) -> None:
             for sym in SYMBOLS:
                 files = sorted((raw / sym).glob(f"{sym}_{tf}_*.csv"))
                 if files:
-                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv", START.get(sym, 0))
+                    years = convert(files[0], OUT / f"bars_{sym}_{tf}.csv", START.get(sym, 0), (sym, tf) in UTC_CLOCK)
                     print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
         return
     if "--tickvol" in argv:                 # only the tick volume files (G28)
@@ -129,7 +151,7 @@ def main(argv: list[str]) -> None:
                 print(f"{sym} {tf}: none")
                 continue
             dst = OUT / f"bars_{sym}_{tf}.csv"
-            years = convert(files[0], dst, START.get(sym, 0))
+            years = convert(files[0], dst, START.get(sym, 0), (sym, tf) in UTC_CLOCK)
             print(f"{sym} {tf}: " + " ".join(f"{y}:{n}" for y, n in sorted(years.items())))
             with dst.open(encoding="utf-8") as fh:
                 *_, tail = fh
