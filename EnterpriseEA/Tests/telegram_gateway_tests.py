@@ -290,6 +290,22 @@ class NotifyTests(GatewayCase):
         self.assertEqual(sum(t.startswith("Review dữ liệu tin") for t in self.texts()), 2)
 
 
+    def test_pre_news_brief_is_forwarded_and_can_be_muted(self):  # REQ-007
+        self.gw.run_once(poll_timeout=0)
+        self.write("ai/reports/NEWS_PRE_BRIEF.json", {"status": "OK", "request_id": "eea-4-1", "summary": "NFP sau 40 phút",
+                                                      "findings": [{"severity": "WARN", "detail": "XAUUSD đang mở"}]})
+        self.gw.run_once(poll_timeout=0)
+        self.gw.run_once(poll_timeout=0)
+        briefs = [x for x in self.texts() if x.startswith("Tóm tắt trước tin")]
+        self.assertEqual(len(briefs), 2)        # operator + viewer, once each
+        self.assertIn("NFP sau 40 phút", briefs[0])
+        self.gw.config["notify"]["pre_news"] = False
+        self.write("ai/reports/NEWS_PRE_BRIEF.json", {"status": "OK", "request_id": "eea-4-2", "summary": "bị tắt"})
+        self.gw.run_once(poll_timeout=0)
+        self.assertEqual(sum(t.startswith("Tóm tắt trước tin") for t in self.texts()), 2)
+        self.assertTrue(self.gw.config["notify"]["pre_news"] is False)
+
+
 class BridgeAskTaskTests(unittest.TestCase):
     def test_bridge_answers_operator_question_as_data(self):
         import ai_bridge
