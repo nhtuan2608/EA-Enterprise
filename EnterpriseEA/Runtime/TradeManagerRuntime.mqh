@@ -14,6 +14,7 @@
 
 #include "PendingOrderRuntime.mqh"
 #include "../News/NewsCalendar.mqh"
+#include "../Storage/DailyFloatingStore.mqh"
 
 #define EEA_TM_MAX 32
 #define EEA_TM_DOCUMENT "managed-trade-v1.0.0"
@@ -406,6 +407,9 @@ void EEA_TradeManagerRecordExit(CAuditLog &audit,const string root,const EEA_Man
       "\",\"bars\":"+IntegerToString(t.bars)+",\"mfe_r\":"+DoubleToString(t.mfe_r,3)+
       ",\"mae_r\":"+DoubleToString(t.mae_r,3)+",\"reason\":\"POSITION_CLOSED\""+result+"}";
    audit.Append(event,"EA_TRADE_MANAGER");
+   // REQ-010: the calendar day detail aggregates R per local day; each exit is recorded exactly once (the trade
+   // flips to EXITED here), so the R is added only at this point. Skipped while the day book is not loaded yet.
+   if(r_known) EEA_DailyFloatingRecordExitR(exit_utc,money/risk);
    const string line="{\"candidate_id\":\""+EEA_JsonEscape(t.intent.candidate_id)+"\",\"setup\":\""+EEA_JsonEscape(t.intent.setup_id)+
       "\",\"profile\":\""+EEA_JsonEscape(t.profile)+"\",\"symbol\":\""+EEA_JsonEscape(t.intent.canonical_symbol)+
       "\",\"direction\":"+IntegerToString(t.direction)+",\"entry_price\":"+DoubleToString(t.entry_price,8)+

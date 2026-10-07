@@ -135,6 +135,7 @@ struct EEA_SymbolPanelState
    int calendar_year;
    int calendar_month;
    int calendar_selected_day;
+   int calendar_mode;             // REQ-010 cell value: 0 MONEY, 1 %, 2 R
    string toast_text;
    color toast_color;
    datetime toast_until;
@@ -1029,6 +1030,7 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
    g_panel_state.calendar_year=0;
    g_panel_state.calendar_month=0;
    g_panel_state.calendar_selected_day=0;
+   g_panel_state.calendar_mode=0;
    g_panel_state.toast_text="";
    g_panel_state.toast_color=EEA_PANEL_MUTED_COLOR;
    g_panel_state.toast_until=0;
@@ -2414,6 +2416,29 @@ string EEA_SymbolPanelMonthName(const int month)
    return month>=1 && month<=12 ? names[month-1] : "";
   }
 
+string EEA_SymbolPanelCalendarModeLabel(const int mode)
+  {
+   return mode==1 ? "%" : (mode==2 ? "R" : "MONEY");
+  }
+
+string EEA_SymbolPanelSignedPercent(const double value)
+  {
+   return EEA_SymbolPanelSigned(value,2)+"%";
+  }
+
+// REQ-010 calendar cell: MONEY = realized net, % = net / start balance, R = sum of the realized R of the day.
+string EEA_SymbolPanelCalendarCell(const int mode,const bool active,const double net,const bool has_start,
+                                   const double start_balance,const int r_count,const double r_sum)
+  {
+   if(mode==1)
+     {
+      if(!has_start || start_balance<=0.0) return "n/a";
+      return active ? EEA_SymbolPanelSignedPercent(net/start_balance*100.0) : "0%";
+     }
+   if(mode==2) return r_count>0 ? EEA_SymbolPanelSigned(r_sum,2)+"R" : "-";
+   return active ? EEA_SymbolPanelSigned(net,MathAbs(net)>=1000.0 ? 0 : 2) : "0";
+  }
+
 void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    MqlDateTime now;
@@ -2459,9 +2484,15 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
       net[d]=row.net; trades[d]=row.trades; wins[d]=row.wins; losses[d]=row.losses;
       gross_profit[d]=row.gross_profit; gross_loss[d]=row.gross_loss; active[d]=true; stored[d]=true;
      }
+   // REQ-010 day book (start balance, max floating DD, R); unknown fields stay flagged unknown.
+   EEA_DailyFloatingRow book_row[32]; bool has_book[32];
+   for(int d=0;d<32;d++) has_book[d]=false;
+   for(int d=1;d<=days_in_month;d++) has_book[d]=EEA_DailyFloatingGet(first_day+d-1,book_row[d]);
    int y=EEA_PANEL_CONTENT_Y;
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_CalPrev",EEA_PANEL_INNER_X,y,32,24,
                               EEA_SymbolPanelGlyph(0x2039),EEA_PANEL_BUTTON_SECONDARY,11);
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_CalMode",EEA_PANEL_MAIN_WIDTH/2+84,y,72,24,
+                              EEA_SymbolPanelCalendarModeLabel(g_panel_state.calendar_mode),EEA_PANEL_BUTTON_SECONDARY,9);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalMonth",EEA_PANEL_MAIN_WIDTH/2,y+3,
                           EEA_SymbolPanelMonthName(month)+" "+IntegerToString(year),EEA_PANEL_TEXT_COLOR,
                           EEA_PANEL_TITLE_FONT_SIZE-1,EEA_PANEL_FONT_BOLD,ANCHOR_UPPER);
@@ -2473,6 +2504,16 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
                              weekdays[c],EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_UPPER);
    int grid_y=y+50;
    double month_net=0.0; int month_trades=0, green=0, red=0, trading_days=0;
+   double month_r=0.0; int month_r_count=0;
+   double month_first_start=0.0; bool month_has_start=false;
+   double month_cum=0.0, month_peak=0.0, month_max_dd=0.0; // cumulative realized net in date order, peak-to-trough
+   for(int d=1;d<=days_in_month;d++)
+     {
+      if(!has_book[d]) continue;
+      if(!month_has_start && (book_row[d].flags & EEA_DAILY_FLOATING_HAS_START)!=0 && book_row[d].start_balance>0.0)
+        { month_has_start=true; month_first_start=book_row[d].start_balance; }
+      if(book_row[d].r_count>0) { month_r+=book_row[d].r_sum; month_r_count+=book_row[d].r_count; }
+     }
    for(int cell=0;cell<42;cell++)
      {
       int day=cell-first_weekday+1;
@@ -2496,30 +2537,57 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
       EEA_SymbolPanelSetText(chart_id,base+"Day",cx+6,cy+4,IntegerToString(day),
                              day_index==today ? EEA_PANEL_ACCENT_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
                              EEA_PANEL_FONT_BOLD);
-      string value=!loaded ? "" : (active[day] ? EEA_SymbolPanelSigned(net[day],MathAbs(net[day])>=1000.0 ? 0 : 2) : "0");
-      EEA_SymbolPanelSetText(chart_id,base+"Val",cx+68,cy+22,value,
-                             active[day] ? EEA_SymbolPanelPnlColor(net[day]) : EEA_PANEL_FAINT_COLOR,
+      bool cell_start=has_book[day] && (book_row[day].flags & EEA_DAILY_FLOATING_HAS_START)!=0;
+      int cell_r_count=has_book[day] ? book_row[day].r_count : 0;
+      double cell_r=has_book[day] ? book_row[day].r_sum : 0.0;
+      string value=!loaded ? "" : EEA_SymbolPanelCalendarCell(g_panel_state.calendar_mode,active[day],net[day],cell_start,
+                                                              cell_start ? book_row[day].start_balance : 0.0,cell_r_count,cell_r);
+      color value_color=active[day] ? EEA_SymbolPanelPnlColor(net[day]) : EEA_PANEL_FAINT_COLOR;
+      if(g_panel_state.calendar_mode==2) value_color=cell_r_count>0 ? EEA_SymbolPanelPnlColor(cell_r) : EEA_PANEL_FAINT_COLOR;
+      EEA_SymbolPanelSetText(chart_id,base+"Val",cx+68,cy+22,value,value_color,
                              EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO,ANCHOR_RIGHT_UPPER,12);
       ObjectSetInteger(chart_id,base+"Day",OBJPROP_ZORDER,15);
       ObjectSetInteger(chart_id,base+"Val",OBJPROP_ZORDER,15);
       if(active[day])
         {
          month_net+=net[day]; month_trades+=trades[day]; trading_days++;
+         month_cum+=net[day]; month_peak=MathMax(month_peak,month_cum); month_max_dd=MathMax(month_max_dd,month_peak-month_cum);
          if(net[day]>0.0) green++; else if(net[day]<0.0) red++;
         }
      }
    int detail_y=grid_y+6*42+4;
    EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_OVERLAY_PREFIX+"CalDetailSurface",EEA_PANEL_INNER_X,detail_y,
-                             EEA_PANEL_INNER_WIDTH,48,EEA_PANEL_SURFACE_COLOR);
+                             EEA_PANEL_INNER_WIDTH,70,EEA_PANEL_SURFACE_COLOR);
+   // Layout (REQ-010): detail surface 70 high (was 48) with three mono lines at +26/+40/+54, month summary at
+   // +78 and +92 (was +56), note at +108 (was +74); ends near y 554, above the status bar (572).
    int sd=g_panel_state.calendar_selected_day;
    string detail="Click a day to see its realized result.";
+   string detail2="", detail3="";
    color detail_color=EEA_PANEL_MUTED_COLOR;
    if(sd>=1 && sd<=days_in_month)
      {
-      detail=StringFormat("%04d-%02d-%02d",year,month,sd)+EEA_SymbolPanelSep()+"net "+EEA_SymbolPanelSigned(net[sd],2)+
-             EEA_SymbolPanelSep()+"trades "+IntegerToString(trades[sd])+" ("+IntegerToString(wins[sd])+"W / "+
-             IntegerToString(losses[sd])+"L)"+EEA_SymbolPanelSep()+"gross "+EEA_SymbolPanelSigned(gross_profit[sd],2)+
-             " / "+EEA_SymbolPanelSigned(gross_loss[sd],2);
+      bool sd_start=has_book[sd] && (book_row[sd].flags & EEA_DAILY_FLOATING_HAS_START)!=0 && book_row[sd].start_balance>0.0;
+      bool sd_min=has_book[sd] && (book_row[sd].flags & EEA_DAILY_FLOATING_HAS_MIN)!=0;
+      int sd_r_count=has_book[sd] ? book_row[sd].r_count : 0;
+      string start_text=sd_start ? EEA_SymbolPanelFormatNumber(book_row[sd].start_balance,2) : "n/a";
+      string return_text=sd_start ? EEA_SymbolPanelSignedPercent(net[sd]/book_row[sd].start_balance*100.0) : "n/a";
+      detail=StringFormat("%04d-%02d-%02d",year,month,sd)+EEA_SymbolPanelSep()+"start "+start_text+
+             EEA_SymbolPanelSep()+"realized "+EEA_SymbolPanelSigned(net[sd],2)+EEA_SymbolPanelSep()+"return "+return_text;
+      detail2="trades "+IntegerToString(trades[sd])+" ("+IntegerToString(wins[sd])+"W / "+IntegerToString(losses[sd])+
+              "L)"+EEA_SymbolPanelSep()+"gross "+EEA_SymbolPanelSigned(gross_profit[sd],2)+" / "+
+              EEA_SymbolPanelSigned(gross_loss[sd],2);
+      string dd_text="n/a";
+      if(sd_min)
+        {
+         double dd=MathMin(book_row[sd].min_floating,0.0);
+         dd_text=EEA_SymbolPanelSigned(dd,2);
+         if((book_row[sd].flags & EEA_DAILY_FLOATING_HAS_START)!=0 && book_row[sd].start_equity>0.0)
+            dd_text+=" ("+EEA_SymbolPanelSignedPercent(dd/book_row[sd].start_equity*100.0)+" of start equity)";
+        }
+      detail3="max floating DD "+dd_text+EEA_SymbolPanelSep()+
+              (sd_r_count>0 ? "best R "+EEA_SymbolPanelSigned(book_row[sd].r_best,2)+" / worst R "+
+                              EEA_SymbolPanelSigned(book_row[sd].r_worst,2)+" ("+IntegerToString(sd_r_count)+")"
+                            : "best/worst R n/a");
       detail_color=active[sd] ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR;
      }
    // TC-029: floating P/L of the selected day (end-of-day snapshot; today = live) goes on the title line.
@@ -2534,12 +2602,29 @@ void EEA_SymbolPanelDashCalendar(const long chart_id,EEA_ObserverRuntimeContext 
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetailTitle",EEA_PANEL_CONTENT_X,detail_y+8,detail_title);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetail",EEA_PANEL_CONTENT_X,detail_y+26,detail,detail_color,
                           EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalSummary",EEA_PANEL_CONTENT_X,detail_y+56,
-                          "Month  net "+EEA_SymbolPanelSigned(month_net,2)+EEA_SymbolPanelSep()+"trading days "+
-                          IntegerToString(trading_days)+EEA_SymbolPanelSep()+"green "+IntegerToString(green)+" / red "+
-                          IntegerToString(red)+EEA_SymbolPanelSep()+"closed trades "+IntegerToString(month_trades),
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetail2",EEA_PANEL_CONTENT_X,detail_y+40,detail2,detail_color,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalDetail3",EEA_PANEL_CONTENT_X,detail_y+54,detail3,detail_color,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_MONO);
+   // Month summary (CHK-CAL-02): net, return, trading days, green/red, trades; average day, max DD, R sum.
+   bool month_pct=month_has_start && month_first_start>0.0;
+   double avg_day=trading_days>0 ? month_net/trading_days : 0.0;
+   string avg_text="n/a";
+   if(trading_days>0)
+      avg_text=EEA_SymbolPanelSigned(avg_day,2)+(month_pct ? " ("+EEA_SymbolPanelSignedPercent(avg_day/month_first_start*100.0)+")" : "");
+   string dd_month_text=EEA_SymbolPanelSigned(-month_max_dd,2)+
+                        (month_pct ? " ("+EEA_SymbolPanelSignedPercent(-month_max_dd/month_first_start*100.0)+")" : "");
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalSummary",EEA_PANEL_CONTENT_X,detail_y+78,
+                          "Month  net "+EEA_SymbolPanelSigned(month_net,2)+EEA_SymbolPanelSep()+"return "+
+                          (month_pct ? EEA_SymbolPanelSignedPercent(month_net/month_first_start*100.0) : "n/a")+EEA_SymbolPanelSep()+
+                          "trading days "+IntegerToString(trading_days)+EEA_SymbolPanelSep()+"green "+IntegerToString(green)+
+                          " / red "+IntegerToString(red)+EEA_SymbolPanelSep()+"trades "+IntegerToString(month_trades),
                           EEA_SymbolPanelPnlColor(month_net),EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
-   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalNote",EEA_PANEL_CONTENT_X,detail_y+74,
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalSummary2",EEA_PANEL_CONTENT_X,detail_y+92,
+                          "Month  avg day "+avg_text+EEA_SymbolPanelSep()+"max DD "+dd_month_text+EEA_SymbolPanelSep()+"R "+
+                          (month_r_count>0 ? EEA_SymbolPanelSigned(month_r,2) : "n/a"),
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_CalNote",EEA_PANEL_CONTENT_X,detail_y+108,
                           "Realized P/L by local day ("+EEA_SymbolPanelLocalZoneLabel()+"), last "+IntegerToString(ctx.history_lookback_days)+
                           " days loaded; cash flows excluded. FTMO limits still use Prague days.",
                           EEA_PANEL_FAINT_COLOR,7);
@@ -2931,7 +3016,13 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       EEA_SymbolPanelRenderActiveView(g_panel_state.chart_id,ctx);
       return;
      }
-   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalPrev" || sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalNext")
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalMode")
+     {
+      g_panel_state.calendar_mode=(g_panel_state.calendar_mode+1)%3; // MONEY -> % -> R -> MONEY
+      EEA_SymbolPanelRenderDashboard(g_panel_state.chart_id,ctx);
+      return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalPrev" ||sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalNext")
      {
       int step=(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalNext") ? 1 : -1;
       int month_index=g_panel_state.calendar_year*12+(g_panel_state.calendar_month-1)+step;

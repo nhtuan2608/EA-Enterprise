@@ -229,7 +229,8 @@ void EEA_MaintainDurableState()
       EEA_DailyStatsLoad(root,g_daily_stats,g_config.config_version,g_runtime.account.account_fingerprint,offset);
       g_daily_stats_loaded=true;
      }
-   if(EEA_DailyStatsMerge(g_daily_stats,g_runtime.reconciliation,offset,(long)TimeGMT()) && g_daily_stats.dirty &&
+   const bool stats_ready=EEA_DailyStatsMerge(g_daily_stats,g_runtime.reconciliation,offset,(long)TimeGMT());
+   if(stats_ready && g_daily_stats.dirty &&
       EEA_DailyStatsWrite(root,g_daily_stats,g_config.config_version,g_runtime.account.account_fingerprint))
       g_daily_stats.dirty=false;
    // TC-029: floating P/L (equity - balance) per local day; the last refresh of a day is its end-of-day snapshot.
@@ -237,16 +238,24 @@ void EEA_MaintainDurableState()
      {
       EEA_DailyFloatingLoad(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint,offset);
       g_daily_floating_loaded=true;
+      g_daily_floating.loaded=true; // from now on the Trade Manager exit hook may add R to the book
      }
    if(g_runtime.account.equity>0.0)
      {
       long now_utc=(long)TimeGMT();
       long today_day=(now_utc+offset)/86400;
-      EEA_DailyFloatingUpdate(g_daily_floating,today_day,g_runtime.account.equity-g_runtime.account.balance,now_utc);
-      if(g_daily_floating.dirty && (today_day!=g_daily_floating_last_day || now_utc-g_daily_floating_last_write>=300) &&
+      // REQ-010: floating, start balance/equity (set once per day) and max floating drawdown of the local day.
+      // Start of day = balance now minus the realized net of today so far (daily stats exclude cash flows; no row = 0).
+      EEA_DailyStatRow today_stats; double today_net=0.0;
+      if(EEA_DailyStatsLookup(today_day,today_stats)) today_net=today_stats.net;
+      EEA_DailyFloatingObserve(g_daily_floating,today_day,g_runtime.account.balance,g_runtime.account.equity,now_utc,
+                               g_runtime.account.balance-today_net,stats_ready);
+      if(g_daily_floating.dirty &&
+         (g_daily_floating.urgent || today_day!=g_daily_floating_last_day || now_utc-g_daily_floating_last_write>=300) &&
          EEA_DailyFloatingWrite(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint))
         {
-         g_daily_floating.dirty=false; g_daily_floating_last_write=now_utc; g_daily_floating_last_day=today_day;
+         g_daily_floating.dirty=false; g_daily_floating.urgent=false;
+         g_daily_floating_last_write=now_utc; g_daily_floating_last_day=today_day;
         }
      }
    if(!g_risk_ledger_loaded)
