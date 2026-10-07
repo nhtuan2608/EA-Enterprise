@@ -41,6 +41,15 @@ def load_bars(symbol: str, tf: str) -> list[dict]:
     return out
 
 
+TIME_RULE = "calendar_now_offset"
+
+
+def reaction_ok(r: dict) -> bool:
+    """G54: a news reaction record measured with the right event time (MT5 calendar times are on today's server
+    clock; older lines put US-winter events one hour late). Older lines stay in the log but are not used."""
+    return r.get("time_rule") == TIME_RULE
+
+
 def meta() -> dict:
     m = json.loads((DATA / "bars_meta.json").read_text(encoding="utf-8"))
     m["by_symbol"] = {s["symbol"]: s for s in m["symbols"]}

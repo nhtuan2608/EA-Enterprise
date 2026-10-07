@@ -269,6 +269,8 @@ def news_status(symbol: str, profile: str, utc: int):
             if not line.strip():
                 continue
             e = json.loads(line)
+            if not context.reaction_ok(e):          # G54: winter events one hour late before the fix
+                continue
             normal = e.get("guard_normal_min") or 60
             _NEWS.setdefault(e["symbol"], []).append((int(e["event_utc"]), e["impact"], int(normal)))
     before = 180 if profile == "SWING" else 60

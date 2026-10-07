@@ -58,6 +58,8 @@ def news_times(path: Path, symbol: str, keys: list[str]) -> list[int]:
             if not line.strip():
                 continue
             r = json.loads(line)
+            if not context.reaction_ok(r):          # G54: winter events one hour late before the fix
+                continue
             if r.get("symbol") != symbol or r.get("impact") != "DIRECT":
                 continue
             if any(k in str(r.get("event", "")).lower() for k in keys):
@@ -149,24 +151,27 @@ def trades(symbol: str, from_utc: int = FROM_UTC, all_daily: bool = False) -> li
 def main() -> None:
     path = context.DATA.parent / "logs" / "news_reactions.jsonl"
     keys = ignore_keywords()
-    offset = int(context.meta()["server_offset_now"])
+    m = context.meta()
+    offset = int(m["server_offset_now"])
+    now_utc = int(m["exported_at_utc"])
     gap = pyramid.GAP_FILL
     pyramid.GAP_FILL = True
     rows = []
     try:
         for s in SYMBOLS:
-            ev = news_times(path, s, keys)
+            # G54: the bar clock of each event's date (one hour less in US winter), not today's offset.
+            ev = [x + context.server_offset_at(x, offset, now_utc) for x in news_times(path, s, keys)]
             for x in trades(s):
                 c, t = x["c"], x["t"]
                 risk = t["dir"] * (t["entry"] - t["stop"])
                 fee = replay.COMMISSION.get(s, 0.0) / risk
                 base, _, _ = walk(c, t, ce.T2_RULE)
                 assert abs(base - pyramid.walk(c, t, ce.T2_RULE, t["i"], t["entry"], t["stop"], None)[0]) < 1e-9
-                be, _, used = walk(c, t, ce.T2_RULE, ev, offset)
+                be, _, used = walk(c, t, ce.T2_RULE, ev, 0)
                 row = {"symbol": s, "time": c["entry"][t["i"]]["time"] - offset, "base": base - fee,
                        "be": be - fee, "used": used, "open": x["open"]}
                 for k in TRAIL_K:
-                    row[f"k{k}"] = walk(c, t, ce.T2_RULE, ev, offset, news_k=k)[0] - fee
+                    row[f"k{k}"] = walk(c, t, ce.T2_RULE, ev, 0, news_k=k)[0] - fee
                 rows.append(row)
     finally:
         pyramid.GAP_FILL = gap

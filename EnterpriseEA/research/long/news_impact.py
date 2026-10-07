@@ -43,6 +43,8 @@ def events() -> list[dict]:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not context.reaction_ok(r):              # G54: winter events one hour late before the fix
+            continue
         if r.get("quality") != "OK" or r.get("impact") != "DIRECT" or r.get("cluster_lead") is False:
             continue
         if r["symbol"] not in SYMBOLS or any(r.get(k) is None for k in ("max_up_60m_atr", "max_down_60m_atr", "move_240m_atr")):

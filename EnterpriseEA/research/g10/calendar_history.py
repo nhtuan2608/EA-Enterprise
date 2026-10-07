@@ -2,9 +2,10 @@
 
   python calendar_history.py             # counts per year and the two time checks
 
-Rows: time_utc, time_server, currency, importance (HIGH / MODERATE), sector, event_id, name, actual, forecast,
-previous. time_server is the calendar time as the terminal gives it (the broker's server time), so it matches bar
-times directly; time_utc applies the broker offset valid at the event (EEA_NewsServerOffsetAt).
+Rows: time_utc, time_server, time_calendar, currency, importance (HIGH / MODERATE), sector, event_id, name, actual,
+forecast, previous. G54 (format 2): MT5 gives calendar times on today's server clock for every date, so time_utc
+= time_calendar - today's offset, and time_server = the bar clock of that date (UTC + the offset at the event,
+one hour less in US winter), which matches the bar files. Format 1 files put winter events one hour late.
 
 Checks before any study uses the file:
   NFP_UTC   US Nonfarm Payrolls must fall at 12:30 or 13:30 UTC (US summer / winter time)

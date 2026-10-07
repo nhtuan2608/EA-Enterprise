@@ -189,7 +189,8 @@ def main() -> None:
         else:
             series[sym] = s
     path = context.DATA.parent / "logs" / "news_reactions.jsonl"
-    records = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    records = [r for r in (json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip())
+               if context.reaction_ok(r)]                                  # G54 event time fix
     result = analyse(records, series, lambda utc: context.server_offset_at(utc, now_offset, now_utc))
     text = markdown(result["summary"], missing)
     OUT.mkdir(exist_ok=True)
