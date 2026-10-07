@@ -47,8 +47,9 @@ class ExportSourceTests(unittest.TestCase):
         year = section(self.src, "bool EEA_CalendarExportYear(")
         self.assertIn("ev.importance!=CALENDAR_IMPORTANCE_HIGH && ev.importance!=CALENDAR_IMPORTANCE_MODERATE", year)
         self.assertIn("EEA_NewsCurrencyTracked(country.currency)", year)
-        self.assertIn("const long utc=server-EEA_NewsServerOffsetAt(server-now_offset,now_offset,now);", year)
-        self.assertIn('"time_utc,time_server,currency,importance,sector,event_id,name,actual,forecast,previous\\n"', year)
+        self.assertIn("const long utc=EEA_NewsCalendarUtc(raw);", year)                       # G54
+        self.assertIn("const long server=utc+EEA_NewsServerOffsetAt(utc,now_offset,now);", year)
+        self.assertIn('"time_utc,time_server,time_calendar,currency,importance,sector,event_id,name,actual,forecast,previous\\n"', year)
         self.assertNotIn("CALENDAR_IMPORTANCE_LOW", year)
         self.assertNotIn("Order", year)                                       # read-only
         self.assertIn("#define EEA_CALENDAR_EXPORT_FROM_YEAR 2010", self.src)
@@ -60,9 +61,9 @@ def utc(y, mo, d, h, mi):
 
 class ReaderTests(unittest.TestCase):
     def write(self, folder, rows):
-        head = "time_utc,time_server,currency,importance,sector,event_id,name,actual,forecast,previous\n"
+        head = "time_utc,time_server,time_calendar,currency,importance,sector,event_id,name,actual,forecast,previous\n"
         (folder / "calendar_2024.csv").write_text(head + "".join(
-            f"{a},{b},{c},{imp},0,1,{name},,,\n" for a, b, c, imp, name in rows), encoding="utf-8")
+            f"{a},{b},{b},{c},{imp},0,1,{name},,,\n" for a, b, c, imp, name in rows), encoding="utf-8")
 
     def test_load_filters_importance_and_keywords(self):
         with tempfile.TemporaryDirectory() as d:

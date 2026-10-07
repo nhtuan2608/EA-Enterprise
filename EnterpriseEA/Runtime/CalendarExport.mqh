@@ -13,10 +13,13 @@
 // timer pass, only once the bar export is idle. A past year is written once; the current year again when its
 // file is older than the bar export's staleness rule (a week, or before the weekend). Ignored keywords are not
 // applied here: the research applies them, so it can measure them too.
-// time_utc uses the broker offset valid at the event (EEA_NewsServerOffsetAt, as the reaction recorder).
+// G54: MT5 gives calendar times on today's server clock for every date, so time_utc = calendar time - the current
+// offset (EEA_NewsCalendarUtc); time_server is the bar clock of that date (UTC + EEA_NewsServerOffsetAt), the
+// clock bar files use; time_calendar is the raw value. Format 2 (meta "format":2) replaces the files of format 1.
 
 #define EEA_CALENDAR_EXPORT_FROM_YEAR 2010
 #define EEA_CALENDAR_EXPORT_RECHECK_SECONDS 3600
+#define EEA_CALENDAR_EXPORT_FORMAT 2
 
 struct EEA_CalendarExportRuntime
   {
@@ -68,9 +71,11 @@ string EEA_CalendarExportField(const string text)
 bool EEA_CalendarExportDue(const string root,const int year,const int current_year,const long now_utc)
   {
    if(!FileIsExist(EEA_CalendarExportPath(root,year),0)) return true;
-   if(year<current_year) return false;
    string json;
    if(!EEA_StrategyCandidateStoreReadText(EEA_CalendarExportMetaPath(root),json)) return true;
+   // G54: files of an older format (or of a pass that never finished) are written again, every year.
+   if(StringToInteger(EEA_StrategyCandidateStoreField(json,"format"))!=EEA_CALENDAR_EXPORT_FORMAT) return true;
+   if(year<current_year) return false;
    return EEA_BarExportStale(StringToInteger(EEA_StrategyCandidateStoreField(json,"exported_at_utc")),now_utc);
   }
 
@@ -84,8 +89,7 @@ bool EEA_CalendarExportYear(EEA_CalendarExportRuntime &rt,const int year,int &ro
    const long to=MathMin(EEA_CalendarExportYearStart(year+1),now+7*86400);
    MqlCalendarValue values[];
    ResetLastError();
-   if(!CalendarValueHistory(values,(datetime)(from+EEA_NewsServerOffsetAt(from,now_offset,now)),
-                            (datetime)(to+EEA_NewsServerOffsetAt(to,now_offset,now)),NULL,NULL))
+   if(!CalendarValueHistory(values,(datetime)(from+now_offset),(datetime)(to+now_offset),NULL,NULL))
      { rt.reason="CALENDAR_EXPORT_READ_FAILED_"+IntegerToString(GetLastError()); return false; }
    // No value at all in a year = the calendar is not loaded yet: never write an empty past year.
    if(ArraySize(values)<=0) { rt.reason="CALENDAR_EXPORT_EMPTY_"+IntegerToString(year); return false; }
@@ -95,7 +99,7 @@ bool EEA_CalendarExportYear(EEA_CalendarExportRuntime &rt,const int year,int &ro
    const string tmp=path+".tmp";
    int h=FileOpen(tmp,FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(h==INVALID_HANDLE) { rt.reason="CALENDAR_EXPORT_WRITE_FAILED"; return false; }
-   FileWriteString(h,"time_utc,time_server,currency,importance,sector,event_id,name,actual,forecast,previous\n");
+   FileWriteString(h,"time_utc,time_server,time_calendar,currency,importance,sector,event_id,name,actual,forecast,previous\n");
    string chunk="";
    const int total=ArraySize(values);
    for(int i=0;i<total;i++)
@@ -105,9 +109,10 @@ bool EEA_CalendarExportYear(EEA_CalendarExportRuntime &rt,const int year,int &ro
       if(ev.importance!=CALENDAR_IMPORTANCE_HIGH && ev.importance!=CALENDAR_IMPORTANCE_MODERATE) continue;
       MqlCalendarCountry country;
       if(!CalendarCountryById(ev.country_id,country) || !EEA_NewsCurrencyTracked(country.currency)) continue;
-      const long server=(long)values[i].time;
-      const long utc=server-EEA_NewsServerOffsetAt(server-now_offset,now_offset,now);
-      chunk+=IntegerToString(utc)+","+IntegerToString(server)+","+country.currency+","+
+      const long raw=(long)values[i].time;
+      const long utc=EEA_NewsCalendarUtc(raw);
+      const long server=utc+EEA_NewsServerOffsetAt(utc,now_offset,now);     // the bar clock of that date
+      chunk+=IntegerToString(utc)+","+IntegerToString(server)+","+IntegerToString(raw)+","+country.currency+","+
              (ev.importance==CALENDAR_IMPORTANCE_HIGH ? "HIGH" : "MODERATE")+","+IntegerToString((int)ev.sector)+","+
              IntegerToString((long)ev.id)+","+EEA_CalendarExportField(ev.name)+","+
              EEA_NewsValueText(values[i].HasActualValue(),values[i].GetActualValue())+","+
@@ -124,10 +129,10 @@ bool EEA_CalendarExportYear(EEA_CalendarExportRuntime &rt,const int year,int &ro
 
 void EEA_CalendarExportWriteMeta(const EEA_CalendarExportRuntime &rt,const int last_year)
   {
-   string json="{\"from_year\":"+IntegerToString(EEA_CALENDAR_EXPORT_FROM_YEAR)+",\"to_year\":"+IntegerToString(last_year)+
+   string json="{\"format\":"+IntegerToString(EEA_CALENDAR_EXPORT_FORMAT)+",\"from_year\":"+IntegerToString(EEA_CALENDAR_EXPORT_FROM_YEAR)+",\"to_year\":"+IntegerToString(last_year)+
       ",\"exported_at_utc\":"+IntegerToString((long)TimeGMT())+",\"server_offset_now\":"+
       IntegerToString(EEA_NewsServerOffsetSeconds())+",\"importance\":[\"HIGH\",\"MODERATE\"]"+
-      ",\"time_rule\":\"utc=server-EEA_NewsServerOffsetAt\"}";
+      ",\"time_rule\":\"utc=calendar-offset_now; server=utc+offset_at(utc)\"}";
    EEA_WriteAtomicText(EEA_CalendarExportMetaPath(rt.root),json);
   }
 

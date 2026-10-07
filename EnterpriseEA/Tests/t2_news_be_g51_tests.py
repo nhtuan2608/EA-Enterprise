@@ -75,11 +75,13 @@ class EventTests(unittest.TestCase):
     def test_direct_events_of_the_symbol_without_ignored_names(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "news.jsonl"
-            rows = [{"symbol": "EURUSD", "impact": "DIRECT", "event": "CPI y/y", "event_utc": 10},
-                    {"symbol": "EURUSD", "impact": "DIRECT", "event": "CPI y/y", "event_utc": 10},
-                    {"symbol": "EURUSD", "impact": "INDIRECT", "event": "GDP q/q", "event_utc": 20},
-                    {"symbol": "EURUSD", "impact": "DIRECT", "event": "Initial Jobless Claims", "event_utc": 30},
-                    {"symbol": "XAUUSD", "impact": "DIRECT", "event": "CPI y/y", "event_utc": 40}]
+            ok = {"time_rule": "calendar_now_offset"}
+            rows = [dict(ok, symbol="EURUSD", impact="DIRECT", event="CPI y/y", event_utc=10),
+                    dict(ok, symbol="EURUSD", impact="DIRECT", event="CPI y/y", event_utc=10),
+                    {"symbol": "EURUSD", "impact": "DIRECT", "event": "PPI m/m", "event_utc": 15},   # before G54: unused
+                    dict(ok, symbol="EURUSD", impact="INDIRECT", event="GDP q/q", event_utc=20),
+                    dict(ok, symbol="EURUSD", impact="DIRECT", event="Initial Jobless Claims", event_utc=30),
+                    dict(ok, symbol="XAUUSD", impact="DIRECT", event="CPI y/y", event_utc=40)]
             p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
             self.assertEqual(nb.news_times(p, "EURUSD", ["initial jobless claims"]), [10])
 

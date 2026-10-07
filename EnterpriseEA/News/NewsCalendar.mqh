@@ -98,6 +98,11 @@ long EEA_NewsServerOffsetSeconds()
    return (long)MathRound(((double)TimeTradeServer()-(double)TimeGMT())/900.0)*900;
   }
 
+// G54: MT5 gives calendar times on TODAY's server clock for every date (checked on 16 years of NFP: always
+// 15:30/16:30 server = 12:30/13:30 UTC with today's offset). UTC is therefore the calendar time minus the current
+// offset, in any season; bars of a past date use the offset of that date (EEA_NewsServerOffsetAt).
+long EEA_NewsCalendarUtc(const long calendar_time) { return calendar_time-EEA_NewsServerOffsetSeconds(); }
+
 string EEA_NewsValueText(const bool has,const double value)
   {
    return has ? DoubleToString(value,2) : "";

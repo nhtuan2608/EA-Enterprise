@@ -189,7 +189,9 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
             string key=EEA_NrField(line,"key");
             // Lines written before clusters existed are re-measured with their cluster; the old
             // lines stay in the log but no longer count.
-            if(key=="" || StringFind(line,"\"cluster_events\":")<0 || StringFind(line,"\"guard_block_end_min\":")<0) continue;
+            // G54: lines before the calendar clock fix (winter events one hour late) are measured again.
+            if(key=="" || StringFind(line,"\"cluster_events\":")<0 || StringFind(line,"\"guard_block_end_min\":")<0 ||
+               StringFind(line,"\"time_rule\":\"calendar_now_offset\"")<0) continue;
             EEA_ReactionSummary s;
             string group=EEA_NrField(line,"group");
             s.group=group!="" ? group : EEA_NrGroup(EEA_NrField(line,"currency"),EEA_NrField(line,"event"),EEA_NrField(line,"symbol"));
@@ -225,7 +227,8 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
    rt.backfill_done=false;
    // A backfill that started from another date (or before the replay fields) restarts.
    if(EEA_PendingReadText(EEA_NrBackfillPath(root),json) &&
-      StringToInteger(EEA_NrField(json,"from_utc"))==rt.backfill_from_utc)
+      StringToInteger(EEA_NrField(json,"from_utc"))==rt.backfill_from_utc &&
+      StringFind(json,"news-reaction-backfill-v1.2.0")>=0)
      {
       long cursor=StringToInteger(EEA_NrField(json,"cursor_utc"));
       if(cursor>0) rt.backfill_cursor_utc=cursor;
@@ -235,7 +238,7 @@ void EEA_NewsReactionLoad(EEA_NewsReactionRuntime &rt,const string root,const lo
 
 void EEA_NrWriteBackfill(const EEA_NewsReactionRuntime &rt,const string root)
   {
-   EEA_WriteAtomicText(EEA_NrBackfillPath(root),"{\"document_version\":\"news-reaction-backfill-v1.1.0\",\"from_utc\":"+
+   EEA_WriteAtomicText(EEA_NrBackfillPath(root),"{\"document_version\":\"news-reaction-backfill-v1.2.0\",\"from_utc\":"+
                        IntegerToString(rt.backfill_from_utc)+",\"cursor_utc\":"+
                        IntegerToString(rt.backfill_cursor_utc)+",\"done\":"+(rt.backfill_done ? "true" : "false")+"}");
   }
@@ -287,7 +290,7 @@ string EEA_NrJson(const EEA_Reaction &r)
       EEA_NrNum("residual_after_block_atr",r.replay_ok,r.residual_after_block_atr,3)+
       EEA_NrNum("pre_drift_scalp_atr",r.has_pre_drift,r.pre_drift_scalp_atr,3)+
       EEA_NrNum("pre_drift_swing_atr",r.has_pre_drift,r.pre_drift_swing_atr,3)+
-      ",\"server_offset\":"+IntegerToString(r.server_offset)+",\"price_resolution\":\""+r.price_resolution+"\""+
+      ",\"server_offset\":"+IntegerToString(r.server_offset)+",\"time_rule\":\"calendar_now_offset\""+",\"price_resolution\":\""+r.price_resolution+"\""+
       (r.has_peak_offset ? ",\"peak_bar_offset_min\":"+IntegerToString(r.peak_bar_offset_min) : ",\"peak_bar_offset_min\":null")+
       ",\"quality\":\""+r.quality+"\",\"recorded_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
    return json;
@@ -333,14 +336,16 @@ int EEA_NrRecord(EEA_NewsReactionRuntime &rt,const string root,CAuditLog &audit,
    const string key=IntegerToString((long)value.id)+"|"+canonical;
    if(EEA_NrKnown(rt,key)) return 0;
    const long now_offset=EEA_NewsServerOffsetSeconds();
-   // Offset valid at the event (broker on New York close: one hour less in US winter time).
-   const long offset=EEA_NewsServerOffsetAt((long)value.time-now_offset,now_offset,(long)TimeGMT());
+   // G54: the calendar time is on today's server clock; the bars of that date use the offset valid at the
+   // event (broker on New York close: one hour less in US winter time).
+   const long event_utc=(long)value.time-now_offset;
+   const long offset=EEA_NewsServerOffsetAt(event_utc,now_offset,(long)TimeGMT());
    EEA_Reaction r;
    EEA_ReactionDefaults(r);
    r.key=key; r.source=source; r.symbol=canonical; r.currency=currency; r.event_name=ev.name; r.impact=impact;
    r.cluster_label=cluster_label!="" ? cluster_label : currency+" "+ev.name;
    r.cluster_size=MathMax(1,cluster_size); r.cluster_lead=cluster_lead;
-   r.event_utc=(long)value.time-offset;
+   r.event_utc=event_utc;
    r.server_offset=offset;
    const long T=r.event_utc;
    r.has_actual=value.HasActualValue(); if(r.has_actual) r.actual=value.GetActualValue();
@@ -489,16 +494,14 @@ long EEA_NrProcessWindow(EEA_NewsReactionRuntime &rt,const string root,CAuditLog
                          int &budget)
   {
    const long now_offset=EEA_NewsServerOffsetSeconds();
-   const long now=(long)TimeGMT();
    const uint started=GetTickCount();
    MqlCalendarValue values[];
-   if(!CalendarValueHistory(values,(datetime)(from+EEA_NewsServerOffsetAt(from,now_offset,now)),
-                            (datetime)(to+EEA_NewsServerOffsetAt(to,now_offset,now)),NULL,NULL)) return -1;
+   if(!CalendarValueHistory(values,(datetime)(from+now_offset),(datetime)(to+now_offset),NULL,NULL)) return -1;
    long done_until=to;
    int total=ArraySize(values);
    for(int i=0;i<total;i++)
      {
-      long T=(long)values[i].time-EEA_NewsServerOffsetAt((long)values[i].time-now_offset,now_offset,now);
+      long T=(long)values[i].time-now_offset;              // G54: calendar = today's server clock
       if(T<=from) continue;
       MqlCalendarEvent ev;
       if(!CalendarEventById(values[i].event_id,ev) || ev.importance!=CALENDAR_IMPORTANCE_HIGH) continue;
