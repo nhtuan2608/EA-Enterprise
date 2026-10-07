@@ -95,16 +95,19 @@ bool EEA_DailyFloatingLookup(const long day,double &value)
   }
 
 // One observation of the day: overwrites the floating value (= equity - balance), sets the start balance/equity
-// once (first observation of the day) and keeps the most negative floating.
+// once and keeps the most negative floating. `start_balance` is the real start of the day (current balance minus the
+// realized net of the day so far, computed by the caller); `start_known` is false while the daily stats are not
+// merged yet, in which case the start is left unset and taken on a later call. start_equity is the equity at the
+// moment the start is set (first observation), used only for the floating DD percentage.
 void EEA_DailyFloatingObserve(EEA_DailyFloatingBook &book,const long day,const double balance,const double equity,
-                              const long at_utc)
+                              const long at_utc,const double start_balance,const bool start_known)
   {
    int index=EEA_DailyFloatingEnsure(book,day);
    double floating=equity-balance;
    book.rows[index].value=floating; book.rows[index].at_utc=at_utc;
-   if((book.rows[index].flags & EEA_DAILY_FLOATING_HAS_START)==0)
+   if(start_known && (book.rows[index].flags & EEA_DAILY_FLOATING_HAS_START)==0)
      {
-      book.rows[index].start_balance=balance; book.rows[index].start_equity=equity;
+      book.rows[index].start_balance=start_balance; book.rows[index].start_equity=equity;
       book.rows[index].flags|=EEA_DAILY_FLOATING_HAS_START;
      }
    if((book.rows[index].flags & EEA_DAILY_FLOATING_HAS_MIN)==0 || floating<book.rows[index].min_floating)

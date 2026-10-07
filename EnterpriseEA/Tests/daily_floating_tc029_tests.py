@@ -67,7 +67,8 @@ class SourceTests(unittest.TestCase):
     def test_hook(self):
         body = self.shell.split("void EEA_MaintainDurableState()", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("EEA_DailyFloatingObserve(g_daily_floating,today_day,g_runtime.account.balance,"
-                      "g_runtime.account.equity,now_utc)", body)
+                      "g_runtime.account.equity,now_utc,", body)
+        self.assertIn("g_runtime.account.balance-today_net,stats_ready);", body)
         self.assertIn("g_runtime.account.equity>0.0", body)
         self.assertIn("now_utc-g_daily_floating_last_write>=300", body)
         self.assertIn("today_day!=g_daily_floating_last_day", body)

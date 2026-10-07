@@ -27,13 +27,13 @@ def ensure(book, day):
     return row
 
 
-def observe(book, day, balance, equity):
-    """Mirror of EEA_DailyFloatingObserve."""
+def observe(book, day, balance, equity, today_net=0.0, stats_ready=True):
+    """Mirror of EEA_DailyFloatingObserve; the caller passes start = balance - realized net of the day so far."""
     row = ensure(book, day)
     floating = equity - balance
     row["value"] = floating
-    if not row["flags"] & HAS_START:
-        row["start_balance"], row["start_equity"] = balance, equity
+    if stats_ready and not row["flags"] & HAS_START:
+        row["start_balance"], row["start_equity"] = balance - today_net, equity
         row["flags"] |= HAS_START
     if not row["flags"] & HAS_MIN or floating < row["min_floating"]:
         row["min_floating"] = floating
@@ -83,6 +83,20 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(row["min_floating"], -25.0)
         self.assertEqual(row["value"], -6.0)  # last floating overwrites (TC-029)
 
+    def test_start_balance_is_real_start_of_day_when_first_seen_mid_day(self):
+        book = []
+        observe(book, 10, 10100.0, 10100.0, today_net=100.0)
+        self.assertEqual(book[0]["start_balance"], 10000.0)
+        observe(book, 10, 10150.0, 10150.0, today_net=150.0)  # set once, unchanged
+        self.assertEqual(book[0]["start_balance"], 10000.0)
+
+    def test_start_waits_for_daily_stats(self):
+        book = []
+        observe(book, 10, 10100.0, 10100.0, today_net=0.0, stats_ready=False)
+        self.assertFalse(book[0]["flags"] & HAS_START)
+        observe(book, 10, 10100.0, 10100.0, today_net=100.0)
+        self.assertEqual(book[0]["start_balance"], 10000.0)
+
     def test_r_aggregation(self):
         book = []
         for r in (1.5, -1.0, 0.5):
@@ -116,6 +130,7 @@ class SourceTests(unittest.TestCase):
         self.shell = read("EnterpriseEA.mq5")
 
     def test_store_fields_and_v10_compatibility(self):
+        self.assertIn("balance-today_net", self.shell)
         for token in ("start_balance", "start_equity", "min_floating", "r_sum", "r_best", "r_worst", "r_count",
                       '"daily-floating-v1.1.0"', "EEA_DAILY_FLOATING_DOCUMENT_V10", "n!=3 && n!=11",
                       "flags=EEA_DAILY_FLOATING_HAS_VALUE;"):
