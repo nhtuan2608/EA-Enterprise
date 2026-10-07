@@ -1,6 +1,6 @@
 # Ma trận truy vết theo đặc tả v1.4, cập nhật 07/10/2026
 
-Cập nhật `2026-10-05-traceability-v1-4.md` cho mọi thứ thêm sau 05/10 (G23–G59 trong `plans/2026-10-04-roadmap-after-merge.md`). Bản 05/10 vẫn là gốc cho các dòng không đổi; bản này ghi lại đầy đủ các dòng đã đổi và dòng mới. Căn cứ: code `main` (`89ae674`), 765 test Python đạt (kết quả ghi trong `2026-10-07-g59-spec-audit.md`), compile MetaEditor 0/0 ở lần deploy gần nhất, và trạng thái terminal demo (VTMarkets-Demo) ngày 07/10.
+Cập nhật `2026-10-05-traceability-v1-4.md` cho mọi thứ thêm sau 05/10 (G23–G59 trong `plans/2026-10-04-roadmap-after-merge.md`). Bản 05/10 vẫn là gốc cho các dòng không đổi; bản này ghi lại đầy đủ các dòng đã đổi và dòng mới. Căn cứ: code `main` (`89ae674`), tối thiểu 776 test Python đạt (07/10, sau G60; G61 thêm test), compile MetaEditor 0/0 ở lần deploy gần nhất (G60/G61 deploy 07/10 16:46 UTC), và trạng thái terminal demo (VTMarkets-Demo) ngày 07/10.
 
 Mức bằng chứng (giữ nguyên định nghĩa 05/10):
 - **RT**: đã quan sát chạy thật trên terminal demo (log, audit, file trạng thái).
@@ -14,15 +14,16 @@ Mức bằng chứng (giữ nguyên định nghĩa 05/10):
 | Mục | Giá trị | Nguồn |
 |---|---|---|
 | Controlled live | đã arm (`InpExecutionEnabled=true`, `InpLiveTradeArmed=true`), phiên **ACTIVE** tới 14/10/2026 11:57 UTC | `live_session.json`, `current/live_status.json` |
-| Chính sách | **CUSTOM**: ngày 5%, tổng 10%, trần 1,5%/lệnh (`InpAccountPhase=EVALUATION`, `InpEvalRiskPercent=1.5`) | `policy_settings.json`, profile chart |
+| Chính sách (trần phiên) | **CUSTOM**: ngày 5%, tổng 10%, phiên ký trần 1,5%/lệnh (`InpAccountPhase=EVALUATION`) | `policy_settings.json`, `live_session.json` |
+| Rủi ro hiệu lực của EA | mỗi lệnh **0,5%** (người dùng đã hạ `InpEvalRiskPercent`), mở 2%, ngày 2%, tuần 4%; theo setup S04 0,325%, S06B 0,5%, T2 0,17% | khối `risk` của `current/live_status.json` (G60, RT từ 07/10 16:47 UTC) |
 | Chế độ setup | S04 **LIVE**; S06B **LIVE** (chuyển 07/10); S02, S06, SCALP (trần), T2 **SHADOW** | `live_status.json` (khối `modes`) |
 | T2 | LIVE-được trên `XAUUSD,BTCUSD` (`InpT2LiveSymbols`), chạy SHADOW; ngoài ra `XAGUSD,ETHUSD,USOUSD` (`InpT2OnlySymbols`, chỉ có engine T2) | `EnterpriseEA.mq5`, G49 |
 | Lệnh thật | **chưa có lệnh nào** từ khi arm (không có `logs/trades.jsonl`, không có sự kiện lệnh trong audit) | G59 mục B |
-| Test | 765 test Python đạt | G59 |
+| Test | ≥ 776 test Python đạt (07/10) | G60, G61 |
 
 Hệ quả: mọi yêu cầu thuộc đường vào lệnh thật vẫn **CT**, kể cả khi S04 và S06B đang LIVE. LIVE nghĩa là đường vào lệnh đã mở, không phải là đã có lệnh.
 
-Lệch giữa mặc định trong code và profile chart (đều là cấu hình, không phải lỗi mã): code mặc định `InpS06BMode=S06B_SHADOW` còn chart đang LIVE; code mặc định `InpNewsAllowWhenUnknown=false` còn chart đang `true` (chưa được xác nhận, xem mục 4).
+Lệch giữa mặc định trong code và profile chart (cấu hình, không phải lỗi mã; khối `news` của `live_status.json` cho thấy giá trị thật): code mặc định `InpS06BMode=S06B_LIVE` (G60); danh sách bỏ qua mặc định trong code không còn `ISM Non-Manufacturing` (G57/G60) nhưng chart vẫn còn tên này; chart vẫn chạy `InpNewsAllowWhenUnknown=true` (code mặc định `false`). Hai điểm cuối chờ người dùng quyết (mục 5).
 
 ## 1. Thay đổi so với 05/10
 
@@ -37,18 +38,19 @@ Chuyển mức (đã đối chiếu với bản 05/10):
 | REQ-015 FTMO | CT | CT, thêm mode CUSTOM dùng chung bộ luật `PolicyRules` | G34 |
 | REQ-018 Telegram | RT | RT cho lệnh điều khiển; thêm `/edge`, `/week`, `/today`, `/soak`, `/ai`, `/status` đọc `live_status.json` (CT) | G37, G40, G22 |
 | REQ-019 PAUSED/RUNNING | RT | RT, không đổi | — |
-| Chuỗi tính năng mới không có REQ riêng | — | bảng 1b (X-01…X-15) | G29–G59 |
+| Chuỗi tính năng mới không có REQ riêng | — | bảng 1b (X-01…X-17) | G29–G59 |
 | TC-014 | — | — (vẫn thiếu; T2 có hồ sơ POSITION riêng nhưng đó là rule khác) | G59 mục C |
 | TC-019 / E2E-07 | CT, lưu ý cấu hình | CT, lưu ý cấu hình **vẫn mở** (A3) | G59 |
-| TC-029, TC-007 | —, MP | —, MP | G59 mục C; G33: điểm không dự đoán được, giữ ưu tiên theo bằng chứng |
+| TC-029 | — | CT | G60: `Storage/DailyFloatingStore.mqh`, `current/daily_floating.json`, ngày chi tiết trong lịch hiện "floating EOD …/floating now …/floating EOD unavailable"; test `daily_floating_tc029_tests` |
+| TC-007 | MP | MP | G33: điểm không dự đoán được, giữ ưu tiên theo bằng chứng |
 
-Không có dòng nào đi lên RT mới vì lệnh thật. Các dòng đi lên hoặc mới có bằng chứng chạy thật: `live_status.json` ghi mỗi timer (RT, X-01); xuất lịch kinh tế 2010–2026 chạy trên EA thật (RT, X-11); phiên live CUSTOM ký lại 07/10 11:57 UTC (RT, X-09).
+Không có dòng nào đi lên RT mới vì lệnh thật. Các dòng đi lên hoặc mới có bằng chứng chạy thật (X-16 cũng RT): `live_status.json` ghi mỗi timer (RT, X-01); xuất lịch kinh tế 2010–2026 chạy trên EA thật (RT, X-11); phiên live CUSTOM ký lại 07/10 11:57 UTC (RT, X-09).
 
 ## 1b. Hạng mục thêm sau 05/10 (không có REQ riêng trong v1.4)
 
 | ID | Nội dung | Module trong EA / công cụ | Test | Mức | Còn thiếu / ghi chú |
 |---|---|---|---|---|---|
-| X-01 | Trạng thái live cho người ngoài EA (G40, G46) | `current/live_status.json` ghi mỗi timer, kèm chế độ từng engine và lý do strategy runtime; Telegram `/status` đọc file này (`bridge/telegram_gateway.py`) | `t2_live_g40_tests` (ghi theo timer, không theo tick; nêu lý do chặn; file cũ/thiếu) | RT (file có và đọc được trên terminal 07/10) | `tools/verify_live_readiness.ps1` đọc tên file cũ, báo NOT_READY sai (G59 mục E) |
+| X-01 | Trạng thái live cho người ngoài EA (G40, G46) | `current/live_status.json` ghi mỗi timer, kèm chế độ từng engine và lý do strategy runtime; Telegram `/status` đọc file này (`bridge/telegram_gateway.py`) | `t2_live_g40_tests` (ghi theo timer, không theo tick; nêu lý do chặn; file cũ/thiếu) | RT (file có và đọc được trên terminal 07/10) | Script `tools/verify_live_readiness.ps1` đã sửa ở G60 (X-16) |
 | X-02 | **S06B**: hộp 24 nến, vào ngay ở nến phá, không lọc HTF, 3R (G26) | `Setups/CompressionExpansion.mqh` (biến thể ngay), `Runtime/StrategyCandidateRuntime.mqh`; input `InpS06BMode` | `setup_modes_g26_tests` (slot, checkpoint, "release triggers at once", mode theo engine), `s06_compression_expansion_tests` | engine RT (SHADOW rồi LIVE 07/10; chưa có tín hiệu nào được ghi nhận từ khi LIVE); đường vào lệnh CT | Chưa có lệnh thật. G58: ở 1,5%/lệnh DD p90 13–19% > sàn 10% (xem mục 4, ưu tiên 1) |
 | X-03 | **Dòng USD** làm bộ lọc S06B (G27, G29) | `Market/UsdFlow.mqh` (EURUSD, GBPUSD, USDJPY so với EMA50 H1, nến đã đóng); `InpS06BRequireUsdFlow=true` chặn `S06B_COUNTER_USD`, `S06B_USD_FLOW_UNKNOWN`; ghi `usd_flow`/`usd_alignment` vào log shadow và `logs/candidates.jsonl` | `usd_flow_pyramid_g29_tests` (khớp chỉ số nghiên cứu, dấu alignment, cổng LIVE, không giao dịch) | CT | Chưa có lệnh S06B thật để thấy cổng chặn/cho qua |
 | X-04 | **Bồi lệnh S06B** (G28, G29, G31) | `Integration/S06BPyramidRuntime.mqh`; `InpS06BPyramidLive=false` (TẮT); bồi 1 lần ở +1R, dừng lỗ = hòa vốn của lệnh đầu, đi qua đủ cổng như lệnh thường; Trade Manager không hòa vốn lại/không chốt một phần/trail từ 2R | `s06b_pyramid_g31_tests` (mặc định tắt, thứ tự sau lượt vào lệnh, không chạy khi PAUSED/recovery, cùng đường rủi ro, `add_candidate` lưu bền) , `usd_flow_pyramid_g29_tests` (mô phỏng ảo: `research/g10/pyramid.py`) | CT | TẮT, chỉ bật sau khi shadow khớp. Bồi lệnh T2: `InpT2PyramidLive=false`, test `g4_in_ea_g44_tests` (`test_t2_add`), cũng chưa bật |
@@ -62,6 +64,8 @@ Không có dòng nào đi lên RT mới vì lệnh thật. Các dòng đi lên h
 | X-12 | **Monitor lợi thế** (G37, G46) | `research/g10/edge_monitor.py` (CUSUM giảm, sụt giảm, R trung bình; các luồng S04, S06B, T2 có/không XAU+BTC, có/không bồi), `research/long/edge_calibrate.py`; `current/edge_monitor.json`; Telegram `/edge` và kiểm tra hằng ngày chỉ nhắn khi xấu hơn | `edge_monitor_tests` (mọi luồng đều hiệu chỉnh, luồng dùng tham số có sẵn, T2 trước G44 không tính, tham số có lọc khác nghiên cứu chưa lọc), `telegram_gateway_tests` (tắt `notify.edge` trong harness) | CT (công cụ ngoài EA; chưa có lệnh thật để nó theo dõi) | Theo dõi chỉ trên lệnh ảo + lệnh thật; hiệu chỉnh XAU/BTC lạc quan vì chọn sau (G46) |
 | X-13 | **Khớp tín hiệu EA ↔ nghiên cứu** (G48, G48b, G49) | `research/g10/signal_parity.py` (so `logs/candidates.jsonl` và sổ shadow với bộ sinh tín hiệu nghiên cứu: khớp / EA bỏ sót / EA thừa / lúc EA tắt; `--live` lấy nến trực tiếp từ MT5; "nhịp tim" khi chưa có tín hiệu; mọi symbol EA chọn; symbol T2-only tính từ `SYMBOL_START`); replay lịch sử bằng `Runtime/SetupReplay.mqh` (`setup_replay.jsonl`) | `signal_parity_g48_tests` | RT (chạy 07/10 trên dữ liệu thật: S04/S06B/T2 EA 0, nghiên cứu 0 từ lúc theo dõi, khớp); replay S04 SWING 30/30, S02 SWING 31/31, S02 SCALP 497/497, S04 SCALP 352/353 | Lệch 1/353 (GBPUSD 04/02 13:55) chưa chứng minh nguyên nhân, candidate bị loại `RR_TOO_LOW`, không có lệnh. Vì chưa có tín hiệu forward, khả năng bắt lệch thật chưa được thử |
 | X-14 | **Đánh giá tuần** (G20, G50) | `research/g10/weekly_review.py` (luôn hiện S04_SWING/S06B_SWING/T2_POSITION kèm chế độ từ `live_status.json`; mục monitor lợi thế, soak, khớp tín hiệu, AI); Telegram `/week`; `TRADE_EXITED` + `logs/trades.jsonl` do Trade Manager ghi | `weekly_review_tests`, `trade_manager_tests` | CT (công cụ chạy được; phần lệnh thật rỗng vì chưa có lệnh) | Dùng cho G5 (10–11/10) |
+| X-16 | **Tự kiểm cấu hình hiệu lực** (G60) | `current/live_status.json` có thêm khối `risk` (rủi ro hiệu lực mỗi lệnh/mở/ngày/tuần/theo setup) và `news` (cấu hình tin hiệu lực), kiểm được không cần profile chart; sửa câu log khởi tạo; `tools/verify_live_readiness.ps1` đọc `live_session`/`live_status` (observer `new_entries_blocked` là chặn vào lệnh theo thiết kế) | `live_status_g60_tests` | RT (khối mới có từ 07/10 16:47 UTC; script chạy ra READY_FOR_MANUAL_REVIEW 07/10) | Bản 07/10 trước đó ghi script báo sai và câu log gây hiểu nhầm: đã sửa |
+| X-17 | **Monitor lợi thế có luồng S06B thật** (G61) | `research/g10/edge_monitor.py` thêm các luồng S06B từ lệnh/candidate thật | `edge_monitor_tests` | CT | Chưa có lệnh S06B thật để luồng có dữ liệu |
 | X-15 | **Nghiên cứu chưa vào EA** | S01/S03/S05 (không thấy lợi thế); SCALP M5 mọi setup âm (G55, G58); G38 T3–T5; G45 vùng/OB/FVG; G47 Fibonacci OTE (4/5 tiêu chí, ngoài mẫu âm); G56 SW1/SC1 (walk-forward âm); G35 H4; G36 8 cặp mới; G33 điểm dự đoán | `long_history_tests`, `factor_atlas_g56_tests`, `factor_setups_g56_tests` | **NC** | Không có gì trong số này đang chạy trong EA, ngoài SHADOW của S02/S06/SCALP |
 
 ## 2. Yêu cầu (REQ)
@@ -73,7 +77,7 @@ Chỉ ghi lại các dòng có thay đổi so với 05/10 hoặc có thêm bằn
 | 003 | Setup theo trình tự | S02 `Setups/BreakRetest.mqh`, S04 `FailedBreak.mqh`, S06/S06B `CompressionExpansion.mqh`, T2 `DonchianTrend.mqh`; phân xử `Integration/SetupArbitration.mqh` (ưu tiên S06 → S04 → S02, SWING trước SCALP, G18); sổ `CandidateLedger.mqh` | `s02_v1_tests`, `s04_failed_break_tests`, `s06_compression_expansion_tests`, `t2_donchian_tests`, `setup_arbitration_tests`, `candidate_ledger_tests`, `setup_modes_g26_tests` | RT (engine S02/S04/S06/S06B/T2 chạy; 1 candidate thật S02 05/10); đường LIVE S04, S06B: CT | S01/S03/S05 chỉ prototype, nghiên cứu không thấy lợi thế (G23, G56). S02 không đạt (G23, G55): giữ SHADOW. **S04 chỉ THEO DÕI** (+0,05R gộp, mỏng dần, G55) mà đang LIVE |
 | 004 | Rủi ro danh mục, exposure | `Risk/PortfolioBudget`, `VolumeSizing`, `AccountRiskLedger`, `RiskLimitsProfile` (trọng số setup G44, rủi ro đánh giá G42), `PolicyRules` (CUSTOM G34) | `portfolio_budget_tests`, `volume_sizing_tests`, `account_risk_ledger_tests`, `g4_in_ea_g44_tests`, `eval_risk_g42_tests`, `custom_policy_g34_tests` | CT | Chưa có lệnh thật đi qua; rủi ro 1,5%/lệnh vượt mức an toàn của G58 cho sàn 10% |
 | 005 | Quản lý lệnh thích ứng | `Runtime/TradeManagerRuntime.mqh` (SWING, SCALP, **POSITION** cho T2; lệnh bồi theo luật nghiên cứu) | `trade_manager_tests`, `t2_live_g40_tests`, `s06b_pyramid_g31_tests`, `weekly_review_tests` | CT | Chưa có lệnh thật; TC-014 chưa có |
-| 006 | Bảo vệ thực thi | `Runtime/ExecutionAdapter`, `ExecutionGate`, `ExecutionIntentBuilder`, `Integration/DryRunCandidateGate` (nhận T2) | `execution_*_tests`, `dry_run_gate_tests`, `t2_live_g40_tests` | CT | Chưa có lệnh thật; từ 07/10 `tools/verify_live_readiness.ps1` báo sai (đọc file cũ) |
+| 006 | Bảo vệ thực thi | `Runtime/ExecutionAdapter`, `ExecutionGate`, `ExecutionIntentBuilder`, `Integration/DryRunCandidateGate` (nhận T2) | `execution_*_tests`, `dry_run_gate_tests`, `t2_live_g40_tests` | CT | Chưa có lệnh thật |
 | 007 | Trung tâm tin | `News/NewsCalendar` (+ danh sách bỏ qua), `NewsReactionRecorder` (sửa giờ G54), `NewsState` | `news_guard_tests`, `news_reaction_tests`, `news_health_tests`, `calendar_clock_g54_tests` | RT | AI News Interpreter chưa có; xác nhận bỏ "ISM Non-Manufacturing" (G57) |
 | 013 | SL/TP cấu trúc, net RR | `Risk/StructuralLevels`, `TradeEconomics`; S06/S06B 3R cố định; T2 TP sàn 20R + trail ATR | `structural_levels_tests`, `trade_economics_tests`, `t2_live_g40_tests` | CT | Chưa có lệnh thật. G33: siết/nới dừng lỗ không tốt hơn dừng cấu trúc hiện tại |
 | 015 | Sàn FTMO / policy | `Risk/FtmoHeadroom`, `DailyResetLedger` (Prague), `PolicyRules` (CUSTOM), `Runtime/LiveSessionAuthorization` | `ftmo_headroom_tests`, `daily_reset_ledger_tests`, `custom_policy_g34_tests`, `live_session_tests` | CT (phiên CUSTOM ACTIVE: RT) | Chưa chạm ngưỡng thật. G32: phiên ký 1-Step chặn mọi lệnh khi policy đã là 2-Step (`LIVE_SESSION_POLICY_CHANGED`), xử lý bằng ký lại |
@@ -102,7 +106,7 @@ Chỉ các dòng đổi hoặc mới. Dòng không nhắc giữ nguyên bản 05
 | Rủi ro vòng thi bị chặn ở trần 1,5% và 80% giới hạn policy | CT | `eval_risk_g42_tests` |
 | CUSTOM: sàn ngày từ equity lúc reset, thiếu mẫu thì fail closed | CT | `custom_policy_g34_tests` |
 | Khớp tín hiệu EA ↔ nghiên cứu | RT (0 tín hiệu cả hai phía) | `signal_parity_g48_tests`, chạy `signal_parity.py --live` 07/10 |
-| 029 thiếu snapshot EOD → "unavailable" | — | vẫn chưa có |
+| 029 thiếu snapshot EOD → "unavailable" | CT | G60: `Storage/DailyFloatingStore.mqh`, `current/daily_floating.json`, `daily_floating_tc029_tests`; chưa có ngày có lệnh để thấy số thật |
 | 046–051 lệnh chờ | CT | vẫn chưa có lệnh chờ thật |
 | TG-01..08 Telegram | CT + RT (01, 02, 03, 08) | như 05/10 |
 
@@ -124,15 +128,14 @@ Chưa có mục nào lên RT nhờ lệnh thật.
 
 ## 5. Việc còn thiếu so với đặc tả và quyết định đang chờ (theo mức ưu tiên)
 
-1. **Rủi ro 1,5%/lệnh với sàn tổng 10% (G59 A1)**: G58 chạy theo mức rủi ro cho DD p90 (xáo tháng) 13–19% ở 1,5%, 8,5–9,7% ở 0,75%, 4,4–6,5% ở 0,5%. Cần quyết định có hạ `InpEvalRiskPercent` về 0,5–0,75 khi S06B LIVE hay không. Phiên đã ký với trần 1,5%.
-2. **Xác nhận `InpNewsAllowWhenUnknown=true` trên chart (TC-019, E2E-07)**: nếu không chủ ý, đặt `false`.
-3. **Bỏ "ISM Non-Manufacturing" khỏi `InpNewsIgnoreKeywords` (G57)**: đổi trong hộp input (F7), sau đó kiểm lại.
+1. **Rủi ro mỗi lệnh (G59 A1)**: G58 cho DD p90 (xáo tháng) 13–19% ở 1,5%, 8,5–9,7% ở 0,75%, 4,4–6,5% ở 0,5% so với sàn tổng 10%. EA hiện đã chạy 0,5%/lệnh (khối `risk` của `live_status.json`); phiên vẫn ký trần 1,5%. Còn lại là xác nhận 0,5% là chủ ý và có giữ trần phiên 1,5% hay ký lại thấp hơn.
+2. **Xác nhận `InpNewsAllowWhenUnknown=true` trên chart (TC-019, E2E-07)**: nếu không chủ ý, đặt `false`. Còn mở (khối `news` của `live_status.json`).
+3. **Bỏ "ISM Non-Manufacturing" khỏi `InpNewsIgnoreKeywords` trên chart (G57)**: mặc định trong code đã bỏ, profile chart chưa; đổi trong hộp input (F7), sau đó kiểm lại qua khối `news`.
 4. **Chưa có lệnh thật (G59 B)**: chờ tín hiệu S04/S06B, hoặc một phép thử đầu-cuối có kiểm soát trên demo (một lệnh, khối lượng tối thiểu, qua đúng đường rủi ro). Cần người dùng đồng ý. Đây là điều kiện để nâng CT lên RT cho REQ-004/005/006/013/015/016/021, TC-046..051 và E2E-02/03/08.
 5. **S04 đang LIVE nhưng bảng điểm G55 xếp THEO DÕI**; S06B lọc USD đạt TIN CẬY. Đề xuất G58: V2 (S04 + S06B), sau đó V3 (thêm T2 XAU/BTC LIVE) khi khớp tín hiệu forward có tín hiệu đầu tiên. T2 LIVE trên XAG/ETH/USO cần khớp ≥ 95% và ≥ 20 lệnh ảo/tài sản.
-6. **TC-029** (floating EOD thiếu snapshot): nhỏ, nên làm.
-7. **TC-014** (quản lý riêng cho breakout/compression): ưu tiên thấp.
-8. **TC-007** (xếp hạng candidate theo điểm): không làm, G33 cho thấy không có tín hiệu điểm dự đoán được.
-9. **REQ-007 AI News Interpreter**; **REQ-012 phần 2, AIG-03..05**: cần AI Level 1 shadow.
-10. **Đổi token Telegram** (đã lộ trong chat 05/10): người dùng `/revoke` rồi đặt lại biến môi trường.
-11. Lỗi nhỏ không ảnh hưởng giao dịch (G59 mục E): `tools/verify_live_readiness.ps1` đọc tên file cũ; câu log "observer runtime initialized without execution authority" in cả khi live đã arm (nên đổi thành trạng thái thật); lệch replay S04 SCALP 1/353.
-12. Điều kiện đo lại đăng ký trước: G51/G52 (T2 trước tin HIGH) khi có ≥ 100 lệnh T2; hiện BE giữ nguyên (G53b trên 957 lệnh nghiên cứu: trail 1,5 ATR không vượt BE theo tiêu chí).
+6. **TC-014** (quản lý riêng cho breakout/compression): ưu tiên thấp.
+7. **TC-007** (xếp hạng candidate theo điểm): không làm, G33 cho thấy không có tín hiệu điểm dự đoán được.
+8. **REQ-007 AI News Interpreter**; **REQ-012 phần 2, AIG-03..05**: cần AI Level 1 shadow.
+9. **Đổi token Telegram** (đã lộ trong chat 05/10): người dùng `/revoke` rồi đặt lại biến môi trường.
+10. Lỗi nhỏ không ảnh hưởng giao dịch: lệch replay S04 SCALP 1/353 (G59 mục E). Hai mục khác của G59 mục E đã xử lý ở G60 (X-16).
+11. Điều kiện đo lại đăng ký trước: G51/G52 (T2 trước tin HIGH) khi có ≥ 100 lệnh T2; hiện BE giữ nguyên (G53b trên 957 lệnh nghiên cứu: trail 1,5 ATR không vượt BE theo tiêu chí).
