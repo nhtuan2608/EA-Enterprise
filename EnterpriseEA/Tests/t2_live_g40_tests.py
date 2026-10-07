@@ -84,7 +84,7 @@ class LiveSymbolsTests(unittest.TestCase):
 
     def test_default_list_and_wiring(self):
         self.assertIn('input string InpT2LiveSymbols           = "XAUUSD,BTCUSD";', self.shell)
-        init = self.shell.index("(int)InpT2Mode);")
+        init = self.shell.index("(int)InpT2Mode,InpT2OnlySymbols);")
         self.assertLess(init, self.shell.index("g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;"))
 
     def test_engine_mode_caps_unlisted_symbols(self):
