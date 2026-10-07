@@ -44,6 +44,33 @@ class PureTests(unittest.TestCase):
         self.assertIn("CẦN XEM", txt)
         self.assertIn("Replay lịch sử của EA S04 SWING: khớp 30/30", txt)
 
+    def test_heartbeat_when_no_signal_in_the_window(self):
+        empty = {"MATCH": [], "EA_MISSED": [], "EA_EXTRA": [], "EA_OFFLINE": []}
+        txt = sp.text({"T2": dict(empty, heartbeat=["T2", "EURUSD", -1, 1_790_870_400])})
+        self.assertIn("nghiên cứu: tín hiệu gần nhất trước mốc EURUSD", txt)
+        txt = sp.text({"T2": dict(empty, heartbeat=None)})
+        self.assertIn("KHÔNG có tín hiệu nào", txt)                # silence before the window = check the tool
+        txt = sp.text({"T2": dict(empty, MATCH=[1])})
+        self.assertNotIn("gần nhất", txt)
+
+    def test_every_selected_symbol_is_checked(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "current").mkdir()
+            (root / "current" / "symbol_selection.json").write_text(
+                json.dumps({"canonical_symbols": ["XAUUSD", "BTCUSD", "EURUSD"]}), encoding="utf-8")
+            rows = [{"symbol": "GBPUSD"}]
+            self.assertEqual(sp.ea_symbols(root, rows), ["BTCUSD", "EURUSD", "GBPUSD", "XAUUSD"])
+            (root / "current" / "symbol_selection.json").unlink()
+            self.assertEqual(sp.ea_symbols(root, []), sorted(sp.DEFAULT_SYMBOLS))
+
+    def test_t2_uses_d1_bars_when_present(self):
+        src = (ROOT / "research" / "g10" / "signal_parity.py").read_text(encoding="utf-8")
+        self.assertIn('daily = context.load_bars(symbol, "D1")[-1000:] if d1_path.exists() else daily_from_h1(h1)', src)
+        self.assertIn('context.DATA, context.CACHE = scratch, scratch / ".cache"', src)   # live mode never touches the export cache
+
     def test_starts_follow_the_deploys(self):
         self.assertLess(sp.START["S04"], sp.START["S06B"])
         self.assertLess(sp.START["S06B"], sp.START["T2"])     # T2 counted from the G44 momentum filter only
