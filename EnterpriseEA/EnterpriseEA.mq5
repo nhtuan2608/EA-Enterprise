@@ -236,16 +236,20 @@ void EEA_MaintainDurableState()
      {
       EEA_DailyFloatingLoad(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint,offset);
       g_daily_floating_loaded=true;
+      g_daily_floating.loaded=true; // from now on the Trade Manager exit hook may add R to the book
      }
    if(g_runtime.account.equity>0.0)
      {
       long now_utc=(long)TimeGMT();
       long today_day=(now_utc+offset)/86400;
-      EEA_DailyFloatingUpdate(g_daily_floating,today_day,g_runtime.account.equity-g_runtime.account.balance,now_utc);
-      if(g_daily_floating.dirty && (today_day!=g_daily_floating_last_day || now_utc-g_daily_floating_last_write>=300) &&
+      // REQ-010: floating, start balance/equity (set once per day) and max floating drawdown of the local day.
+      EEA_DailyFloatingObserve(g_daily_floating,today_day,g_runtime.account.balance,g_runtime.account.equity,now_utc);
+      if(g_daily_floating.dirty &&
+         (g_daily_floating.urgent || today_day!=g_daily_floating_last_day || now_utc-g_daily_floating_last_write>=300) &&
          EEA_DailyFloatingWrite(root,g_daily_floating,g_config.config_version,g_runtime.account.account_fingerprint))
         {
-         g_daily_floating.dirty=false; g_daily_floating_last_write=now_utc; g_daily_floating_last_day=today_day;
+         g_daily_floating.dirty=false; g_daily_floating.urgent=false;
+         g_daily_floating_last_write=now_utc; g_daily_floating_last_day=today_day;
         }
      }
    if(!g_risk_ledger_loaded)

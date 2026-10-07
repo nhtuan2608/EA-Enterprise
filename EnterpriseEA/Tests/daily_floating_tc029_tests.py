@@ -57,7 +57,8 @@ class SourceTests(unittest.TestCase):
         self.panel = read("Runtime/SymbolSelectionPanel.mqh")
 
     def test_store_document(self):
-        self.assertIn('"daily-floating-v1.0.0"', self.store)
+        self.assertIn('"daily-floating-v1.1.0"', self.store)
+        self.assertIn('"daily-floating-v1.0.0"', self.store)  # still readable (REQ-010 compatibility)
         self.assertIn("/current/daily_floating.json", self.store)
         self.assertIn("EEA_WriteAtomicText(", self.store)
         self.assertIn("account_fingerprint", self.store)
@@ -65,7 +66,8 @@ class SourceTests(unittest.TestCase):
 
     def test_hook(self):
         body = self.shell.split("void EEA_MaintainDurableState()", 1)[1].split("\n  }\n", 1)[0]
-        self.assertIn("g_runtime.account.equity-g_runtime.account.balance", body)
+        self.assertIn("EEA_DailyFloatingObserve(g_daily_floating,today_day,g_runtime.account.balance,"
+                      "g_runtime.account.equity,now_utc)", body)
         self.assertIn("g_runtime.account.equity>0.0", body)
         self.assertIn("now_utc-g_daily_floating_last_write>=300", body)
         self.assertIn("today_day!=g_daily_floating_last_day", body)
