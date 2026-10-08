@@ -114,6 +114,16 @@ class InternalLossLimitTests(unittest.TestCase):
         self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)", plan)
         self.assertIn("MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room)", plan)   # G44 weight <= 1
 
+    def test_open_stop_risk_is_subtracted_in_both_rooms_and_add_path_shares_it(self):
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        room = section(live, "bool EEA_ControlledLiveInternalLossRoom")
+        self.assertIn("EEA_ControlledLiveExistingStress(observer,open_stress,open_floating,reason)", room)
+        self.assertIn("-daily_loss-open_stress;", room)
+        self.assertIn("-(week_balance-equity)-open_stress;", room)
+        self.assertLess(room.index("EEA_ControlledLiveExistingStress"), room.index("daily_room<=0.0"))
+        pyramid = read("Integration/S06BPyramidRuntime.mqh")
+        self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)", pyramid)
+
     def test_prague_week_starts_on_monday(self):
         # Mirror of EEA_PragueWeekResetUtc's weekday arithmetic (1970-01-01 was a Thursday).
         def weekday(day_index):
