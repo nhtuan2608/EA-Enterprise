@@ -23,6 +23,7 @@
 #include "Integration/ControlledLiveRuntime.mqh"
 #include "Integration/CandidateLedger.mqh"
 #include "Integration/S06BPyramidRuntime.mqh"
+#include "Integration/DrillRuntime.mqh"
 #include "Integration/RemoteModeRuntime.mqh"
 #include "Runtime/SetupReplay.mqh"
 #include "Runtime/BarExport.mqh"
@@ -133,6 +134,11 @@ input long   InpLiveMagic               = 888888;
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
 input double InpScalpRiskWithSwingSameSide = 0.5;  // G18: SCALP risk factor while a same-side SWING is open (1 = off)
+input bool   InpDrillEntry              = false;  // G66 D1: one live drill entry at the broker minimum volume (needs a nonce; once per nonce)
+input string InpDrillNonce              = "";     // G66 D1: unique id of the drill run (letters, digits, - and _); empty = off
+input string InpDrillSymbol             = "EURUSD"; // G66 D1: canonical symbol of the drill entry (must be a selected symbol)
+enum EEA_DrillDirectionInput { DRILL_BUY=0, DRILL_SELL=1 };
+input EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY; // G66 D1: direction of the drill entry
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -1249,6 +1255,10 @@ int OnInit()
    g_s06b_require_usd_flow=InpS06BRequireUsdFlow;
    g_s06b_pyramid_live=InpS06BPyramidLive;
    g_t2_pyramid_live=InpT2PyramidLive;
+   g_drill_enabled=InpDrillEntry;
+   g_drill_nonce=InpDrillNonce;
+   g_drill_symbol=InpDrillSymbol;
+   g_drill_direction=(InpDrillDirection==DRILL_SELL ? -1 : 1);
    g_risk_weight_s04=InpRiskWeightS04;
    g_risk_weight_s06b=InpRiskWeightS06B;
    g_risk_weight_t2=InpRiskWeightT2;
@@ -1524,7 +1534,14 @@ void EEA_WriteLiveStatus()
       EEA_LiveStatusPair("risk",EEA_LiveStatusRiskJson(),false)+","+
       EEA_LiveStatusPair("news",
          "{"+EEA_LiveStatusPair("allow_when_unknown",g_news.cfg.allow_when_unknown ? "true" : "false",false)+","+
-         EEA_LiveStatusPair("ignore_keywords",g_news.cfg.ignore_keywords,true)+"}",false)+"}";
+         EEA_LiveStatusPair("ignore_keywords",g_news.cfg.ignore_keywords,true)+"}",false)+","+
+      EEA_LiveStatusPair("drill",
+         "{"+EEA_LiveStatusPair("enabled",(g_drill_enabled && g_drill_nonce!="") ? "true" : "false",false)+","+
+         EEA_LiveStatusPair("nonce",g_drill_nonce,true)+","+
+         EEA_LiveStatusPair("state",g_drill_state,true)+","+
+         EEA_LiveStatusPair("reason",g_drill_reason,true)+","+
+         EEA_LiveStatusPair("candidate_id",g_drill_candidate_id,true)+","+
+         EEA_LiveStatusPair("ticket",IntegerToString(g_drill_ticket),false)+"}",false)+"}";
    EEA_WriteAtomicText(g_config.data_root+"/current/live_status.json",json);
   }
 
@@ -1623,6 +1640,11 @@ void OnTimer()
                    EEA_S06BPyramidOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,g_controller,
                                           g_controller_allows_market,g_audit,g_risk_ledger,g_pending_runtime,
                                           g_live_session,g_trade_manager,g_news);
+                // G66 D1: the live drill entry (OFF unless InpDrillEntry and a nonce; once per nonce).
+                if(!g_live_runtime.recovery_blocked)
+                   EEA_DrillOnTimer(g_live_runtime,g_live_config,g_strategy_runtime,g_runtime,g_controller,
+                                    g_controller_allows_market,g_audit,g_risk_ledger,g_pending_runtime,
+                                    g_live_session,g_trade_manager,g_news);
                }
             }
           // G18: every candidate's final outcome (entered or why not) for the virtual-result report.
