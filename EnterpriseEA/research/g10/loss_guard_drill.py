@@ -70,16 +70,17 @@ def expected_allowed(inp: dict, older: float, prior_week: float, today: float, o
 
 def internal_loss_room(inp: dict, day_ref: float, week_balance: float, equity: float, open_money: float) -> dict:
     """PORT of EEA_ControlledLiveInternalLossRoom (Integration/ControlledLiveRuntime.mqh) plus the caps of
-    EEA_ControlledLiveResolveV1Plan: per_trade_cap=min(per_trade, loss_room); portfolio cap = total_open - existing."""
+    EEA_ControlledLiveResolveV1Plan (open_money = EEA_ControlledLiveExistingStress, subtracted
+    from both rooms): per_trade_cap=min(per_trade, loss_room); portfolio cap = total_open - existing."""
     init = inp["initial"]
-    daily_room = inp["daily_pct"] / 100 * init - (day_ref - equity)
+    daily_room = inp["daily_pct"] / 100 * init - (day_ref - equity) - open_money  # RK-02: open stop risk
     if daily_room <= 0:
         return {"allowed_money": 0.0, "reason": "INTERNAL_DAILY_LOSS_LIMIT_REACHED"}
-    weekly_room = inp["weekly_pct"] / 100 * init - (week_balance - equity)
+    weekly_room = inp["weekly_pct"] / 100 * init - (week_balance - equity) - open_money  # RK-02
     if weekly_room <= 0:
         return {"allowed_money": 0.0, "reason": "INTERNAL_WEEKLY_LOSS_LIMIT_REACHED"}
     cap = min(inp["next_pct"] / 100 * init, min(daily_room, weekly_room))
-    cap = min(cap, max(0.0, inp["open_pct"] / 100 * init - open_money))
+    cap = min(cap, max(0.0, inp["open_pct"] / 100 * init - open_money))  # total_open cap (existing included)
     return {"allowed_money": max(cap, 0.0), "reason": "INTERNAL_LOSS_ROOM_AVAILABLE"}
 
 

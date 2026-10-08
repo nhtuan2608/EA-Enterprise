@@ -46,13 +46,12 @@ class LossGuardDrill(unittest.TestCase):
         self.assertFalse(verdict(today=4.6)[1])
         self.assertFalse(verdict(older=9.6)[1])
 
-    def test_expected_rule_includes_open_risk_and_run_flags_mql_gap(self):
+    def test_open_risk_reduces_internal_rooms_and_drill_all_pass(self):
         self.assertFalse(d.expected_allowed(INP, 0, 0, 1.5, 0.5))
-        rows = {r["scenario"]: r for r in d.run(INP)}
-        gap = rows["Lo ngay 1.5% + 1 lenh mo 0.5%"]
-        # EEA_ControlledLiveInternalLossRoom ignores open risk -> documented gap, drill reports FAIL
-        self.assertFalse(gap["pass"])
-        self.assertTrue(all(r["pass"] for n, r in rows.items() if n != "Lo ngay 1.5% + 1 lenh mo 0.5%"))
+        self.assertEqual(verdict(today=1.5, open_pct=0.5)[0], False)   # 1.5 + 0.5 open + 0.5 next > 2.0
+        self.assertEqual(verdict(wk=3.0, open_pct=0.5)[0], True)       # 3.0 + 0.5 + 0.5 == 4.0 fits
+        self.assertEqual(verdict(wk=3.5, open_pct=0.5)[0], False)
+        self.assertTrue(all(r["pass"] for r in d.run(INP)))
 
 
 if __name__ == "__main__":
