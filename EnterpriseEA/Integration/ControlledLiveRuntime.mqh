@@ -448,14 +448,18 @@ bool EEA_ControlledLiveInternalLossRoom(const EEA_ObserverRuntimeContext &observ
   {
    room_money=0.0;
    const double equity=observer.account.equity;
+   // RK-02: money still at risk to the protective stops of open positions/orders (current price to SL, the same
+   // existing-stress quantity the FTMO headroom and portfolio budget use) counts against both rooms.
+   double open_stress=0.0,open_floating=0.0;
+   if(!EEA_ControlledLiveExistingStress(observer,open_stress,open_floating,reason)) return false;
    const double daily_loss=EEA_LedgerDailyReference(ledger,policy_id)-equity;
-   const double daily_room=limits.internal_daily_fraction*ledger.initial_capital-daily_loss;
+   const double daily_room=limits.internal_daily_fraction*ledger.initial_capital-daily_loss-open_stress;
    if(daily_room<=0.0) { reason="INTERNAL_DAILY_LOSS_LIMIT_REACHED"; return false; }
    const long week_start=EEA_PragueWeekResetUtc((long)TimeGMT());
    double week_balance=0.0;
    if(!EEA_BalanceAtUtc(observer.reconciliation,observer.account.balance,week_start,week_balance,reason))
      { reason="INTERNAL_WEEKLY_BASIS_UNKNOWN"; return false; }
-   const double weekly_room=limits.internal_weekly_fraction*ledger.initial_capital-(week_balance-equity);
+   const double weekly_room=limits.internal_weekly_fraction*ledger.initial_capital-(week_balance-equity)-open_stress;
    if(weekly_room<=0.0) { reason="INTERNAL_WEEKLY_LOSS_LIMIT_REACHED"; return false; }
    room_money=MathMin(daily_room,weekly_room);
    reason="INTERNAL_LOSS_ROOM_AVAILABLE";
