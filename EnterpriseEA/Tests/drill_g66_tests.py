@@ -62,7 +62,7 @@ class DrillSourceTests(unittest.TestCase):
 
     def test_constants_and_candidate(self):
         self.assertIn('#define EEA_DRILL_SETUP "DRILL"', self.src)
-        self.assertIn("#define EEA_DRILL_STOP_ATR 0.3", self.src)
+        self.assertIn("#define EEA_DRILL_STOP_ATR 1.0", self.src)
         self.assertIn("#define EEA_DRILL_TARGET_R 1.0", self.src)
         self.assertIn("#define EEA_DRILL_ATR_PERIOD 14", self.src)
         self.assertIn("#define EEA_DRILL_MAX_ATTEMPTS 20", self.src)

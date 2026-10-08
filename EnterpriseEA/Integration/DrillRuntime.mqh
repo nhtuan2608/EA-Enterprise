@@ -5,7 +5,7 @@
 
 // G66 D1: one live drill entry on the demo account. OFF by default (InpDrillEntry=false, empty nonce).
 // When enabled, exactly one candidate "DRILL-<canonical>-<nonce>" (setup DRILL, profile SWING) is built:
-// the stop is 0.3 x ATR14 of the closed H1 bars, the target is 1R, the volume is the broker minimum.
+// the stop is 1.0 x ATR14 of the closed H1 bars, the target is 1R, the volume is the broker minimum.
 // The candidate is sent through the SAME risk pipeline as an entry (see EEA_S06BPyramidOnTimer): live
 // session authorization, News Guard, plan, session cap, news risk, risk context, dry-run gate, risk
 // release and store, execution intent, authorization audit, execution adapter, reconciliation and
@@ -15,7 +15,8 @@
 #define EEA_DRILL_STATE_DOCUMENT "drill-state-v1.0.0"
 #define EEA_DRILL_SETUP "DRILL"
 #define EEA_DRILL_CONFIG_VERSION "drill-v1.0.0"
-#define EEA_DRILL_STOP_ATR 0.3
+// 1.0 x ATR: a 0.3 x ATR stop (~3.6 pips on EURUSD) is too tight for the spread rule (spread <= 25% of the stop).
+#define EEA_DRILL_STOP_ATR 1.0
 #define EEA_DRILL_TARGET_R 1.0
 #define EEA_DRILL_ATR_PERIOD 14
 #define EEA_DRILL_CAP_FACTOR 1.01          // per-trade cap = risk money of volume_min x 1.01
@@ -177,7 +178,7 @@ void EEA_DrillEngine(const string canonical,const int direction,const string can
    e.candidate.reason_code="DRILL_ENTRY";
   }
 
-// Plan of the drill: stop 0.3 x ATR14(H1) from the current quote, target 1R, and a per-trade cap that
+// Plan of the drill: stop 1.0 x ATR14(H1) from the current quote, target 1R, and a per-trade cap that
 // sizes exactly the broker minimum volume (risk money of volume_min at this stop, times 1.01). The
 // weight of the drill is the literal 1.0 here; the shared setup weight table is not involved.
 bool EEA_DrillPlan(const EEA_ObserverRuntimeContext &observer,const EEA_RuntimeSymbolSpec &symbol,
