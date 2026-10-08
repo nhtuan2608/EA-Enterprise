@@ -7,7 +7,7 @@ S04 + S06B LIVE ở 0,5%/lệnh. Cấu hình live không đổi; mọi diễn t�
 
 `Integration/DrillRuntime.mqh` (theo mẫu `S06BPyramidRuntime.mqh`): input `InpDrillEntry` (mặc định false),
 `InpDrillNonce` (chuỗi; rỗng = tắt), `InpDrillSymbol` (EURUSD), `InpDrillDirection` (BUY). Khi bật, EA tạo đúng một
-candidate `DRILL-<symbol>-<nonce>` (setup DRILL, profile SWING), dừng lỗ 0,3 × ATR14 H1, mục tiêu 1R, khối lượng = khối
+candidate `DRILL-<symbol>-<nonce>` (setup DRILL, profile SWING), dừng lỗ 1,0 × ATR14 H1 (0,3 quá sát so với luật spread ≤ 25% dừng lỗ), mục tiêu 1R, khối lượng = khối
 lượng tối thiểu của broker, và cho đi qua cùng các bước như lệnh thật: phiên ủy quyền, News Guard, phân xử
 (mỗi symbol + chiều + profile một lệnh), kế hoạch rủi ro, quyết định rủi ro, lưu, intent, audit ủy quyền, gửi lệnh, đối soát,
 đăng ký Trade Manager. Mỗi nonce chạy một lần (`current/drill_state.json`).
