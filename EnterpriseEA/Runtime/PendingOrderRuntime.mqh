@@ -70,7 +70,9 @@ long EEA_PendingServerOffset()
 
 ENUM_TIMEFRAMES EEA_PendingTimeframe(const string timeframe)
   {
-   return timeframe=="H1" ? PERIOD_H1 : PERIOD_M5;
+   // G72: M15/M30 (S07) and H4 (T2, S07A) as well; anything else is M5.
+   return timeframe=="H1" ? PERIOD_H1 : timeframe=="H4" ? PERIOD_H4 : timeframe=="M15" ? PERIOD_M15 :
+          timeframe=="M30" ? PERIOD_M30 : PERIOD_M5;
   }
 
 string EEA_PendingOrderTypeName(const int order_type)

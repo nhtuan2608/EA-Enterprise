@@ -179,7 +179,7 @@ class SourceTests(unittest.TestCase):
     def test_default_shadow_live_only_by_choice(self):
         self.assertIn("enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };", self.shell)
         self.assertIn("input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;", self.shell)
-        self.assertIn('setup=="T2" ? runtime.t2_mode : runtime.s02_mode;', self.rt)
+        self.assertIn('setup=="T2" ? runtime.t2_mode :', self.rt)
 
     def test_slot_checkpoint_and_logs(self):
         self.assertIn('setup="T2"; profile="POSITION"; timeframe="H4"; EEA_T2V1Config(config);', self.rt)

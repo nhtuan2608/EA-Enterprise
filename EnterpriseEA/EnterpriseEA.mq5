@@ -52,14 +52,20 @@ input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false
 enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
 input EEA_S02ModeInput InpS02Mode       = S02_SHADOW;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
-input EEA_S04ModeInput InpS04Mode       = S04_LIVE;   // S04 Failed Break: OFF, SHADOW (record only) or LIVE (trades like S02)
+input EEA_S04ModeInput InpS04Mode       = S04_SHADOW; // S04 Failed Break: OFF, SHADOW (record only) or LIVE (G72: only S07 trades live)
 enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
 input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
-input EEA_S06BModeInput InpS06BMode     = S06B_LIVE; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE
+input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE (G72: only S07 trades live)
 enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
 input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
 input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
+enum EEA_S07ModeInput { S07_OFF=0, S07_SHADOW=1, S07_LIVE=2 };
+input EEA_S07ModeInput InpS07Mode       = S07_SHADOW; // G72 S07 DMI+EMA compression buy (M30 base): OFF, SHADOW or LIVE
+input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW; // G72 S07 adds from M15/H1/H4 while the base is in profit (max 2 adds, 3 open): OFF, SHADOW or LIVE
+enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1 };
+input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW; // G72 S07S sell (H1, near the H4 EMA200): OFF or SHADOW (no edge yet, G71)
+input string InpS07Symbols              = "XAUUSD"; // G72: symbols with the S07 engines (research: XAUUSD only)
 input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD"; // G49 (G41 assets): extra trend assets that run T2 only (no S02/S04/S06/S06B)
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
@@ -1119,6 +1125,9 @@ void EEA_PublishPanelEngineView()
                             " | S04 "+EEA_SetupModeName(g_strategy_runtime.s04_mode)+
                             " | S06 "+EEA_SetupModeName(g_strategy_runtime.s06_mode)+
                             " | S06B "+EEA_SetupModeName(g_strategy_runtime.s06b_mode)+
+                            " | S07 "+EEA_SetupModeName(g_strategy_runtime.s07_mode)+
+                            " (add "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_add_mode,g_strategy_runtime.s07_mode))+
+                            ", sell "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_sell_mode,EEA_S04_MODE_SHADOW))+")"+
                             " | SCALP max "+EEA_SetupModeName(g_strategy_runtime.scalp_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
@@ -1174,7 +1183,8 @@ void EEA_PublishPanelEngineView()
          if(g_strategy_runtime.zone_mode)
            {
             // e.g. "SC:ARMED SW:IDLE S04-SC:RETURNED"; idle S04/S06 engines are left out of the row.
-            string tag=(setup=="S02" ? "" : setup+"-")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" : "SC");
+            string tag=(setup=="S02" ? "" : setup+"-")+(g_strategy_runtime.profile[i]=="SWING" ? "SW" :
+                        g_strategy_runtime.profile[i]=="TREND" ? g_strategy_runtime.engines[i].timeframe : "SC");
             if(setup=="S02" || g_strategy_runtime.engines[i].state!=EEA_S02_IDLE)
                view.setup_state[row]+=(view.setup_state[row]=="" ? "" : " ")+tag+":"+state_name;
             view.setup_detail[row]+=(view.setup_detail[row]=="" ? "" : " | ")+setup+" "+g_strategy_runtime.profile[i]+" "+state+
@@ -1344,7 +1354,8 @@ int OnInit()
                                           strategy_config,InpStrategyRuntimeEnabled) :
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
                                             (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,
-                                            (int)InpT2Mode,InpT2OnlySymbols);
+                                            (int)InpT2Mode,InpT2OnlySymbols,(int)InpS07Mode,(int)InpS07AddMode,
+                                            (int)InpS07SellMode,InpS07Symbols);
       g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;   // G41: after the init, which resets the runtime
       g_strategy_runtime.t2_momentum_filter=InpT2MomentumFilter;   // G44
       if(!strategy_ready && InpStrategyRuntimeEnabled)
@@ -1510,7 +1521,10 @@ void EEA_WriteLiveStatus()
                 EEA_LiveStatusPair("S06",EEA_SetupModeName((int)InpS06Mode),true)+","+
                 EEA_LiveStatusPair("S06B",EEA_SetupModeName((int)InpS06BMode),true)+","+
                 EEA_LiveStatusPair("SCALP_CAP",EEA_SetupModeName((int)InpScalpMode),true)+","+
-                EEA_LiveStatusPair("T2",EEA_SetupModeName((int)InpT2Mode),true)+"}";
+                EEA_LiveStatusPair("T2",EEA_SetupModeName((int)InpT2Mode),true)+","+
+                EEA_LiveStatusPair("S07",EEA_SetupModeName((int)InpS07Mode),true)+","+
+                EEA_LiveStatusPair("S07A",EEA_SetupModeName((int)InpS07AddMode),true)+","+
+                EEA_LiveStatusPair("S07S",EEA_SetupModeName((int)InpS07SellMode),true)+"}";
    string json="{"+EEA_LiveStatusPair("document_version","live-status-v1.0.0",true)+","+
       EEA_LiveStatusPair("written_at_utc",IntegerToString((long)now),false)+","+
       EEA_LiveStatusPair("execution_enabled",InpExecutionEnabled ? "true" : "false",false)+","+

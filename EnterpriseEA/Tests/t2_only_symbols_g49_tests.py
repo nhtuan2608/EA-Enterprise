@@ -37,7 +37,7 @@ class ShellTests(unittest.TestCase):
         self.assertIn("if(known || n>=EEA_RUNTIME_MAX_SYMBOLS) continue;", body)
         self.assertIn("int count = EEA_UniverseSymbols(canonical);", self.shell)      # OnInit
         self.assertIn("int count=EEA_UniverseSymbols(universe);", self.shell)          # panel choices
-        self.assertIn("(int)InpT2Mode,InpT2OnlySymbols);", self.shell)
+        self.assertIn("(int)InpT2Mode,InpT2OnlySymbols,(int)InpS07Mode", self.shell)
 
 
 class RuntimeTests(unittest.TestCase):
