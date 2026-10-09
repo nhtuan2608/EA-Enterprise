@@ -83,7 +83,7 @@ class SourceTests(unittest.TestCase):
     def test_inputs_default_to_the_decision_and_funded_turns_it_off(self):
         shell = self.read("EnterpriseEA.mq5")
         self.assertIn("InpAccountPhase = PHASE_EVALUATION", shell)
-        self.assertIn("InpEvalRiskPercent         = 1.5", shell)
+        self.assertIn("InpEvalRiskPercent         = 0.5", shell)
         self.assertIn("InpAccountPhase==PHASE_EVALUATION && InpEvalRiskPercent>0.0", shell)
         self.assertIn("MathMin(InpEvalRiskPercent/100.0,EEA_RISK_OVERRIDE_CAP) : 0.0", shell)
 

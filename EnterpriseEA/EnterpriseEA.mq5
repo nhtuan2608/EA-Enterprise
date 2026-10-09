@@ -112,7 +112,7 @@ input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 enum EEA_AccountPhaseInput { PHASE_EVALUATION=0, PHASE_FUNDED=1 };
 input EEA_AccountPhaseInput InpAccountPhase = PHASE_EVALUATION; // EVALUATION uses InpEvalRiskPercent; FUNDED derives the risk from the policy
-input double InpEvalRiskPercent         = 1.5;    // Evaluation phase: risk per trade, percent of the initial capital (0 = derive; cap 1.5)
+input double InpEvalRiskPercent         = 0.5;    // Evaluation phase: risk per trade, percent of the initial capital (0 = derive; cap 1.5; G59: 0.5 keeps DD p90 under the 10% floor)
 input double InpCustomDailyLossPercent  = 5.0;    // CUSTOM policy: daily loss allowance, percent of the initial capital
 input double InpCustomOverallLossPercent = 10.0;  // CUSTOM policy: overall loss allowance, percent of the initial capital
 input bool   InpCustomTrailingFloor     = false;  // CUSTOM policy: overall floor trails the high-water balance (false = fixed at the initial capital)
