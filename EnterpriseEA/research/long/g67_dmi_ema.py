@@ -136,10 +136,12 @@ def load(symbol: str) -> dict:
     h4_ema = ema(np.array(h4_close), 200)
     pos = {b: k for k, b in enumerate(h4_bucket)}
     h4_side = np.zeros(len(t))
+    h4_val = np.zeros(len(t))   # G71: EMA200 H4 of the last completed H4 bar
     for i in range(len(t)):
         k = pos.get(bucket[i], 0) - 1
         if k >= 200:
             h4_side[i] = np.sign(h4_close[k] - h4_ema[k])
+            h4_val[i] = h4_ema[k]
     # G68 R2: D1 close and EMA200 of the last completed server day
     dday = t // 86400
     d1_close, d1_day = [], []
@@ -154,7 +156,7 @@ def load(symbol: str) -> dict:
         if k >= 200:
             d1_side[i] = np.sign(d1_close[k] - d1_ema[k])
     d = dict(sym=symbol, d1_side=d1_side, t=t, utc=utc, o=o, h=h, l=l, c=c, v=v, rv=rv, sp=sp, sp_med=sp_med, atr=atr, adx=adx,
-             pdi=pdi, mdi=mdi, E=E, h4_side=h4_side, comm=COMMISSION[symbol])
+             pdi=pdi, mdi=mdi, E=E, h4_side=h4_side, h4_val=h4_val, comm=COMMISSION[symbol])
     _CACHE[symbol] = d
     return d
 
