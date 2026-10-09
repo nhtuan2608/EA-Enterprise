@@ -15,12 +15,13 @@ from pathlib import Path
 
 RAW = Path(r"D:\Work\Private\AI APP\Trading-with-AI\input\raw")
 OUT = Path(__file__).resolve().parent / "data" / "m15v"
+TF = "M15"
 BROKER = {"XAUUSD": "XAUUSD-VIP", "XAGUSD": "XAGUSD-VIP", "USDJPY": "USDJPY-VIP", "EURUSD": "EURUSD-VIP",
-          "GBPUSD": "GBPUSD-VIP", "BTCUSD": "BTCUSD"}
+          "GBPUSD": "GBPUSD-VIP", "BTCUSD": "BTCUSD", "ETHUSD": "ETHUSD"}
 
 
 def raw_rows(symbol: str) -> list[tuple]:
-    files = sorted(glob.glob(str(RAW / symbol / f"{symbol}_M15_*.csv")))
+    files = sorted(glob.glob(str(RAW / symbol / f"{symbol}_{TF}_*.csv")))
     if not files:
         return []
     rows = []
@@ -38,7 +39,7 @@ def terminal_rows(symbol: str, after: int) -> list[tuple]:
     if not mt5.initialize(path=r"C:\Program Files\MetaTrader 5\terminal64.exe"):
         raise RuntimeError(mt5.last_error())
     try:
-        r = mt5.copy_rates_from_pos(BROKER[symbol], mt5.TIMEFRAME_M15, 1, 60000)
+        r = mt5.copy_rates_from_pos(BROKER[symbol], getattr(mt5, "TIMEFRAME_" + TF), 1, 99000)
     finally:
         mt5.shutdown()
     if r is None:
@@ -47,9 +48,9 @@ def terminal_rows(symbol: str, after: int) -> list[tuple]:
              int(x["tick_volume"]), int(x["spread"])) for x in r if int(x["time"]) > after]
 
 
-def main():
+def main(symbols=None):
     OUT.mkdir(parents=True, exist_ok=True)
-    for s in BROKER:
+    for s in symbols or BROKER:
         raw = raw_rows(s)
         tail = terminal_rows(s, raw[-1][0] if raw else 0)
         rows = raw + tail
@@ -65,4 +66,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1:          # python g67_data.py M5 XAUUSD
+        TF = sys.argv[1]
+        OUT = OUT.parent / f"{TF.lower()}v"
+    main(sys.argv[2:] or None)

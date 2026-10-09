@@ -22,11 +22,12 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data" / "m15v"
+BAR_SEC = 900   # set_tf("M5") switches data and bar length (G67 M5 follow-up)
 OUT = HERE / "results"
 REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-09-g67-dmi-ema-compression.md"
 
-POINT = {"XAUUSD": 0.01, "XAGUSD": 0.001, "USDJPY": 0.001, "EURUSD": 0.00001, "GBPUSD": 0.00001, "BTCUSD": 0.01}
-COMMISSION = {"XAUUSD": 0.06, "XAGUSD": 0.0012, "USDJPY": 0.009, "EURUSD": 0.00006, "GBPUSD": 0.00006, "BTCUSD": 0.0}
+POINT = {"XAUUSD": 0.01, "XAGUSD": 0.001, "USDJPY": 0.001, "EURUSD": 0.00001, "GBPUSD": 0.00001, "BTCUSD": 0.01, "ETHUSD": 0.01}
+COMMISSION = {"XAUUSD": 0.06, "XAGUSD": 0.0012, "USDJPY": 0.009, "EURUSD": 0.00006, "GBPUSD": 0.00006, "BTCUSD": 0.0, "ETHUSD": 0.0}
 OTHERS = ["XAGUSD", "USDJPY", "BTCUSD", "EURUSD", "GBPUSD"]
 
 
@@ -82,6 +83,14 @@ def ema(x, n):
 
 
 _CACHE: dict = {}
+
+
+def set_tf(tf: str):
+    """Switch to another bar file (data/<tf>v/) and bar length; clears the cache."""
+    global DATA, BAR_SEC
+    DATA = HERE / "data" / f"{tf.lower()}v"
+    BAR_SEC = {"M5": 300, "M15": 900, "M30": 1800, "H1": 3600}[tf]
+    _CACHE.clear()
 
 
 def load(symbol: str) -> dict:
@@ -169,10 +178,10 @@ def signals(D: dict) -> list[tuple[int, int]]:
 
 def block_ok(D, i, d, block) -> bool:
     if block == "B1":
-        hr = ((D["utc"][i] + 900) // 3600) % 24
+        hr = ((D["utc"][i] + BAR_SEC) // 3600) % 24
         return hr < 3 or 7 <= hr < 9 or 12 <= hr < 15
     if block == "B2":
-        return (D["t"][i] + 900) % 1800 == 0
+        return (D["t"][i] + BAR_SEC) % 1800 == 0
     if block == "B3":
         r = D["rv"][i - COMP_BARS:i]
         r = r[~np.isnan(r)]
@@ -246,7 +255,7 @@ def walk(D, i, d, exit_rule, tp_r, block, dist_override=None):
         exit_px = c[x] + (sp[x] if d == -1 else 0.0)
     r = d * (exit_px - entry) / dist - D["comm"] / dist
     return {"sym": D["sym"], "i": i, "d": d, "utc": int(D["utc"][i]), "r": float(r), "reason": reason,
-            "hold_h": (x - e0 + 1) * 0.25, "dist_atr": float(dist / atr[i]), "risk": float(dist),
+            "hold_h": (x - e0 + 1) * BAR_SEC / 3600, "dist_atr": float(dist / atr[i]), "risk": float(dist),
             "cost_r": float((sp[e0] + D["comm"]) / dist)}
 
 
@@ -263,7 +272,7 @@ def trades(symbol, exit_rule, tp_r, block=None, sigs=None):
         if tr is None:
             continue
         out.append(tr)
-        free = i + 1 + int(tr["hold_h"] * 4) + COOLDOWN
+        free = i + 1 + int(round(tr["hold_h"] * 3600 / BAR_SEC)) + COOLDOWN
     return out
 
 
@@ -436,7 +445,7 @@ def main():
     lines += ["## 6. Các lệnh trong kỳ ví dụ (07/2026–)", "", "| Giờ tín hiệu (VN) | Chiều | R | Thoát | Giữ (giờ) |",
               "|---|---|---|---|---|"]
     for t in ex:
-        vn = datetime.fromtimestamp(t["utc"] + 900 + 7 * 3600, timezone.utc)
+        vn = datetime.fromtimestamp(t["utc"] + BAR_SEC + 7 * 3600, timezone.utc)
         lines.append(f"| {vn:%d/%m %H:%M} | {'mua' if t['d'] == 1 else 'bán'} | {t['r']:+.2f} | {t['reason']} | {t['hold_h']:.1f} |")
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
