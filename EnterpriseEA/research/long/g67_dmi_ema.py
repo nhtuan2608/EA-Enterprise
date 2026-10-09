@@ -90,7 +90,7 @@ def set_tf(tf: str):
     """Switch to another bar file (data/<tf>v/) and bar length; clears the cache."""
     global DATA, BAR_SEC
     DATA = HERE / "data" / f"{tf.lower()}v"
-    BAR_SEC = {"M5": 300, "M15": 900, "M30": 1800, "H1": 3600}[tf]
+    BAR_SEC = {"M5": 300, "M15": 900, "M30": 1800, "H1": 3600, "H4": 14400}[tf]
     _CACHE.clear()
 
 
