@@ -22,6 +22,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data" / "m15v"
+GAP_AWARE = False
 BAR_SEC = 900   # set_tf("M5") switches data and bar length (G67 M5 follow-up)
 OUT = HERE / "results"
 REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-09-g67-dmi-ema-compression.md"
@@ -139,7 +140,20 @@ def load(symbol: str) -> dict:
         k = pos.get(bucket[i], 0) - 1
         if k >= 200:
             h4_side[i] = np.sign(h4_close[k] - h4_ema[k])
-    d = dict(sym=symbol, t=t, utc=utc, o=o, h=h, l=l, c=c, v=v, rv=rv, sp=sp, sp_med=sp_med, atr=atr, adx=adx,
+    # G68 R2: D1 close and EMA200 of the last completed server day
+    dday = t // 86400
+    d1_close, d1_day = [], []
+    for i in range(len(t)):
+        if i + 1 == len(t) or dday[i + 1] != dday[i]:
+            d1_close.append(c[i]); d1_day.append(dday[i])
+    d1_ema = ema(np.array(d1_close), 200)
+    dpos = {b: k for k, b in enumerate(d1_day)}
+    d1_side = np.zeros(len(t))
+    for i in range(len(t)):
+        k = dpos.get(dday[i], 0) - 1
+        if k >= 200:
+            d1_side[i] = np.sign(d1_close[k] - d1_ema[k])
+    d = dict(sym=symbol, d1_side=d1_side, t=t, utc=utc, o=o, h=h, l=l, c=c, v=v, rv=rv, sp=sp, sp_med=sp_med, atr=atr, adx=adx,
              pdi=pdi, mdi=mdi, E=E, h4_side=h4_side, comm=COMMISSION[symbol])
     _CACHE[symbol] = d
     return d
@@ -202,8 +216,15 @@ def walk(D, i, d, exit_rule, tp_r, block, dist_override=None):
         return None
     entry = o[e0] + (sp[e0] if d == 1 else 0.0)
     if dist_override is None:
-        anchor = (np.min(l[i - COMP_BARS:i + 1]) - STOP_BUF * atr[i]) if d == 1 else \
-                 (np.max(h[i - COMP_BARS:i + 1]) + STOP_BUF * atr[i])
+        a0 = i - COMP_BARS
+        if GAP_AWARE:   # G68 R3: the stop ignores bars before a break longer than 6 hours
+            t = D["t"]
+            for k in range(i, a0, -1):
+                if t[k] - t[k - 1] > 6 * 3600:
+                    a0 = k
+                    break
+        anchor = (np.min(l[a0:i + 1]) - STOP_BUF * atr[i]) if d == 1 else \
+                 (np.max(h[a0:i + 1]) + STOP_BUF * atr[i])
         dist = d * (entry - anchor)
         if dist > STOP_MAX * atr[i]:
             return None
@@ -234,6 +255,11 @@ def walk(D, i, d, exit_rule, tp_r, block, dist_override=None):
             out = d * (c[j] - E[21][j]) < 0 and adx[j] <= peak_adx - 5
         elif exit_rule == "E2":
             out = d * (c[j] - E[55][j]) < 0
+        elif exit_rule == "E4":    # G68 R4: EMA21 no longer sloping with the trade and ADX off its peak
+            out = d * (E[21][j] - E[21][j - 2]) <= 0 and adx[j] <= peak_adx - 5
+        elif exit_rule == "E2X":   # G68 R5: EMA55, then EMA100 once the trade has run 3R
+            ema = E[100] if d * (best - entry) >= 3 * dist else E[55]
+            out = d * (c[j] - ema[j]) < 0
         elif exit_rule == "E3":
             trail = best - d * 3.0 * atr[j]
             if d * (trail - sl) > 0:
@@ -256,7 +282,8 @@ def walk(D, i, d, exit_rule, tp_r, block, dist_override=None):
     r = d * (exit_px - entry) / dist - D["comm"] / dist
     return {"sym": D["sym"], "i": i, "d": d, "utc": int(D["utc"][i]), "r": float(r), "reason": reason,
             "hold_h": (x - e0 + 1) * BAR_SEC / 3600, "dist_atr": float(dist / atr[i]), "risk": float(dist),
-            "cost_r": float((sp[e0] + D["comm"]) / dist)}
+            "cost_r": float((sp[e0] + D["comm"]) / dist), "e0": e0, "x": int(x),
+            "out_utc": int(D["utc"][x]), "sp_in": float(sp[e0]), "sp_out": float(sp[x])}
 
 
 def trades(symbol, exit_rule, tp_r, block=None, sigs=None):
