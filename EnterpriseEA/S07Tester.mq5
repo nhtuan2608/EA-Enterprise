@@ -12,6 +12,9 @@
 // Exits: close beyond EMA55 (EMA100 once the leg ran 3R), ADX >= 50 turning down (base legs),
 // time stop per timeframe, stop and 8R target at the broker.
 
+#property tester_file "S07Tester_news.csv"
+#property tester_file "S07Tester_sentiment.csv"
+
 #include <Trade/Trade.mqh>
 #include "Setups/DmiEmaCompression.mqh"
 
@@ -34,6 +37,15 @@ input double InpAddWeight         = 0.67;  // Adds
 input S07T_EntryTf InpEntryTf     = S07T_ENTRY_M5; // Entry bars of the early / re-entry engines
 input double InpMaxChaseAtr       = 0.5;   // Skip when price ran more than this many ATR past the signal close
 input int    InpBaseCooldownBars  = 4;     // M30 bars without a new base after a base closed
+// G91: the live EA's News Guard (SWING profile) and sentiment, from files built by research/long/g91_tester_inputs.py
+input bool   InpNewsGuard               = true;   // News Guard: block new entries around HIGH events, break-even before USD events
+input int    InpNewsSwingBlockBeforeMin = 180;    // News Guard: SWING blocks new entries this long before (live EA input)
+input int    InpNewsPostMin             = 15;     // News Guard: POST_NEWS ends
+input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait for a stable market
+input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
+input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
+input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // same default as the live EA
+input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
 input long   InpMagic             = 707070;
 input bool   InpVerbose           = false;
 
@@ -67,6 +79,7 @@ struct S07TLeg
    int      adds;
    datetime last_leg;
    double   stop;
+   bool     be_done;
   };
 
 struct S07TContext
@@ -80,7 +93,154 @@ struct S07TContext
 
 CTrade     g_trade;
 double     g_initial_capital=0.0;
-int        g_block_opposite=0, g_block_spread=0;
+int        g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
+
+// --- G91 News Guard (Market/News*.mqh rules for a SWING trade on XAUUSD: currencies "USD") --------------
+long   g_news_t[];
+string g_news_cur[];
+int    g_news_sec[];
+int    g_news_n=0;
+bool   g_news_loaded=false;
+
+bool NewsIgnored(const string name)
+  {
+   if(InpNewsIgnoreKeywords=="") return false;
+   string lowered=name; StringToLower(lowered);
+   string parts[];
+   const int n=StringSplit(InpNewsIgnoreKeywords,',',parts);
+   for(int i=0;i<n;i++)
+     {
+      string key=parts[i]; StringTrimLeft(key); StringTrimRight(key); StringToLower(key);
+      if(key!="" && StringFind(lowered,key)>=0) return true;
+     }
+   return false;
+  }
+
+void LoadNews()
+  {
+   g_news_n=0; g_news_loaded=false;
+   const int h=FileOpen("S07Tester_news.csv",FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) { Print("S07Tester: S07Tester_news.csv missing, News Guard off"); return; }
+   bool header=true;
+   while(!FileIsEnding(h))
+     {
+      string line=FileReadString(h);
+      if(header) { header=false; continue; }
+      string f[];
+      if(StringSplit(line,';',f)<4 || NewsIgnored(f[3])) continue;
+      ArrayResize(g_news_t,g_news_n+1,4096); ArrayResize(g_news_cur,g_news_n+1,4096); ArrayResize(g_news_sec,g_news_n+1,4096);
+      g_news_t[g_news_n]=StringToInteger(f[0]); g_news_cur[g_news_n]=f[1]; g_news_sec[g_news_n]=(int)StringToInteger(f[2]);
+      g_news_n++;
+     }
+   FileClose(h);
+   g_news_loaded=(g_news_n>0);
+   PrintFormat("S07Tester: %d HIGH news events loaded",g_news_n);
+  }
+
+int NewsFirstFrom(const long t)
+  {
+   int lo=0, hi=g_news_n;
+   while(lo<hi) { const int mid=(lo+hi)/2; if(g_news_t[mid]<t) lo=mid+1; else hi=mid; }
+   return lo;
+  }
+
+bool StrengthSector(const int sector)
+  {
+   return sector==(int)CALENDAR_SECTOR_MONEY || sector==(int)CALENDAR_SECTOR_PRICES ||
+          sector==(int)CALENDAR_SECTOR_JOBS || sector==(int)CALENDAR_SECTOR_GDP;
+  }
+
+// EEA_NewsMarketStable: spread <= 1.5x the M5 median and the last M5 range <= 2 ATR.
+bool MarketStable()
+  {
+   MqlRates r[];
+   ArraySetAsSeries(r,false);
+   const int n=CopyRates(_Symbol,PERIOD_M5,1,288,r);
+   if(n<20) return false;
+   double sp[];
+   ArrayResize(sp,n);
+   for(int i=0;i<n;i++) sp[i]=(double)r[i].spread;
+   ArraySort(sp);
+   const double median=sp[n/2];
+   const double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   const double spread=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/point;
+   double tr=0.0;
+   for(int i=n-14;i<n;i++) tr+=MathMax(r[i].high,r[i-1].close)-MathMin(r[i].low,r[i-1].close);
+   const double atr=tr/14.0;
+   return median>0.0 && spread<=1.5*median && atr>0.0 && (r[n-1].high-r[n-1].low)<=2.0*atr;
+  }
+
+// SWING entry block: direct (USD) PRE_NEWS .. POST_NEWS and NORMALIZING until stable; indirect (other major
+// currency, strength sector) from T-swing_block to T+post.
+bool NewsBlocked(const long now)
+  {
+   if(!InpNewsGuard || !g_news_loaded) return false;
+   const long from=now-(long)InpNewsMaxNormalizeMin*60;
+   bool normalizing=false;
+   for(int i=NewsFirstFrom(from);i<g_news_n && g_news_t[i]<=now+(long)InpNewsSwingBlockBeforeMin*60;i++)
+     {
+      const long t=g_news_t[i];
+      const bool in_window=(now>=t-(long)InpNewsSwingBlockBeforeMin*60 && now<t+(long)InpNewsPostMin*60);
+      if(g_news_cur[i]=="USD")
+        {
+         if(in_window) return true;
+         if(now>=t+(long)InpNewsPostMin*60 && now<t+(long)InpNewsMaxNormalizeMin*60) normalizing=true;
+        }
+      else if(in_window && StrengthSector(g_news_sec[i])) return true;
+     }
+   return normalizing && !MarketStable();
+  }
+
+bool NewsBreakEvenDue(const long now)
+  {
+   if(!InpNewsGuard || !g_news_loaded) return false;
+   for(int i=NewsFirstFrom(now-(long)InpNewsPostMin*60);i<g_news_n && g_news_t[i]<=now+(long)InpNewsBreakEvenBeforeMin*60;i++)
+      if(g_news_cur[i]=="USD" && now>=g_news_t[i]-(long)InpNewsBreakEvenBeforeMin*60 && now<g_news_t[i]+(long)InpNewsPostMin*60)
+         return true;
+   return false;
+  }
+
+// --- G91 sentiment (Market/Sentiment.mqh for gold, SWING) ---------------------------------------------------
+long   g_sent_t[];
+double g_sent_v[][6];          // a4, a24, ag4_buy, ag24_buy, ag4_sell, ag24_sell
+bool   g_sent_ok[];
+int    g_sent_n=0;
+
+void LoadSentiment()
+  {
+   g_sent_n=0;
+   const int h=FileOpen("S07Tester_sentiment.csv",FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) { Print("S07Tester: S07Tester_sentiment.csv missing, sentiment off"); return; }
+   bool header=true;
+   while(!FileIsEnding(h))
+     {
+      string line=FileReadString(h);
+      if(header) { header=false; continue; }
+      string f[];
+      if(StringSplit(line,';',f)<8) continue;
+      ArrayResize(g_sent_t,g_sent_n+1,4096); ArrayResize(g_sent_v,g_sent_n+1,4096); ArrayResize(g_sent_ok,g_sent_n+1,4096);
+      g_sent_t[g_sent_n]=StringToInteger(f[0]); g_sent_ok[g_sent_n]=(f[1]=="1");
+      for(int k=0;k<6;k++) g_sent_v[g_sent_n][k]=StringToDouble(f[k+2]);
+      g_sent_n++;
+     }
+   FileClose(h);
+   PrintFormat("S07Tester: %d sentiment H1 bars loaded",g_sent_n);
+  }
+
+// Risk factor (1.0, 0.5) or 0 when a SWING entry is blocked (strongly against). Missing data is neutral.
+double SentimentFactor(const int dir,const long now)
+  {
+   if(!InpSentiment || g_sent_n==0) return 1.0;
+   int lo=0, hi=g_sent_n;
+   while(lo<hi) { const int mid=(lo+hi)/2; if(g_sent_t[mid]+3600<=now) lo=mid+1; else hi=mid; }
+   const int k=lo-1;
+   if(k<0 || !g_sent_ok[k] || now-g_sent_t[k]>6*3600) return 1.0;
+   const double a4=dir*g_sent_v[k][0], a24=dir*g_sent_v[k][1];
+   const double ag4=(dir==1 ? g_sent_v[k][2] : g_sent_v[k][4]), ag24=(dir==1 ? g_sent_v[k][3] : g_sent_v[k][5]);
+   if(a4<=-0.8 && a24<=-0.8 && ag4>=0.7 && ag24>=0.7) return 0.0;
+   if(a4<=-0.3 && a24<=-0.3) return 0.5;
+   return 1.0;
+  }
 
 // Median spread of the last 288 closed M5 bars in points (EEA_MedianSpreadPoints of the live EA).
 double MedianSpreadPoints()
@@ -217,6 +377,9 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
    if(atr<=0.0 || anchor<=0.0) return false;
    const int s=Side(dir);
    if(InpBlockOpposite && LegsOpen(-dir)>0) { g_block_opposite++; return false; }
+   if(NewsBlocked((long)TimeCurrent())) { g_block_news++; return false; }
+   const double sent=SentimentFactor(dir,(long)TimeCurrent());
+   if(sent<=0.0) { g_block_sent++; return false; }
    if(LegsOpen(dir)>=EEA_S07_MAX_OPEN_LEGS) return false;
    const int b=BaseIndex(dir);
    if(base)
@@ -247,7 +410,8 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
       if(spread>0.25*dist) { g_block_spread++; return false; }
      }
    const double target=price+dir*EEA_S07_TARGET_R*dist;
-   double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight);
+   double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight)*sent;
+   if(sent<1.0) g_sent_reduced++;
    const double vol=VolumeFor(dir,price,stop,weight);
    if(vol<=0.0 || g_nlegs>=S07T_MAX_LEGS) return false;
    const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
@@ -262,7 +426,7 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
    L.ticket=ticket; L.setup=setup; L.tfname=tfname; L.dir=dir; L.base=base; L.entry=g_trade.ResultPrice();
    if(L.entry<=0.0) L.entry=price;
    L.risk=MathAbs(L.entry-stop); L.mfe_r=0.0; L.bars=0; L.last_bar=0; L.opened=TimeCurrent();
-   L.adds=0; L.last_leg=TimeCurrent(); L.stop=stop;
+   L.adds=0; L.last_leg=TimeCurrent(); L.stop=stop; L.be_done=false;
    g_legs[g_nlegs++]=L;
    if(!base) { g_legs[b].adds++; g_legs[b].last_leg=TimeCurrent(); }
    if(base && (setup=="S07E" || setup=="S07ES")) g_early_bucket[s]=(datetime)((long)TimeCurrent()-(long)TimeCurrent()%1800);
@@ -403,6 +567,25 @@ void EntryBarEngines()
         }
   }
 
+// News Guard D2: a leg in profit by >= InpNewsBreakEvenMinR moves its stop to break-even before a USD event.
+void NewsBreakEven()
+  {
+   if(!NewsBreakEvenDue((long)TimeCurrent())) return;
+   const double spread=SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   for(int i=0;i<g_nlegs;i++)
+     {
+      if(g_legs[i].be_done || g_legs[i].risk<=0.0 || !PositionSelectByTicket(g_legs[i].ticket)) continue;
+      const int d=g_legs[i].dir;
+      const double now=(d==1 ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
+      if(d*(now-g_legs[i].entry)/g_legs[i].risk<InpNewsBreakEvenMinR) continue;
+      const double be=NormalizeDouble(g_legs[i].entry+d*spread,digits);
+      const double sl=PositionGetDouble(POSITION_SL), tp=PositionGetDouble(POSITION_TP);
+      if(d*(be-sl)<=0.0) { g_legs[i].be_done=true; continue; }
+      if(g_trade.PositionModify(g_legs[i].ticket,be,tp)) { g_legs[i].be_done=true; g_news_be++; }
+     }
+  }
+
 // ---------------------------------------------------------------------------
 int OnInit()
   {
@@ -410,6 +593,8 @@ int OnInit()
    FrameInit(g_h1,PERIOD_H1,"H1"); FrameInit(g_h4f,PERIOD_H4,"H4"); FrameInit(g_h4,PERIOD_H4,"H4");
    g_trade.SetExpertMagicNumber(InpMagic);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
+   LoadNews();
+   LoadSentiment();
    g_trade.SetDeviationInPoints(20);
    for(int s=0;s<2;s++) { g_ctx[s].valid=false; g_base_free[s]=0; g_early_bucket[s]=0; }
    g_nlegs=0;
@@ -423,6 +608,7 @@ void OnTick()
    if(eb==0 || eb==g_last_entry_bar) return;
    g_last_entry_bar=eb;
    SyncLegs();
+   NewsBreakEven();
    RefreshH4();
    if(FrameRefresh(g_m30)) { ManageLegs(g_m30); BaseOnClose(); }
    if(FrameRefresh(g_m15)) { ManageLegs(g_m15); AddsOnClose(g_m15); }
@@ -433,5 +619,6 @@ void OnTick()
 
 void OnDeinit(const int reason)
   {
-   PrintFormat("S07Tester: blocked by an open opposite side %d, by the spread filter %d",g_block_opposite,g_block_spread);
+   PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
+               g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
   }

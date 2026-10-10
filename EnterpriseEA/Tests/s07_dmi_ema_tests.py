@@ -325,8 +325,12 @@ class TesterEaTests(unittest.TestCase):
         for fn in ("EEA_S07SignalAt(", "EEA_S07ProvisionalSignal(", "EEA_S07ProvisionalState(", "EEA_S07StopAnchor(",
                    "EEA_S07SellLocation(", "EEA_S07HoldBars("):
             self.assertIn(fn, src)
-        for banned in ("FileOpen", "Runtime/", "Integration/", "SymbolsTotal", "EventSetTimer"):
+        for banned in ("Runtime/", "Integration/", "SymbolsTotal", "EventSetTimer", "FILE_WRITE"):
             self.assertNotIn(banned, src)
+        # G91: the only files it opens are its read-only inputs, shipped to the agent with the test
+        self.assertEqual(src.count("FileOpen("), 2)
+        self.assertIn('#property tester_file "S07Tester_news.csv"', src)
+        self.assertIn('#property tester_file "S07Tester_sentiment.csv"', src)
         for token in ('"S07"', '"S07S"', '"S07E"', '"S07ES"', '"S07R"', '"S07RS"', '"S07A"', '"S07AS"',
                       "EEA_S07_ADX_EXHAUSTION", "InpUnorderedWeight", "InpAddWeight"):
             self.assertIn(token, src)
@@ -357,6 +361,25 @@ class G91Tests(unittest.TestCase):
         shell = read("EnterpriseEA.mq5")
         self.assertIn('g_s07_ctx_path=InpDataRoot+"/current/s07_context.csv";', shell)
         self.assertIn("EEA_S07ContextLoad();", shell)
+
+    def test_tester_news_guard_and_sentiment_follow_the_live_rules(self):
+        src = read("S07Tester.mq5")
+        news = read("News/NewsState.mqh")
+        # live rules the tester mirrors (SWING profile, XAUUSD currencies "USD")
+        self.assertIn("now>=t-c.be_before_min*60 && now<t+c.post_min*60", news)
+        self.assertIn("return median>0.0 && spread<=1.5*median && atr>0.0 && last_range<=2.0*atr;", read("News/NewsCalendar.mqh"))
+        for token in ("now>=t-(long)InpNewsSwingBlockBeforeMin*60 && now<t+(long)InpNewsPostMin*60",
+                      "return normalizing && !MarketStable();", "StrengthSector(g_news_sec[i])",
+                      "spread<=1.5*median && atr>0.0 && (r[n-1].high-r[n-1].low)<=2.0*atr",
+                      "d*(now-g_legs[i].entry)/g_legs[i].risk<InpNewsBreakEvenMinR"):
+            self.assertIn(token, src)
+        sent = read("Market/Sentiment.mqh")
+        self.assertIn("c.against_threshold=-0.3; c.strong_threshold=-0.8; c.strong_consensus=0.7;", sent)
+        self.assertIn("if(a4<=-0.8 && a24<=-0.8 && ag4>=0.7 && ag24>=0.7) return 0.0;", src)
+        self.assertIn("if(a4<=-0.3 && a24<=-0.3) return 0.5;", src)
+        builder = (ROOT / "research" / "long" / "g91_tester_inputs.py").read_text(encoding="utf-8")
+        self.assertIn("a4 = -s4[0] + 0.5 * reg4", builder)          # EEA_SentAlign for GOLD (tilt 0.5)
+        self.assertIn("ok = fx_pairs >= 4 and n[0] >= 3", builder)
 
     def test_tester_mirrors_live_sizing_opposite_and_spread(self):
         src = read("S07Tester.mq5")
