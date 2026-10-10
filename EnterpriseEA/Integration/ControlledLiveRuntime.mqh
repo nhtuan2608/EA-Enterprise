@@ -357,7 +357,9 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
      }
    if(engine.state!=EEA_S02_TRIGGERED) { reason="ENTRY_AUTO_NOT_READY"; return -1; }
    MqlRates trigger;
-   if(!EEA_ControlledLiveTriggerBar(broker_symbol,engine.timeframe,engine.candidate.triggered_at_utc,trigger))
+   // G87: S07E / S07R trigger on a closed M15 bar inside the forming M30 bar.
+   const string trigger_tf=(strategy.setup[index]=="S07E" || strategy.setup[index]=="S07R") ? "M15" : engine.timeframe;
+   if(!EEA_ControlledLiveTriggerBar(broker_symbol,trigger_tf,engine.candidate.triggered_at_utc,trigger))
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
    // S06 enters at market after the confirmation close (research), only while price is
    // still outside the box and has not run more than the chase limit past that close.
@@ -629,7 +631,10 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
-   const double weight=EEA_SetupRiskWeight(strategy.setup[index]);
+   double weight=EEA_SetupRiskWeight(strategy.setup[index]);
+   // G87: an S07-family base without the ordered-ribbon label ("_RB3") takes the reduced weight.
+   if(EEA_S07IsBaseSetup(strategy.setup[index]) && StringFind(engine.candidate.reason_code,"_RB3")<0)
+      weight*=MathMax(0.0,MathMin(1.0,g_s07_unordered_weight));
    p.base_risk_fraction=limits.per_trade_fraction*htf*weight;
    p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room);
    p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
@@ -1043,7 +1048,7 @@ int EEA_S07OpenLegs(const EEA_TradeManagerRuntime &trades,const string canonical
    int n=0;
    for(int i=0;i<trades.count;i++)
       if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical && trades.items[i].direction==direction &&
-         (trades.items[i].intent.setup_id=="S07" || trades.items[i].intent.setup_id=="S07A")) n++;
+         (EEA_S07IsBaseSetup(trades.items[i].intent.setup_id) || trades.items[i].intent.setup_id=="S07A")) n++;
    return n;
   }
 
@@ -1051,7 +1056,7 @@ int EEA_S07BaseIndex(const EEA_TradeManagerRuntime &trades,const string canonica
   {
    for(int i=0;i<trades.count;i++)
       if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical &&
-         trades.items[i].direction==direction && trades.items[i].intent.setup_id=="S07") return i;
+         trades.items[i].direction==direction && EEA_S07IsBaseSetup(trades.items[i].intent.setup_id)) return i;
    return -1;
   }
 
@@ -1073,7 +1078,7 @@ bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setu
   {
    if(EEA_S07OpenLegs(trades,canonical,direction)>=EEA_S07_MAX_OPEN_LEGS) { reason="S07_MAX_OPEN_LEGS"; return false; }
    const int b=EEA_S07BaseIndex(trades,canonical,direction);
-   if(setup=="S07")
+   if(EEA_S07IsBaseSetup(setup))       // G87: S07, S07E and S07R share the base slot; the first trigger enters
      {
       if(b>=0) { reason="S07_BASE_ALREADY_OPEN"; return false; }
       reason="S07_BASE_ALLOWED";
@@ -1197,6 +1202,7 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
                                                setup=="S07A" ? "/logs/s07a_shadow.jsonl" :
                                                setup=="S07S" ? "/logs/s07s_shadow.jsonl" :
                                                setup=="S07E" ? "/logs/s07e_shadow.jsonl" :
+                                               setup=="S07R" ? "/logs/s07r_shadow.jsonl" :
                                                setup=="S04" ? "/logs/s04_shadow.jsonl" :
                                                setup=="S06" ? "/logs/s06_shadow.jsonl" :
                                                setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),

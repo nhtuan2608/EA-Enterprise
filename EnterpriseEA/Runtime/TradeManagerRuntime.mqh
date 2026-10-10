@@ -536,9 +536,11 @@ string EEA_TradeManagerObserveTrendBars(EEA_ManagedTrade &t,CAuditLog &audit)
    ArraySetAsSeries(rates,false);
    const int copied=CopyRates(t.intent.broker_symbol,EEA_PendingTimeframe(t.timeframe),1,EEA_TM_TREND_BARS,rates);
    if(copied<200) return "";
-   double e55[],e100[];
+   double e55[],e100[],pdi[],mdi[],adx[],atr[];
    EEA_S07Ema(rates,copied,55,e55);
    EEA_S07Ema(rates,copied,100,e100);
+   EEA_S07Dmi(rates,copied,pdi,mdi,adx,atr);
+   const bool adx_exit=(g_s07_adx_exit && EEA_S07IsBaseSetup(t.intent.setup_id));
    const long offset=EEA_PendingServerOffset();
    const long tf_seconds=PeriodSeconds(EEA_PendingTimeframe(t.timeframe));
    string exit_reason="";
@@ -564,6 +566,8 @@ string EEA_TradeManagerObserveTrendBars(EEA_ManagedTrade &t,CAuditLog &audit)
       const bool wide=(t.mfe_r>=EEA_S07_TRAIL_SWITCH_R);
       const double ema=(wide ? e100[b] : e55[b]);
       if(exit_reason=="" && t.direction*(rates[b].close-ema)<0.0) exit_reason=(wide ? "S07_EMA100_EXIT" : "S07_EMA55_EXIT");
+      if(exit_reason=="" && adx_exit && b>0 && adx[b-1]>=EEA_S07_ADX_EXHAUSTION && adx[b]<adx[b-1])
+         exit_reason="S07_ADX_EXHAUSTION_EXIT";
       if(exit_reason=="" && t.bars>=EEA_S07HoldBars(t.timeframe)) exit_reason="TIME_STOP";
      }
    return exit_reason;
@@ -656,6 +660,10 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
             const string cause=t.exit_request!="" ? t.exit_request : t.last_reason;
             t.active=false; t.state="EXITED"; t.last_reason="POSITION_CLOSED"; t.exited_at_utc=(long)TimeGMT();
             EEA_TradeManagerRecordExit(audit,root,t,observer.reconciliation,cause);
+            // G87: the closed S07-family base becomes the context of the re-entry engine (S07R).
+            if(EEA_S07IsBaseSetup(t.intent.setup_id))
+               EEA_S07ContextRecordClose(t.intent.canonical_symbol,t.direction,t.opened_at_utc,t.exited_at_utc,cause,
+                                         t.initial_sl,t.mfe_r>=EEA_S07_TARGET_R-0.05);
            }
          else
            {

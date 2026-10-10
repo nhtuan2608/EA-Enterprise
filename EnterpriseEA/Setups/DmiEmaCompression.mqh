@@ -183,6 +183,88 @@ int EEA_S07ProvisionalSignal(const MqlRates &rates[],const int q,const int windo
    return d;
   }
 
+// G87: base setups of the S07 family share one base slot per symbol and side (first trigger enters).
+bool EEA_S07IsBaseSetup(const string setup) { return setup=="S07" || setup=="S07E" || setup=="S07R"; }
+
+// G87: base legs exit on ADX exhaustion (ADX >= 50 turning down, research G81/G86 X3).
+bool g_s07_adx_exit=true;
+#define EEA_S07_ADX_EXHAUSTION 50.0
+
+// G87 context: the last S07-family base trade of each symbol. The Trade Manager records it when the base
+// closes; the re-entry engine S07R reads it (one re-entry per closed base, within EEA_S07_REENTRY_SECONDS).
+// Memory only: a restart drops the open re-entry window.
+#define EEA_S07_REENTRY_SECONDS 7200
+#define EEA_S07_CTX_MAX 16
+struct EEA_S07Context
+  {
+   string symbol;
+   int    direction;
+   long   entry_utc;
+   long   closed_utc;
+   string cause;
+   double stop_ref;      // initial stop of the closed base (its window extreme with the buffer)
+   bool   target_hit;
+   bool   used;
+  };
+EEA_S07Context g_s07_ctx[EEA_S07_CTX_MAX];
+int g_s07_ctx_count=0;
+
+int EEA_S07ContextFind(const string symbol)
+  {
+   for(int i=0;i<g_s07_ctx_count;i++) if(g_s07_ctx[i].symbol==symbol) return i;
+   return -1;
+  }
+
+void EEA_S07ContextRecordClose(const string symbol,const int direction,const long entry_utc,const long closed_utc,
+                               const string cause,const double stop_ref,const bool target_hit)
+  {
+   int k=EEA_S07ContextFind(symbol);
+   if(k<0)
+     {
+      if(g_s07_ctx_count>=EEA_S07_CTX_MAX) return;
+      k=g_s07_ctx_count++;
+     }
+   g_s07_ctx[k].symbol=symbol; g_s07_ctx[k].direction=direction; g_s07_ctx[k].entry_utc=entry_utc;
+   g_s07_ctx[k].closed_utc=closed_utc; g_s07_ctx[k].cause=cause; g_s07_ctx[k].stop_ref=stop_ref;
+   g_s07_ctx[k].target_hit=target_hit; g_s07_ctx[k].used=false;
+  }
+
+void EEA_S07ContextMarkUsed(const string symbol)
+  {
+   const int k=EEA_S07ContextFind(symbol);
+   if(k>=0) g_s07_ctx[k].used=true;
+  }
+
+// Provisional DMI / ATR / EMAs of a forming bar after the closed bar q (G73 formulas), no setup rules.
+bool EEA_S07ProvisionalState(const MqlRates &rates[],const int q,const double &e21[],const double &e55[],
+                             const double &e100[],const double &e200[],const double &pdi[],const double &mdi[],
+                             const double &atr[],const double fh,const double fl,const double fc,
+                             double &p,double &m,double &ts,double &x21,double &x55,double &x100,double &x200)
+  {
+   if(q<1 || atr[q]<=0.0) return false;
+   const double a=1.0/EEA_S07_DMI_PERIOD;
+   const double pc=rates[q].close;
+   const double tr=MathMax(fh-fl,MathMax(MathAbs(fh-pc),MathAbs(fl-pc)));
+   const double up=fh-rates[q].high, dn=rates[q].low-fl;
+   const double pdm=(up>dn && up>0.0) ? up : 0.0;
+   const double mdm=(dn>up && dn>0.0) ? dn : 0.0;
+   const double pd0=pdi[q]*atr[q]/100.0, md0=mdi[q]*atr[q]/100.0;
+   ts=atr[q]+a*(tr-atr[q]);
+   if(ts<=0.0) return false;
+   p=100.0*(pd0+a*(pdm-pd0))/ts; m=100.0*(md0+a*(mdm-md0))/ts;
+   x21=e21[q]+2.0/22.0*(fc-e21[q]); x55=e55[q]+2.0/56.0*(fc-e55[q]);
+   x100=e100[q]+2.0/101.0*(fc-e100[q]); x200=e200[q]+2.0/201.0*(fc-e200[q]);
+   return true;
+  }
+
+// G82/G87 label: EMA21 > EMA55 > EMA100 and price above EMA21 (buy; mirrored for a sell). A triggered base
+// candidate carries it in its reason code ("_RB3"); the live plan gives unlabelled bases less risk.
+void EEA_S07MarkOrdered(EEA_S02Engine &e,const bool ordered)
+  {
+   if(e.state==EEA_S02_TRIGGERED && ordered && StringFind(e.candidate.reason_code,"_RB3")<0)
+      e.candidate.reason_code+="_RB3";
+  }
+
 void EEA_S07SetEvent(EEA_S02Event &ev,const EEA_S02Engine &e,const datetime at,const string event_type,
                      const int before,const string reason)
   {
