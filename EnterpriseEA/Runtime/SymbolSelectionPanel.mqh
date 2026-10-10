@@ -1451,8 +1451,9 @@ string EEA_SymbolPanelDurationText(const long seconds)
 
 bool EEA_SymbolPanelSessionConfirming(const string action)
   {
+   // A chosen duration stays selected for 60 s; Accept (or a second click on it) signs.
    return g_panel_state.session_confirm_action==action &&
-          GetTickCount()-g_panel_state.session_confirm_tick<10000;
+          GetTickCount()-g_panel_state.session_confirm_tick<60000;
   }
 
 // Session authorization: one signed, time-boxed permission for automatic entries.
@@ -1498,13 +1499,18 @@ void EEA_SymbolPanelSettingsSession(const long chart_id,const int y)
                           EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
    bool c24=EEA_SymbolPanelSessionConfirming("SIGN_24H"), c7=EEA_SymbolPanelSessionConfirming("SIGN_7D");
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Session24h",EEA_PANEL_CONTENT_X,y+108,128,30,
-                              c24 ? "Confirm 24h" : "Authorize 24h",c24 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_PRIMARY);
+                              c24 ? EEA_SymbolPanelGlyph(0x2713)+" 24h selected" : "Authorize 24h",
+                              c24 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_PRIMARY);
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Session7d",EEA_PANEL_CONTENT_X+136,y+108,136,30,
-                              c7 ? "Confirm 7 days" : "Authorize 7 days",c7 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_SECONDARY);
+                              c7 ? EEA_SymbolPanelGlyph(0x2713)+" 7 days selected" : "Authorize 7 days",
+                              c7 ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_SECONDARY);
+   // Accept signs the selected duration (disabled until one is chosen).
+   EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionAccept",EEA_PANEL_CONTENT_X+280,y+108,104,30,
+                              "Accept",(c24 || c7) ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_DISABLED);
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionRevoke",EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-120,
                               y+108,120,30,"Revoke now",
                               (active || !g_panel_engine.controller_kill_active) ? EEA_PANEL_BUTTON_DANGER : EEA_PANEL_BUTTON_DISABLED);
-   string message=(c24 || c7) ? "Click again within 10 s to sign. Every candidate passing all risk checks may then be traded." :
+   string message=(c24 || c7) ? "Press Accept to sign "+(c24 ? "24h" : "7 days")+" (selection kept 60 s). Every candidate passing all risk checks may then be traded." :
                   g_panel_engine.session_message;
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SessionMessage",EEA_PANEL_CONTENT_X,y+146,
                           message=="" ? "Signing re-checks account, policy, ledger and broker state first." : message,
@@ -3118,6 +3124,14 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
         { g_panel_state.recovery_request="RESOLVE"; g_panel_state.recovery_confirm_tick=0; }
       else
          g_panel_state.recovery_confirm_tick=GetTickCount();
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+     }
+   if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionAccept")
+     {
+      string chosen=EEA_SymbolPanelSessionConfirming("SIGN_24H") ? "SIGN_24H" :
+                    EEA_SymbolPanelSessionConfirming("SIGN_7D") ? "SIGN_7D" : "";
+      if(chosen!="") { g_panel_state.session_request=chosen; g_panel_state.session_confirm_action=""; }
+      else EEA_SymbolPanelToast("Choose 24h or 7 days first",EEA_PANEL_WARNING_COLOR);
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionRevoke")
