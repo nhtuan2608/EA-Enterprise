@@ -101,4 +101,4 @@ Lệnh V1 vào **giữa nến** (không tính lệnh vào lúc đóng nến, vì
   - Hai lệnh bán được cả ba cách bắt. V1/V2 vào sớm hơn 15–30 phút nhưng ra kém hơn ở ví dụ 23/9.
   - Hai lệnh mua 05/8 và 19/8 không cách nào vào (như G69: các lần đó không qua bộ lọc H4 hoặc điều kiện nén).
 
-**Đề xuất:** giữ S07 LIVE như hiện tại. Nếu muốn theo dõi V1, ghi V1 thành tín hiệu SHADOW song song (không vào lệnh) cho M30 mua, rồi xem lại sau ≥ 30 lệnh ảo. Không đổi tiêu chí sau khi đã thấy kết quả.
+**Đề xuất:** giữ quy tắc vào lệnh S07 như hiện tại (đang SHADOW theo D5). Nếu muốn theo dõi V1, ghi V1 thành tín hiệu SHADOW song song (không vào lệnh) cho M30 mua, rồi xem lại sau ≥ 30 lệnh ảo. Không đổi tiêu chí sau khi đã thấy kết quả.
