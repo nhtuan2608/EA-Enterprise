@@ -318,6 +318,20 @@ class G88Tests(unittest.TestCase):
                       read("Setups/DmiEmaCompression.mqh"))
 
 
+class TesterEaTests(unittest.TestCase):
+    def test_s07_tester_reuses_the_s07_functions_without_live_infrastructure(self):
+        src = read("S07Tester.mq5")
+        self.assertIn('#include "Setups/DmiEmaCompression.mqh"', src)
+        for fn in ("EEA_S07SignalAt(", "EEA_S07ProvisionalSignal(", "EEA_S07ProvisionalState(", "EEA_S07StopAnchor(",
+                   "EEA_S07SellLocation(", "EEA_S07HoldBars("):
+            self.assertIn(fn, src)
+        for banned in ("FileOpen", "Runtime/", "Integration/", "SymbolsTotal", "EventSetTimer"):
+            self.assertNotIn(banned, src)
+        for token in ('"S07"', '"S07S"', '"S07E"', '"S07ES"', '"S07R"', '"S07RS"', '"S07A"', '"S07AS"',
+                      "EEA_S07_ADX_EXHAUSTION", "InpUnorderedWeight", "InpAddWeight"):
+            self.assertIn(token, src)
+
+
 class EarlyTests(unittest.TestCase):
     def test_full_bar_equals_signal_at(self):
         bars = synthetic(1500, seed=5)
