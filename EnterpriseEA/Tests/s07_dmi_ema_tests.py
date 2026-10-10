@@ -204,13 +204,15 @@ class WiringTests(unittest.TestCase):
         for token in ("input EEA_S07ModeInput InpS07Mode       = S07_SHADOW;", "input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW;",
                       "input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW;", 'input string InpS07Symbols              = "XAUUSD";',
                       "input EEA_S04ModeInput InpS04Mode       = S04_SHADOW;", "input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW;",
-                      "(int)InpS07SellMode,InpS07Symbols);"):
+                      "(int)InpS07SellMode,InpS07Symbols,(int)InpS07EarlyMode);",
+                      "input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_SHADOW;"):
             self.assertIn(token, shell)
 
     def test_slots_and_modes(self):
         rt = read("Runtime/StrategyCandidateRuntime.mqh")
         slot = section(rt, "void EEA_StrategyRuntimeSlot(")
-        for token in ('setup=(j==0 ? "S07" : j==4 ? "S07S" : "S07A");', 'timeframe=(j==0 ? "M30" : j==1 ? "M15" : j==3 ? "H4" : "H1");',
+        for token in ('setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : "S07A");',
+                      'timeframe=(j==0 || j==5 ? "M30" : j==1 ? "M15" : j==3 ? "H4" : "H1");',
                       'profile="TREND";'):
             self.assertIn(token, slot)
         self.assertIn('setup=="S07S" ? MathMin(runtime.s07_sell_mode,EEA_S04_MODE_SHADOW)', rt)   # never LIVE
@@ -218,6 +220,65 @@ class WiringTests(unittest.TestCase):
         scan = section(rt, "bool EEA_StrategyRuntimeScanS07Engine(", "\n  }\n\n")
         self.assertIn("EEA_S07SellLocation(rates,b,window", scan)
         self.assertIn("else if(d!=1) d=0;", scan)
+
+    def test_s07e_is_shadow_only_and_wired(self):
+        rt = read("Runtime/StrategyCandidateRuntime.mqh")
+        self.assertIn("#define EEA_S07_SLOTS 6", rt)
+        self.assertIn('setup=="S07E" ? MathMin(runtime.s07_early_mode,EEA_S04_MODE_SHADOW)', rt)   # never LIVE
+        self.assertIn('if(setup=="S07E" && runtime.s07_early_mode==EEA_S04_MODE_OFF) return false;', rt)
+        self.assertIn('runtime.setup[index]=="S07E" ? "_s07e"', rt)
+        self.assertIn('if(runtime.setup[index]=="S07E") return EEA_StrategyRuntimeScanS07EarlyEngine(', rt)
+        scan = section(rt, "bool EEA_StrategyRuntimeScanS07EarlyEngine(", "\n  }\n\n")
+        for token in ("CopyRates(broker_symbol,PERIOD_M15,1,", "EEA_S07ProvisionalSignal(rates,q,window", "if(d!=1) d=0;",
+                      "(long)engine.breakout_bar_utc-(long)engine.breakout_bar_utc%1800==bucket) d=0;"):
+            self.assertIn(token, scan)
+        self.assertIn('setup=="S07E" ? "/logs/s07e_shadow.jsonl"', read("Integration/ControlledLiveRuntime.mqh"))
+
+    def test_provisional_signal_mirrors_mql(self):
+        mql = section(read("Setups/DmiEmaCompression.mqh"), "int EEA_S07ProvisionalSignal(")
+        for token in ("const double pd0=pdi[q]*atr[q]/100.0, md0=mdi[q]*atr[q]/100.0;", "const double ts=atr[q]+a*(tr-atr[q]);",
+                      "const double adx_p=adx[q]+a*(dx-adx[q]);", "int a0=q+1-window;", "int k=q-window+1;"):
+            self.assertIn(token, mql)
+
+
+class EarlyTests(unittest.TestCase):
+    def test_full_bar_equals_signal_at(self):
+        bars = synthetic(1500, seed=5)
+        ind = o.indicators(bars)
+        n = 0
+        for i in range(300, len(bars)):
+            for side in (1, -1):
+                b = bars[i]
+                d, _, anchor = o.provisional_signal(bars, ind, i - 1, 8, b["time"], b["open"], b["high"], b["low"], b["close"], side)
+                self.assertEqual(d, o.signal_at(bars, ind, i, 8, side))
+                if d:
+                    n += 1
+                    self.assertAlmostEqual(anchor, o.stop_anchor(bars, i, 8, d))
+        self.assertGreater(n, 3)
+
+    @unittest.skipUnless(importlib.util.find_spec("numpy") and (RESEARCH / "data" / "m15v" / "XAUUSD.csv").exists(),
+                         "research data or numpy not available")
+    def test_matches_research_g73_v1_triggers(self):
+        sys.path.insert(0, str(RESEARCH))
+        import g73_early as m
+        ctx = m.context("M30", "M15")
+        P, S = ctx["P"], ctx["S"]
+        trs, _ = m.v1_trades(ctx)
+        early = [t for t in trs if not t["at_close"]][-150:]
+        self.assertGreater(len(early), 50)
+        lo = min(t["sig"] for t in early) - 1600
+        bars = [{"time": int(P["t"][k]), "open": float(P["o"][k]), "high": float(P["h"][k]), "low": float(P["l"][k]),
+                 "close": float(P["c"][k])} for k in range(lo, len(P["t"]))]
+        ind = o.indicators(bars)
+        for t in early:
+            i = t["sig"]
+            f = int(ctx["first"][i])
+            k = f + t["sub_k"]
+            fh, fl = float(S["h"][f:k + 1].max()), float(S["l"][f:k + 1].min())
+            d, atr_p, anchor = o.provisional_signal(bars, ind, i - 1 - lo, 8, int(P["t"][i]), float(S["o"][f]), fh, fl,
+                                                    float(S["c"][k]), int(P["h4_side"][i]))
+            self.assertEqual(d, t["d"])
+            self.assertAlmostEqual(atr_p * 1.0, t["risk"] / t["dist_atr"], delta=0.02 * atr_p)
 
 
 if __name__ == "__main__":

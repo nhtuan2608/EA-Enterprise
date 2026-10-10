@@ -66,6 +66,8 @@ input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW; // G72 S07 adds from M15/H
 enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1 };
 input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW; // G72 S07S sell (H1, near the H4 EMA200): OFF or SHADOW (no edge yet, G71)
 input string InpS07Symbols              = "XAUUSD"; // G72: symbols with the S07 engines (research: XAUUSD only)
+enum EEA_S07EarlyModeInput { S07E_OFF=0, S07E_SHADOW=1 };
+input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_SHADOW; // G73 S07E: the M30 buy rule at every closed M15 bar (record only)
 input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD"; // G49 (G41 assets): extra trend assets that run T2 only (no S02/S04/S06/S06B)
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
@@ -1127,7 +1129,8 @@ void EEA_PublishPanelEngineView()
                             " | S06B "+EEA_SetupModeName(g_strategy_runtime.s06b_mode)+
                             " | S07 "+EEA_SetupModeName(g_strategy_runtime.s07_mode)+
                             " (add "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_add_mode,g_strategy_runtime.s07_mode))+
-                            ", sell "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_sell_mode,EEA_S04_MODE_SHADOW))+")"+
+                            ", sell "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_sell_mode,EEA_S04_MODE_SHADOW))+
+                            ", early "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_early_mode,EEA_S04_MODE_SHADOW))+")"+
                             " | SCALP max "+EEA_SetupModeName(g_strategy_runtime.scalp_mode)+
                             " | "+EEA_SetupReplayStatus(g_setup_replay);
    view.trade_manager_reason=g_trade_manager.reason;
@@ -1355,7 +1358,7 @@ int OnInit()
          EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,
                                             (int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,
                                             (int)InpT2Mode,InpT2OnlySymbols,(int)InpS07Mode,(int)InpS07AddMode,
-                                            (int)InpS07SellMode,InpS07Symbols);
+                                            (int)InpS07SellMode,InpS07Symbols,(int)InpS07EarlyMode);
       g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;   // G41: after the init, which resets the runtime
       g_strategy_runtime.t2_momentum_filter=InpT2MomentumFilter;   // G44
       if(!strategy_ready && InpStrategyRuntimeEnabled)
@@ -1524,7 +1527,8 @@ void EEA_WriteLiveStatus()
                 EEA_LiveStatusPair("T2",EEA_SetupModeName((int)InpT2Mode),true)+","+
                 EEA_LiveStatusPair("S07",EEA_SetupModeName((int)InpS07Mode),true)+","+
                 EEA_LiveStatusPair("S07A",EEA_SetupModeName((int)InpS07AddMode),true)+","+
-                EEA_LiveStatusPair("S07S",EEA_SetupModeName((int)InpS07SellMode),true)+"}";
+                EEA_LiveStatusPair("S07S",EEA_SetupModeName((int)InpS07SellMode),true)+","+
+                EEA_LiveStatusPair("S07E",EEA_SetupModeName((int)InpS07EarlyMode),true)+"}";
    string json="{"+EEA_LiveStatusPair("document_version","live-status-v1.0.0",true)+","+
       EEA_LiveStatusPair("written_at_utc",IntegerToString((long)now),false)+","+
       EEA_LiveStatusPair("execution_enabled",InpExecutionEnabled ? "true" : "false",false)+","+

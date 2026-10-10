@@ -62,6 +62,7 @@ struct EEA_StrategyCandidateRuntime
    int s07_mode;             // G72 S07 (buy, M30 base trade): OFF, SHADOW or LIVE
    int s07_add_mode;         // G72 S07A pyramiding adds (M15/H1/H4 sources): OFF, SHADOW or LIVE
    int s07_sell_mode;        // G72 S07S (sell, H1): OFF or SHADOW (never LIVE in this version)
+   int s07_early_mode;       // G73 S07E (M30 rule at every closed M15 bar): OFF or SHADOW only
    string s07_symbols;       // G72: comma list of symbols with the S07 engines (research: XAUUSD only)
    long last_scan_utc;
    string reason_code;
@@ -95,6 +96,7 @@ void EEA_StrategyCandidateRuntimeDefaults(EEA_StrategyCandidateRuntime &runtime)
    runtime.s07_mode=EEA_S04_MODE_OFF;
    runtime.s07_add_mode=EEA_S04_MODE_OFF;
    runtime.s07_sell_mode=EEA_S04_MODE_OFF;
+   runtime.s07_early_mode=EEA_S04_MODE_OFF;
    runtime.s07_symbols="";
    EEA_S02ResearchSeedConfig(runtime.config);
    for(int i=0;i<EEA_STRATEGY_RUNTIME_MAX_ENGINES;i++)
@@ -159,9 +161,11 @@ int EEA_StrategyRuntimeSetupMode(const EEA_StrategyCandidateRuntime &runtime,con
   { return setup=="S04" ? runtime.s04_mode : setup=="S06" ? runtime.s06_mode : setup=="S06B" ? runtime.s06b_mode :
            setup=="T2" ? runtime.t2_mode : setup=="S07" ? runtime.s07_mode :
            setup=="S07A" ? MathMin(runtime.s07_add_mode,runtime.s07_mode) :
-           setup=="S07S" ? MathMin(runtime.s07_sell_mode,EEA_S04_MODE_SHADOW) : runtime.s02_mode; }
+           setup=="S07S" ? MathMin(runtime.s07_sell_mode,EEA_S04_MODE_SHADOW) :
+           setup=="S07E" ? MathMin(runtime.s07_early_mode,EEA_S04_MODE_SHADOW) : runtime.s02_mode; }
 
-bool EEA_StrategyRuntimeIsS07(const string setup) { return setup=="S07" || setup=="S07A" || setup=="S07S"; }
+bool EEA_StrategyRuntimeIsS07(const string setup)
+  { return setup=="S07" || setup=="S07A" || setup=="S07S" || setup=="S07E"; }
 
 // G26: the mode an engine actually runs in: its setup's mode, capped by the SCALP mode for
 // SCALP engines (OFF < SHADOW < LIVE). Every entry, shadow and ledger decision uses this.
@@ -180,9 +184,9 @@ string EEA_SetupModeName(const int mode)
 
 // Engines per symbol: S02 SCALP, S02 SWING, then S04 SCALP, S04 SWING unless S04 is OFF,
 // then S06 SWING unless S06 is OFF, then S06B SWING unless S06B is OFF, then T2 POSITION (H4)
-// unless T2 is OFF, then (G72) the five S07 engines unless S07 is OFF: S07 M30, S07A M15, S07A H1,
-// S07A H4 and S07S H1 (only on the S07 symbols).
-#define EEA_S07_SLOTS 5
+// unless T2 is OFF, then (G72) the S07 engines unless S07 is OFF: S07 M30, S07A M15, S07A H1,
+// S07A H4, S07S H1 and (G73) S07E M30 (only on the S07 symbols; S07E only when its mode is not OFF).
+#define EEA_S07_SLOTS 6
 int EEA_StrategyRuntimeStride(const EEA_StrategyCandidateRuntime &runtime)
   {
    return 2+(runtime.s04_mode==EEA_S04_MODE_OFF ? 0 : 2)+(runtime.s06_mode==EEA_S04_MODE_OFF ? 0 : 1)+
@@ -200,8 +204,8 @@ void EEA_StrategyRuntimeSlot(const EEA_StrategyCandidateRuntime &runtime,const i
    if(runtime.s07_mode!=EEA_S04_MODE_OFF && p>=s07_start)
      {
       const int j=p-s07_start;
-      setup=(j==0 ? "S07" : j==4 ? "S07S" : "S07A");
-      timeframe=(j==0 ? "M30" : j==1 ? "M15" : j==3 ? "H4" : "H1");
+      setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : "S07A");
+      timeframe=(j==0 || j==5 ? "M30" : j==1 ? "M15" : j==3 ? "H4" : "H1");
       profile="TREND";
       EEA_S07V1Config(config,setup,timeframe);
       return;
@@ -232,6 +236,7 @@ bool EEA_StrategyRuntimeSlotFor(const EEA_StrategyCandidateRuntime &runtime,cons
    EEA_S02Config c;
    EEA_StrategyRuntimeSlot(runtime,p,setup,profile,timeframe,c);
    // G72: the S07 engines run on the S07 symbols only (research: XAUUSD).
+   if(setup=="S07E" && runtime.s07_early_mode==EEA_S04_MODE_OFF) return false;
    if(EEA_StrategyRuntimeIsS07(setup)) return EEA_StrategyRuntimeSymbolListed(runtime.s07_symbols,canonical);
    if(!EEA_StrategyRuntimeSymbolListed(runtime.t2_only_symbols,canonical)) return true;
    return setup=="T2";
@@ -250,7 +255,8 @@ bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
                                         const int s07_mode=EEA_S04_MODE_OFF,
                                         const int s07_add_mode=EEA_S04_MODE_OFF,
                                         const int s07_sell_mode=EEA_S04_MODE_OFF,
-                                        const string s07_symbols="")
+                                        const string s07_symbols="",
+                                        const int s07_early_mode=EEA_S04_MODE_OFF)
   {
    EEA_StrategyCandidateRuntimeDefaults(runtime);
    runtime.t2_only_symbols=t2_only_symbols;
@@ -258,6 +264,7 @@ bool EEA_StrategyCandidateRuntimeInitV1(EEA_StrategyCandidateRuntime &runtime,
    runtime.s07_add_mode=s07_add_mode;
    runtime.s07_sell_mode=s07_sell_mode;
    runtime.s07_symbols=s07_symbols;
+   runtime.s07_early_mode=s07_early_mode;
    runtime.enabled=enabled;
    runtime.zone_mode=true;
    runtime.t2_mode=t2_mode;
@@ -310,7 +317,8 @@ string EEA_StrategyRuntimeCheckpointPath(const EEA_StrategyCandidateRuntime &run
                                             runtime.setup[index]=="T2" ? "_t2" :
                                             runtime.setup[index]=="S07" ? "_s07" :
                                             runtime.setup[index]=="S07A" ? "_s07a" :
-                                            runtime.setup[index]=="S07S" ? "_s07s" : "")+".json";
+                                            runtime.setup[index]=="S07S" ? "_s07s" :
+                                            runtime.setup[index]=="S07E" ? "_s07e" : "")+".json";
   }
 
 void EEA_StrategyRuntimeConfigurePersistence(EEA_StrategyCandidateRuntime &runtime,
@@ -797,6 +805,92 @@ bool EEA_StrategyRuntimeScanS07Engine(EEA_StrategyCandidateRuntime &runtime,cons
    return ok;
   }
 
+// G73 S07E (SHADOW): the M30 buy rule on the forming M30 bar at every closed M15 bar
+// (EEA_S07ProvisionalSignal). One candidate per M30 bar at most; the second M15 bar of a bar that
+// already triggered is not a new signal. The candidate's bar time is the M15 bar.
+bool EEA_StrategyRuntimeScanS07EarlyEngine(EEA_StrategyCandidateRuntime &runtime,const int index,const string broker_symbol)
+  {
+   EEA_S02Engine engine=runtime.engines[index];
+   const int window=EEA_S07WindowBars("M30");
+   MqlRates rates[];
+   ArraySetAsSeries(rates,false);
+   const int copied=CopyRates(broker_symbol,PERIOD_M30,1,EEA_S07_HISTORY_BARS,rates);
+   if(copied<EEA_S07_MIN_BARS) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_BARS_UNAVAILABLE"; return false; }
+   MqlRates sub[];
+   ArraySetAsSeries(sub,false);
+   const int ns=CopyRates(broker_symbol,PERIOD_M15,1,EEA_S07_CATCHUP_BARS+4,sub);
+   if(ns<4) { runtime.scan_reason[index]="EEA_STRATEGY_RUNTIME_BARS_UNAVAILABLE"; return false; }
+   const int last=ns-1;
+   if((datetime)sub[last].time<=engine.last_processed_bar_utc) return true;
+   int first=last;
+   if(engine.last_processed_bar_utc>0)
+     {
+      if((datetime)sub[0].time>engine.last_processed_bar_utc)
+        {
+         string canonical=engine.canonical_symbol, timeframe=engine.timeframe, version=engine.config_version;
+         EEA_S02Init(engine,canonical,timeframe,version);
+         runtime.has_candidate[index]=false;
+         runtime.scan_reason[index]="CHECKPOINT_GAP_RESET";
+        }
+      else
+        {
+         first=1;
+         while(first<last && (datetime)sub[first].time<=engine.last_processed_bar_utc) first++;
+        }
+     }
+   MqlRates h4[];
+   ArraySetAsSeries(h4,false);
+   const int h4_count=CopyRates(broker_symbol,PERIOD_H4,1,EEA_S07_H4_BARS,h4);
+   if(h4_count<2*EEA_S07_H4_EMA) { runtime.scan_reason[index]="S07_H4_BARS_UNAVAILABLE"; runtime.engines[index]=engine; return false; }
+   double h4_ema[];
+   EEA_S07Ema(h4,h4_count,EEA_S07_H4_EMA,h4_ema);
+   double e21[],e55[],e100[],e200[],pdi[],mdi[],adx[],atr[];
+   EEA_S07Ema(rates,copied,21,e21); EEA_S07Ema(rates,copied,55,e55);
+   EEA_S07Ema(rates,copied,100,e100); EEA_S07Ema(rates,copied,200,e200);
+   EEA_S07Dmi(rates,copied,pdi,mdi,adx,atr);
+   bool ok=true;
+   for(int s=first;s<=last;s++)
+     {
+      const long t=(long)sub[s].time;
+      const long bucket=t-t%1800;
+      int q=copied-1;
+      while(q>=0 && (long)rates[q].time>=bucket) q--;
+      int u=s;
+      while(u>0 && (long)sub[u-1].time>=bucket) u--;
+      double fh=sub[u].high, fl=sub[u].low;
+      for(int k=u+1;k<=s;k++) { fh=MathMax(fh,sub[k].high); fl=MathMin(fl,sub[k].low); }
+      const long h4_bucket=bucket-bucket%14400;
+      int h=h4_count-1;
+      while(h>=0 && (long)h4[h].time>=h4_bucket) h--;
+      const bool h4_ok=(h>=EEA_S07_H4_EMA);
+      const int h4_side=!h4_ok ? 0 : (h4[h].close>h4_ema[h] ? 1 : (h4[h].close<h4_ema[h] ? -1 : 0));
+      double atr_p=0.0, anchor=0.0;
+      int d=(q>window ? EEA_S07ProvisionalSignal(rates,q,window,e21,e55,e100,e200,pdi,mdi,adx,atr,bucket,
+                                                  sub[u].open,fh,fl,sub[s].close,h4_side,atr_p,anchor) : 0);
+      if(d!=1) d=0;                                            // G73: decided on the M30 buy only
+      if(engine.state==EEA_S02_TRIGGERED &&
+         (long)engine.breakout_bar_utc-(long)engine.breakout_bar_utc%1800==bucket) d=0;
+      EEA_S02Bar bar;
+      bar.closed_at_utc=sub[s].time;
+      bar.open=sub[u].open; bar.high=fh; bar.low=fl; bar.close=sub[s].close;
+      bar.atr=(atr_p>0.0 ? atr_p : (q>=0 ? atr[q] : 0.0));
+      EEA_S02Event event;
+      if(!EEA_S07ProcessClosedBar(engine,"S07E",bar,d,anchor,runtime.profile_config[index],event))
+        { runtime.scan_reason[index]=event.reason_code; ok=false; break; }
+      runtime.scan_reason[index]=event.reason_code;
+      if(q>=0)
+         runtime.zone_text[index]="M15 "+TimeToString(sub[s].time,TIME_MINUTES)+" ADX(M30) "+DoubleToString(adx[q],1)+
+                                  " H4 "+(h4_side>0 ? "up" : (h4_side<0 ? "down" : "?"));
+      if(engine.state==EEA_S02_TRIGGERED) { runtime.candidates[index]=engine.candidate; runtime.has_candidate[index]=true; }
+      else runtime.has_candidate[index]=false;
+     }
+   runtime.engines[index]=engine;
+   runtime.htf_structure[index]="NEUTRAL";
+   runtime.htf_risk_modifier[index]=1.0;
+   if(ok) runtime.reason_code="EEA_STRATEGY_RUNTIME_SCANNED";
+   return ok;
+  }
+
 // S02 v1: one engine per (symbol, profile) on closed entry bars (M5 for SCALP, H1 for
 // SWING). After a restart the engine replays the entry bars it missed, up to a cap per
 // profile; a longer gap resets it to IDLE because its windows have long expired.
@@ -807,6 +901,7 @@ bool EEA_StrategyRuntimeScanZoneEngine(EEA_StrategyCandidateRuntime &runtime,
    if(!runtime.enabled || !runtime.initialized || index<0 || index>=runtime.symbol_count ||
       broker_symbol=="") return false;
    if(runtime.setup[index]=="T2") return EEA_StrategyRuntimeScanT2Engine(runtime,index,broker_symbol);
+   if(runtime.setup[index]=="S07E") return EEA_StrategyRuntimeScanS07EarlyEngine(runtime,index,broker_symbol);
    if(EEA_StrategyRuntimeIsS07(runtime.setup[index])) return EEA_StrategyRuntimeScanS07Engine(runtime,index,broker_symbol);
    bool swing=(runtime.profile[index]=="SWING");
    ENUM_TIMEFRAMES entry_tf=swing ? PERIOD_H1 : PERIOD_M5;

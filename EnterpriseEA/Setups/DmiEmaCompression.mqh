@@ -18,7 +18,8 @@
 // between 1 and 4 ATR (Wilder ATR14 of bar i).
 // Setups: "S07" (buy, M30, the base trade), "S07A" (buy, M15/H1/H4, pyramiding sources only),
 // "S07S" (sell, H1, SHADOW only, with the L2 location: the window high reached the H4 EMA200
-// minus 0.5 ATR).
+// minus 0.5 ATR), "S07E" (G73 V1, SHADOW only: the M30 buy rule on the forming M30 bar at every
+// closed M15 bar, EEA_S07ProvisionalSignal).
 // Indicators follow TradingView / the research: EMA alpha 2/(n+1) and Wilder RMA (alpha 1/14)
 // for TR, +DM, -DM and DX, each seeded with its first value.
 
@@ -131,6 +132,55 @@ bool EEA_S07SellLocation(const MqlRates &rates[],const int i,const int window,co
    double top=rates[i-window].high;
    for(int k=i-window+1;k<=i;k++) top=MathMax(top,rates[k].high);
    return top>=h4_ema-EEA_S07_L2_ATR*atr;
+  }
+
+// G73 V1 (S07E): the rule on a forming bar. rates[0..q] are the closed bars of the entry timeframe
+// (indicator arrays over them); the forming bar (time forming_time, open fo, high fh, low fl, price fc)
+// gets provisional Wilder DMI / ATR and EMAs from bar q. The compression window is bars q-W+1..q
+// (research g73_early.v1_trades). Returns the direction (0 = none) with the provisional ATR and the
+// stop anchor (lowest low / highest high of bars q-W+1..q and the forming bar, after a break > 6 h).
+int EEA_S07ProvisionalSignal(const MqlRates &rates[],const int q,const int window,
+                             const double &e21[],const double &e55[],const double &e100[],const double &e200[],
+                             const double &pdi[],const double &mdi[],const double &adx[],const double &atr[],
+                             const long forming_time,const double fo,const double fh,const double fl,
+                             const double fc,const int h4_side,double &atr_p,double &anchor)
+  {
+   atr_p=0.0; anchor=0.0;
+   if(q<=window || h4_side==0 || atr[q]<=0.0) return 0;
+   int k=q-window+1;
+   for(int j=k+1;j<=q;j++) if(adx[j]<adx[k]) k=j;
+   if(adx[k]>EEA_S07_ADX_LOW || MathAbs(pdi[k]-mdi[k])>EEA_S07_DI_GAP) return 0;
+   const double a=1.0/EEA_S07_DMI_PERIOD;
+   const double pc=rates[q].close;
+   const double tr=MathMax(fh-fl,MathMax(MathAbs(fh-pc),MathAbs(fl-pc)));
+   const double up=fh-rates[q].high, dn=rates[q].low-fl;
+   const double pdm=(up>dn && up>0.0) ? up : 0.0;
+   const double mdm=(dn>up && dn>0.0) ? dn : 0.0;
+   const double pd0=pdi[q]*atr[q]/100.0, md0=mdi[q]*atr[q]/100.0;
+   const double ts=atr[q]+a*(tr-atr[q]);
+   if(ts<=0.0) return 0;
+   const double p=100.0*(pd0+a*(pdm-pd0))/ts, m=100.0*(md0+a*(mdm-md0))/ts;
+   const double sum=p+m;
+   const double dx=(sum>1e-9 ? 100.0*MathAbs(p-m)/sum : 0.0);
+   const double adx_p=adx[q]+a*(dx-adx[q]);
+   if(!(adx_p>adx[q] && adx_p-adx[k]<=EEA_S07_ADX_RISE)) return 0;
+   const double x21=e21[q]+2.0/22.0*(fc-e21[q]), x55=e55[q]+2.0/56.0*(fc-e55[q]);
+   const double x100=e100[q]+2.0/101.0*(fc-e100[q]), x200=e200[q]+2.0/201.0*(fc-e200[q]);
+   const double hi=MathMax(MathMax(x21,x55),MathMax(x100,x200));
+   const double lo=MathMin(MathMin(x21,x55),MathMin(x100,x200));
+   const double gap=p-m, gp=pdi[q]-mdi[q];
+   int d=0;
+   if(gap>0.0 && gap>gp && fc>hi) d=1;
+   else if(gap<0.0 && gap<gp && fc<lo) d=-1;
+   if(d==0 || d!=h4_side) return 0;
+   int a0=q+1-window;
+   if(forming_time-(long)rates[q].time>EEA_S07_GAP_SECONDS) a0=q+1;
+   else
+      for(int j=q;j>a0;j--) if((long)rates[j].time-(long)rates[j-1].time>EEA_S07_GAP_SECONDS) { a0=j; break; }
+   double x=(d==1 ? fl : fh);
+   for(int j=a0;j<=q;j++) x=(d==1 ? MathMin(x,rates[j].low) : MathMax(x,rates[j].high));
+   atr_p=ts; anchor=x;
+   return d;
   }
 
 void EEA_S07SetEvent(EEA_S02Event &ev,const EEA_S02Engine &e,const datetime at,const string event_type,

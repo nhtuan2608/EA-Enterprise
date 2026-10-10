@@ -1196,6 +1196,7 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
                                                setup=="S07" ? "/logs/s07_shadow.jsonl" :
                                                setup=="S07A" ? "/logs/s07a_shadow.jsonl" :
                                                setup=="S07S" ? "/logs/s07s_shadow.jsonl" :
+                                               setup=="S07E" ? "/logs/s07e_shadow.jsonl" :
                                                setup=="S04" ? "/logs/s04_shadow.jsonl" :
                                                setup=="S06" ? "/logs/s06_shadow.jsonl" :
                                                setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),

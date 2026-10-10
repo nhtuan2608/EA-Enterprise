@@ -148,3 +148,46 @@ def run(bars, h4, setup, tf, first=0):
         if d:
             out.append((i, d))
     return out
+
+
+def provisional_signal(bars, ind, q, window, forming_time, fo, fh, fl, fc, h4_side):
+    """Mirror of EEA_S07ProvisionalSignal (G73 S07E): (direction, provisional ATR, anchor)."""
+    adx, pdi, mdi, atr, e = ind["adx"], ind["pdi"], ind["mdi"], ind["atr"], ind["e"]
+    if q <= window or h4_side == 0 or atr[q] <= 0:
+        return 0, 0.0, 0.0
+    k = q - window + 1
+    for j in range(k + 1, q + 1):
+        if adx[j] < adx[k]:
+            k = j
+    if adx[k] > ADX_LOW or abs(pdi[k] - mdi[k]) > DI_GAP:
+        return 0, 0.0, 0.0
+    a, pc = 1.0 / PERIOD, bars[q]["close"]
+    tr = max(fh - fl, abs(fh - pc), abs(fl - pc))
+    up, dn = fh - bars[q]["high"], bars[q]["low"] - fl
+    pdm = up if (up > dn and up > 0) else 0.0
+    mdm = dn if (dn > up and dn > 0) else 0.0
+    pd0, md0 = pdi[q] * atr[q] / 100, mdi[q] * atr[q] / 100
+    ts = atr[q] + a * (tr - atr[q])
+    if ts <= 0:
+        return 0, 0.0, 0.0
+    p, m = 100 * (pd0 + a * (pdm - pd0)) / ts, 100 * (md0 + a * (mdm - md0)) / ts
+    dx = 100 * abs(p - m) / (p + m) if p + m > 1e-9 else 0.0
+    adx_p = adx[q] + a * (dx - adx[q])
+    if not (adx_p > adx[q] and adx_p - adx[k] <= ADX_RISE):
+        return 0, 0.0, 0.0
+    x = [e[n][q] + 2.0 / (n + 1) * (fc - e[n][q]) for n in (21, 55, 100, 200)]
+    gap, gp = p - m, pdi[q] - mdi[q]
+    d = 1 if (gap > 0 and gap > gp and fc > max(x)) else -1 if (gap < 0 and gap < gp and fc < min(x)) else 0
+    if d == 0 or d != h4_side:
+        return 0, 0.0, 0.0
+    a0 = q + 1 - window
+    if forming_time - bars[q]["time"] > GAP_SECONDS:
+        a0 = q + 1
+    else:
+        for j in range(q, a0, -1):
+            if bars[j]["time"] - bars[j - 1]["time"] > GAP_SECONDS:
+                a0 = j
+                break
+    seg = bars[a0:q + 1]
+    anchor = min([fl] + [b["low"] for b in seg]) if d == 1 else max([fh] + [b["high"] for b in seg])
+    return d, ts, anchor
