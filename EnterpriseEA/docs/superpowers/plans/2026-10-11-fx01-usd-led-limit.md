@@ -1,4 +1,4 @@
-# G94: vào lệnh EUR/GBP theo USD, vùng cung/cầu, tin tức — lệnh limit, M15/M30/H1 — kế hoạch đăng ký trước (11/10/2026)
+# FX01: vào lệnh EUR/GBP theo USD, vùng cung/cầu, tin tức — lệnh limit, M15/M30/H1 — kế hoạch đăng ký trước (11/10/2026)
 
 ## Vì sao
 
@@ -110,4 +110,4 @@ Báo cáo thêm:
 
 ## Đầu ra
 
-`research/long/g94_usd_led.py`, báo cáo `reports/2026-10-11-g94-usd-led-limit.md`.
+`research/fx/fx01_usd_led.py`, báo cáo `reports/2026-10-11-fx01-usd-led-limit.md`.
