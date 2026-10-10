@@ -16,10 +16,11 @@
 // Stop anchor: the lowest low (d=+1) / highest high (d=-1) of bars i-W..i, ignoring the bars
 // before a break longer than 6 hours (weekend). The plan adds 0.1 ATR and keeps the stop
 // between 1 and 4 ATR (Wilder ATR14 of bar i).
-// Setups: "S07" (buy, M30, the base trade), "S07A" (buy, M15/H1/H4, pyramiding sources only),
-// "S07S" (sell, H1, SHADOW only, with the L2 location: the window high reached the H4 EMA200
-// minus 0.5 ATR), "S07E" (G73 V1, SHADOW only: the M30 buy rule on the forming M30 bar at every
-// closed M15 bar, EEA_S07ProvisionalSignal).
+// Setups, buy family (base M30): "S07" (base), "S07E" (early: the base rule on the forming bar at every
+// closed entry bar, EEA_S07ProvisionalSignal), "S07R" (re-entry after a closed base), "S07A" (adds,
+// M15/H1/H4). Sell family (base H1, G88): "S07S" (base, with the L2 location: the window high reached
+// the H4 EMA200 minus 0.5 ATR), "S07ES" (early), "S07RS" (re-entry), "S07AS" (adds, M15/M30/H4).
+// Entry bars of the early / re-entry engines: g_s07_entry_tf (M5 by default).
 // Indicators follow TradingView / the research: EMA alpha 2/(n+1) and Wilder RMA (alpha 1/14)
 // for TR, +DM, -DM and DX, each seeded with its first value.
 
@@ -184,7 +185,15 @@ int EEA_S07ProvisionalSignal(const MqlRates &rates[],const int q,const int windo
   }
 
 // G87: base setups of the S07 family share one base slot per symbol and side (first trigger enters).
-bool EEA_S07IsBaseSetup(const string setup) { return setup=="S07" || setup=="S07E" || setup=="S07R"; }
+// G88: the sell family (S07S H1 base, S07ES early, S07RS re-entry) shares the sell base slot the same way.
+bool EEA_S07IsBaseSetup(const string setup)
+  { return setup=="S07" || setup=="S07E" || setup=="S07R" || setup=="S07S" || setup=="S07ES" || setup=="S07RS"; }
+bool EEA_S07IsAddSetup(const string setup) { return setup=="S07A" || setup=="S07AS"; }
+bool EEA_S07IsEarlySetup(const string setup) { return setup=="S07E" || setup=="S07ES"; }
+bool EEA_S07IsReentrySetup(const string setup) { return setup=="S07R" || setup=="S07RS"; }
+// G88: entry timeframe of the early / re-entry engines (closed bars evaluated inside the forming base bar).
+ENUM_TIMEFRAMES g_s07_entry_tf=PERIOD_M5;
+string EEA_S07EntryTfName() { return g_s07_entry_tf==PERIOD_M15 ? "M15" : "M5"; }
 
 // G87: base legs exit on ADX exhaustion (ADX >= 50 turning down, research G81/G86 X3).
 bool g_s07_adx_exit=true;
@@ -209,16 +218,16 @@ struct EEA_S07Context
 EEA_S07Context g_s07_ctx[EEA_S07_CTX_MAX];
 int g_s07_ctx_count=0;
 
-int EEA_S07ContextFind(const string symbol)
+int EEA_S07ContextFind(const string symbol,const int direction)
   {
-   for(int i=0;i<g_s07_ctx_count;i++) if(g_s07_ctx[i].symbol==symbol) return i;
+   for(int i=0;i<g_s07_ctx_count;i++) if(g_s07_ctx[i].symbol==symbol && g_s07_ctx[i].direction==direction) return i;
    return -1;
   }
 
 void EEA_S07ContextRecordClose(const string symbol,const int direction,const long entry_utc,const long closed_utc,
                                const string cause,const double stop_ref,const bool target_hit)
   {
-   int k=EEA_S07ContextFind(symbol);
+   int k=EEA_S07ContextFind(symbol,direction);
    if(k<0)
      {
       if(g_s07_ctx_count>=EEA_S07_CTX_MAX) return;
@@ -229,9 +238,9 @@ void EEA_S07ContextRecordClose(const string symbol,const int direction,const lon
    g_s07_ctx[k].target_hit=target_hit; g_s07_ctx[k].used=false;
   }
 
-void EEA_S07ContextMarkUsed(const string symbol)
+void EEA_S07ContextMarkUsed(const string symbol,const int direction)
   {
-   const int k=EEA_S07ContextFind(symbol);
+   const int k=EEA_S07ContextFind(symbol,direction);
    if(k>=0) g_s07_ctx[k].used=true;
   }
 

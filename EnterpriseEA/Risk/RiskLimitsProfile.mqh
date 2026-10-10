@@ -91,7 +91,7 @@ double EEA_SetupRiskWeight(const string setup)
    if(setup=="S04") w=g_risk_weight_s04;
    else if(setup=="S06B") w=g_risk_weight_s06b;
    else if(setup=="T2") w=g_risk_weight_t2;
-   else if(setup=="S07A") w=g_risk_weight_s07a;
+   else if(setup=="S07A" || setup=="S07AS") w=g_risk_weight_s07a;
    if(!MathIsValidNumber(w)) return 0.0;
    return MathMax(0.0,MathMin(1.0,w));
   }

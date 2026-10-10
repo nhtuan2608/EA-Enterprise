@@ -212,11 +212,13 @@ class WiringTests(unittest.TestCase):
     def test_slots_and_modes(self):
         rt = read("Runtime/StrategyCandidateRuntime.mqh")
         slot = section(rt, "void EEA_StrategyRuntimeSlot(")
-        for token in ('setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : j==6 ? "S07R" : "S07A");',
-                      'timeframe=(j==0 || j==5 || j==6 ? "M30" : j==1 ? "M15" : j==3 ? "H4" : "H1");',
+        for token in ('setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : j==6 ? "S07R" : j==7 ? "S07ES" : j==8 ? "S07RS" :',
+                      'j>=9 ? "S07AS" : "S07A");',
+                      'timeframe=(j==0 || j==5 || j==6 || j==10 ? "M30" : j==1 || j==9 ? "M15" : j==3 || j==11 ? "H4" : "H1");',
                       'profile="TREND";'):
             self.assertIn(token, slot)
-        self.assertIn('setup=="S07S" ? MathMin(runtime.s07_sell_mode,EEA_S04_MODE_SHADOW)', rt)   # never LIVE
+        self.assertIn('setup=="S07S" ? MathMin(runtime.s07_sell_mode,runtime.s07_mode)', rt)   # G88: LIVE only if chosen
+        self.assertIn('else if(setup=="S07AS") { if(d!=-1) d=0; }', rt)
         self.assertIn("if(EEA_StrategyRuntimeIsS07(setup)) return EEA_StrategyRuntimeSymbolListed(runtime.s07_symbols,canonical);", rt)
         scan = section(rt, "bool EEA_StrategyRuntimeScanS07Engine(", "\n  }\n\n")
         self.assertIn("EEA_S07SellLocation(rates,b,window", scan)
@@ -224,14 +226,15 @@ class WiringTests(unittest.TestCase):
 
     def test_s07e_is_wired(self):
         rt = read("Runtime/StrategyCandidateRuntime.mqh")
-        self.assertIn("#define EEA_S07_SLOTS 7", rt)
+        self.assertIn("#define EEA_S07_SLOTS 12", rt)
         self.assertIn('setup=="S07E" ? MathMin(runtime.s07_early_mode,runtime.s07_mode)', rt)   # G87: capped by S07
         self.assertIn('if(setup=="S07E" && runtime.s07_early_mode==EEA_S04_MODE_OFF) return false;', rt)
         self.assertIn('runtime.setup[index]=="S07E" ? "_s07e"', rt)
-        self.assertIn('if(runtime.setup[index]=="S07E") return EEA_StrategyRuntimeScanS07EarlyEngine(', rt)
+        self.assertIn('if(EEA_S07IsEarlySetup(runtime.setup[index])) return EEA_StrategyRuntimeScanS07EarlyEngine(', rt)
         scan = section(rt, "bool EEA_StrategyRuntimeScanS07EarlyEngine(", "\n  }\n\n")
-        for token in ("CopyRates(broker_symbol,PERIOD_M15,1,", "EEA_S07ProvisionalSignal(rates,q,window", "if(d!=1) d=0;",
-                      "(long)engine.breakout_bar_utc-(long)engine.breakout_bar_utc%1800==bucket) d=0;"):
+        for token in ("CopyRates(broker_symbol,g_s07_entry_tf,1,", "EEA_S07ProvisionalSignal(rates,q,window", "if(d!=want) d=0;",
+                      "(long)engine.breakout_bar_utc-(long)engine.breakout_bar_utc%main_sec==bucket) d=0;",
+                      'const int want=(setup=="S07ES" ? -1 : 1);', "top<h4_ema[h]-EEA_S07_L2_ATR*atr_p"):
             self.assertIn(token, scan)
         self.assertIn('setup=="S07E" ? "/logs/s07e_shadow.jsonl"', read("Integration/ControlledLiveRuntime.mqh"))
 
@@ -245,13 +248,13 @@ class WiringTests(unittest.TestCase):
 class G87Tests(unittest.TestCase):
     def test_base_slot_shared_first_trigger_enters(self):
         live = read("Integration/ControlledLiveRuntime.mqh")
-        self.assertIn('bool EEA_S07IsBaseSetup(const string setup) { return setup=="S07" || setup=="S07E" || setup=="S07R"; }',
+        self.assertIn('{ return setup=="S07" || setup=="S07E" || setup=="S07R" || setup=="S07S" || setup=="S07ES" || setup=="S07RS"; }',
                       read("Setups/DmiEmaCompression.mqh"))
         gate = section(live, "bool EEA_S07EntryAllowed(")
         self.assertIn("if(EEA_S07IsBaseSetup(setup))", gate)
         self.assertIn('reason="S07_BASE_ALREADY_OPEN"', gate)
         self.assertIn("EEA_S07IsBaseSetup(trades.items[i].intent.setup_id)) return i;", live)
-        self.assertIn('(strategy.setup[index]=="S07E" || strategy.setup[index]=="S07R") ? "M15" : engine.timeframe', live)
+        self.assertIn('(EEA_S07IsEarlySetup(strategy.setup[index]) || EEA_S07IsReentrySetup(strategy.setup[index])) ?', live)
         self.assertIn("EEA_S07IsBaseSetup(setup) ? 0 : 1", read("Integration/SetupArbitration.mqh"))
 
     def test_risk_weights(self):
@@ -260,12 +263,12 @@ class G87Tests(unittest.TestCase):
                       "g_risk_weight_s07a=InpRiskWeightS07A;", "g_s07_unordered_weight=InpS07UnorderedRiskWeight;",
                       "g_s07_adx_exit=InpS07AdxExit;"):
             self.assertIn(token, shell)
-        self.assertIn('else if(setup=="S07A") w=g_risk_weight_s07a;', read("Risk/RiskLimitsProfile.mqh"))
+        self.assertIn('else if(setup=="S07A" || setup=="S07AS") w=g_risk_weight_s07a;', read("Risk/RiskLimitsProfile.mqh"))
         live = read("Integration/ControlledLiveRuntime.mqh")
         self.assertIn('StringFind(engine.candidate.reason_code,"_RB3")<0', live)
         rt = read("Runtime/StrategyCandidateRuntime.mqh")
         self.assertIn("EEA_S07MarkOrdered(engine,d==1 ? (e21[b]>e55[b] && e55[b]>e100[b] && rates[b].close>e21[b])", rt)
-        self.assertIn("EEA_S07MarkOrdered(engine,x21>x55 && x55>x100 && sub[s].close>x21);", rt)
+        self.assertIn("EEA_S07MarkOrdered(engine,d==1 ? (x21>x55 && x55>x100 && sub[s].close>x21) : (x21<x55 && x55<x100 && sub[s].close<x21));", rt)
 
     def test_adx_exhaustion_exit_on_base_legs(self):
         tm = section(read("Runtime/TradeManagerRuntime.mqh"), "string EEA_TradeManagerObserveTrendBars(")
@@ -282,11 +285,37 @@ class G87Tests(unittest.TestCase):
         scan = section(rt, "bool EEA_StrategyRuntimeScanS07ReentryEngine(", "\n  }\n\n")
         for token in ('why="S07R_ALREADY_USED"', 'why="S07R_BASE_HIT_TARGET"',
                       "close_utc<=c.closed_utc || close_utc>c.closed_utc+EEA_S07_REENTRY_SECONDS",
-                      "(sub[s].close>hi && pp>mm)", "h4_side==dd", "EEA_S07ContextMarkUsed(engine.canonical_symbol);"):
+                      "(sub[s].close>hi && pp>mm)", "h4_side==dd", "EEA_S07ContextMarkUsed(engine.canonical_symbol,want);",
+                      'const int want=(setup=="S07RS" ? -1 : 1);', "EEA_S07ContextFind(engine.canonical_symbol,want)"):
             self.assertIn(token, scan)
         self.assertIn('setup=="S07R" ? MathMin(runtime.s07_reentry_mode,runtime.s07_mode)', rt)
         self.assertIn("#define EEA_S07_REENTRY_SECONDS 7200", read("Setups/DmiEmaCompression.mqh"))
         self.assertIn('setup=="S07R" ? "/logs/s07r_shadow.jsonl"', read("Integration/ControlledLiveRuntime.mqh"))
+
+
+class G88Tests(unittest.TestCase):
+    def test_sell_family_and_entry_timeframe(self):
+        shell = read("EnterpriseEA.mq5")
+        for token in ("enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1, S07S_LIVE=2 };",
+                      "input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW;",
+                      "input EEA_S07EntryTfInput InpS07EntryTf = S07_ENTRY_M5;",
+                      "g_s07_entry_tf=(InpS07EntryTf==S07_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);"):
+            self.assertIn(token, shell)
+        rt = read("Runtime/StrategyCandidateRuntime.mqh")
+        for token in ('setup=="S07ES" ? MathMin(MathMin(runtime.s07_early_mode,runtime.s07_sell_mode),runtime.s07_mode)',
+                      'setup=="S07RS" ? MathMin(MathMin(runtime.s07_reentry_mode,runtime.s07_sell_mode),runtime.s07_mode)',
+                      'setup=="S07AS" ? MathMin(MathMin(runtime.s07_add_mode,runtime.s07_sell_mode),runtime.s07_mode)',
+                      "#define EEA_STRATEGY_RUNTIME_MAX_ENGINES 256",
+                      "if(EEA_S07IsEarlySetup(runtime.setup[index])) return EEA_StrategyRuntimeScanS07EarlyEngine(",
+                      "if(EEA_S07IsReentrySetup(runtime.setup[index])) return EEA_StrategyRuntimeScanS07ReentryEngine("):
+            self.assertIn(token, rt)
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        self.assertIn("EEA_S07EntryTfName() : engine.timeframe;", live)
+        self.assertIn("EEA_S07IsAddSetup(trades.items[i].intent.setup_id)", live)
+        for f in ("s07es", "s07rs", "s07as"):
+            self.assertIn(f"/logs/{f}_shadow.jsonl", live)
+        self.assertIn('string EEA_S07EntryTfName() { return g_s07_entry_tf==PERIOD_M15 ? "M15" : "M5"; }',
+                      read("Setups/DmiEmaCompression.mqh"))
 
 
 class EarlyTests(unittest.TestCase):

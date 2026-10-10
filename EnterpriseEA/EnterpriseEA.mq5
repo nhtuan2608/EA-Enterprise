@@ -63,8 +63,10 @@ input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 ma
 enum EEA_S07ModeInput { S07_OFF=0, S07_SHADOW=1, S07_LIVE=2 };
 input EEA_S07ModeInput InpS07Mode       = S07_SHADOW; // G72 S07 DMI+EMA compression buy (M30 base): OFF, SHADOW or LIVE
 input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW; // G72 S07 adds from M15/H1/H4 while the base is in profit (max 2 adds, 3 open): OFF, SHADOW or LIVE
-enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1 };
-input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW; // G72 S07S sell (H1, near the H4 EMA200): OFF or SHADOW (no edge yet, G71)
+enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1, S07S_LIVE=2 };
+input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW; // G72/G88 sell family (S07S H1 base, S07ES early, S07RS re-entry, S07AS adds): OFF, SHADOW or LIVE (no validated edge yet: G69-G85)
+enum EEA_S07EntryTfInput { S07_ENTRY_M5=5, S07_ENTRY_M15=15 };
+input EEA_S07EntryTfInput InpS07EntryTf = S07_ENTRY_M5; // G88: entry bars of the early and re-entry engines (M5, or M15 as researched in G73/G78)
 input string InpS07Symbols              = "XAUUSD"; // G72: symbols with the S07 engines (research: XAUUSD only)
 enum EEA_S07EarlyModeInput { S07E_OFF=0, S07E_SHADOW=1, S07E_LIVE=2 };
 input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_LIVE; // G73/G87 S07E: the M30 buy rule at every closed M15 bar; shares the base slot with S07 (first trigger enters), capped by InpS07Mode
@@ -1134,7 +1136,7 @@ void EEA_PublishPanelEngineView()
                             " | S06B "+EEA_SetupModeName(g_strategy_runtime.s06b_mode)+
                             " | S07 "+EEA_SetupModeName(g_strategy_runtime.s07_mode)+
                             " (add "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_add_mode,g_strategy_runtime.s07_mode))+
-                            ", sell "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_sell_mode,EEA_S04_MODE_SHADOW))+
+                            ", sell "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_sell_mode,g_strategy_runtime.s07_mode))+
                             ", early "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_early_mode,g_strategy_runtime.s07_mode))+
                             ", re-entry "+EEA_SetupModeName(MathMin(g_strategy_runtime.s07_reentry_mode,g_strategy_runtime.s07_mode))+")"+
                             " | SCALP max "+EEA_SetupModeName(g_strategy_runtime.scalp_mode)+
@@ -1284,6 +1286,7 @@ int OnInit()
    g_risk_weight_s07a=InpRiskWeightS07A;
    g_s07_unordered_weight=InpS07UnorderedRiskWeight;
    g_s07_adx_exit=InpS07AdxExit;
+   g_s07_entry_tf=(InpS07EntryTf==S07_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
    g_config.data_root=InpDataRoot;
    if(!EAConfig_Validate(g_config))
      {

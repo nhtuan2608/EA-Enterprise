@@ -358,7 +358,8 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
    if(engine.state!=EEA_S02_TRIGGERED) { reason="ENTRY_AUTO_NOT_READY"; return -1; }
    MqlRates trigger;
    // G87: S07E / S07R trigger on a closed M15 bar inside the forming M30 bar.
-   const string trigger_tf=(strategy.setup[index]=="S07E" || strategy.setup[index]=="S07R") ? "M15" : engine.timeframe;
+   const string trigger_tf=(EEA_S07IsEarlySetup(strategy.setup[index]) || EEA_S07IsReentrySetup(strategy.setup[index])) ?
+                           EEA_S07EntryTfName() : engine.timeframe;
    if(!EEA_ControlledLiveTriggerBar(broker_symbol,trigger_tf,engine.candidate.triggered_at_utc,trigger))
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
    // S06 enters at market after the confirmation close (research), only while price is
@@ -1048,7 +1049,7 @@ int EEA_S07OpenLegs(const EEA_TradeManagerRuntime &trades,const string canonical
    int n=0;
    for(int i=0;i<trades.count;i++)
       if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical && trades.items[i].direction==direction &&
-         (EEA_S07IsBaseSetup(trades.items[i].intent.setup_id) || trades.items[i].intent.setup_id=="S07A")) n++;
+         (EEA_S07IsBaseSetup(trades.items[i].intent.setup_id) || EEA_S07IsAddSetup(trades.items[i].intent.setup_id))) n++;
    return n;
   }
 
@@ -1203,6 +1204,9 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
                                                setup=="S07S" ? "/logs/s07s_shadow.jsonl" :
                                                setup=="S07E" ? "/logs/s07e_shadow.jsonl" :
                                                setup=="S07R" ? "/logs/s07r_shadow.jsonl" :
+                                               setup=="S07ES" ? "/logs/s07es_shadow.jsonl" :
+                                               setup=="S07RS" ? "/logs/s07rs_shadow.jsonl" :
+                                               setup=="S07AS" ? "/logs/s07as_shadow.jsonl" :
                                                setup=="S04" ? "/logs/s04_shadow.jsonl" :
                                                setup=="S06" ? "/logs/s06_shadow.jsonl" :
                                                setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
@@ -1470,7 +1474,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                      strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_low,     // G40: T2 has no
                                      strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_high,    // structure exit
                                      authorization_path,manage_reason);
-         if(strategy.setup[i]=="S07A")
+         if(EEA_S07IsAddSetup(strategy.setup[i]))
             EEA_S07RecordAdd(trades,observer.root,strategy.engines[i].canonical_symbol,strategy.engines[i].direction);
          if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile))
             session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
