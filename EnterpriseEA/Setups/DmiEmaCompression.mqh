@@ -18,8 +18,8 @@
 // between 1 and 4 ATR (Wilder ATR14 of bar i).
 // Setups, buy family (base M30): "S07" (base), "S07E" (early: the base rule on the forming bar at every
 // closed entry bar, EEA_S07ProvisionalSignal), "S07R" (re-entry after a closed base), "S07A" (adds,
-// M15/H1/H4). Sell family (base H1, G88): "S07S" (base, with the L2 location: the window high reached
-// the H4 EMA200 minus 0.5 ATR), "S07ES" (early), "S07RS" (re-entry), "S07AS" (adds, M15/M30/H4).
+// M15/H1/H4). Sell family (base M30, G88): "S07S" (base, with the L2 location: the window high reached
+// the H4 EMA200 minus 0.5 ATR), "S07ES" (early), "S07RS" (re-entry), "S07AS" (adds, M15/H1/H4).
 // Entry bars of the early / re-entry engines: g_s07_entry_tf (M5 by default).
 // Indicators follow TradingView / the research: EMA alpha 2/(n+1) and Wilder RMA (alpha 1/14)
 // for TR, +DM, -DM and DX, each seeded with its first value.

@@ -212,11 +212,11 @@ void EEA_StrategyRuntimeSlot(const EEA_StrategyCandidateRuntime &runtime,const i
    if(runtime.s07_mode!=EEA_S04_MODE_OFF && p>=s07_start)
      {
       const int j=p-s07_start;
-      // G88: 0 S07 M30 | 1-3 S07A M15/H1/H4 | 4 S07S H1 | 5 S07E M30 | 6 S07R M30 | 7 S07ES H1 | 8 S07RS H1 |
-      // 9-11 S07AS M15/M30/H4 (sell adds).
+      // G88: 0 S07 M30 | 1-3 S07A M15/H1/H4 | 4 S07S M30 | 5 S07E M30 | 6 S07R M30 | 7 S07ES M30 | 8 S07RS M30 |
+      // 9-11 S07AS M15/H1/H4 (sell adds). Both sides on the M30 base (user choice G88).
       setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : j==6 ? "S07R" : j==7 ? "S07ES" : j==8 ? "S07RS" :
              j>=9 ? "S07AS" : "S07A");
-      timeframe=(j==0 || j==5 || j==6 || j==10 ? "M30" : j==1 || j==9 ? "M15" : j==3 || j==11 ? "H4" : "H1");
+      timeframe=(j==0 || j==4 || j==5 || j==6 || j==7 || j==8 ? "M30" : j==1 || j==9 ? "M15" : j==3 || j==11 ? "H4" : "H1");
       profile="TREND";
       EEA_S07V1Config(config,setup,timeframe);
       return;

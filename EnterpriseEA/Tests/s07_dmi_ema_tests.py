@@ -201,12 +201,12 @@ class PlanAndManagementTests(unittest.TestCase):
 class WiringTests(unittest.TestCase):
     def test_inputs_default_shadow_and_only_s07_live(self):
         shell = read("EnterpriseEA.mq5")
-        for token in ("input EEA_S07ModeInput InpS07Mode       = S07_SHADOW;", "input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW;",
-                      "input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW;", 'input string InpS07Symbols              = "XAUUSD";',
+        for token in ("input EEA_S07ModeInput InpS07Mode       = S07_LIVE;", "input EEA_S07ModeInput InpS07AddMode    = S07_LIVE;",
+                      "input EEA_S07SellModeInput InpS07SellMode = S07S_LIVE;", 'input string InpS07Symbols              = "XAUUSD";',
                       "input EEA_S04ModeInput InpS04Mode       = S04_SHADOW;", "input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW;",
                       "(int)InpS07SellMode,InpS07Symbols,(int)InpS07EarlyMode,",
                       "input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_LIVE;",
-                      "input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_SHADOW;"):
+                      "input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE;"):
             self.assertIn(token, shell)
 
     def test_slots_and_modes(self):
@@ -214,7 +214,7 @@ class WiringTests(unittest.TestCase):
         slot = section(rt, "void EEA_StrategyRuntimeSlot(")
         for token in ('setup=(j==0 ? "S07" : j==4 ? "S07S" : j==5 ? "S07E" : j==6 ? "S07R" : j==7 ? "S07ES" : j==8 ? "S07RS" :',
                       'j>=9 ? "S07AS" : "S07A");',
-                      'timeframe=(j==0 || j==5 || j==6 || j==10 ? "M30" : j==1 || j==9 ? "M15" : j==3 || j==11 ? "H4" : "H1");',
+                      'timeframe=(j==0 || j==4 || j==5 || j==6 || j==7 || j==8 ? "M30" : j==1 || j==9 ? "M15" : j==3 || j==11 ? "H4" : "H1");',
                       'profile="TREND";'):
             self.assertIn(token, slot)
         self.assertIn('setup=="S07S" ? MathMin(runtime.s07_sell_mode,runtime.s07_mode)', rt)   # G88: LIVE only if chosen
@@ -297,7 +297,7 @@ class G88Tests(unittest.TestCase):
     def test_sell_family_and_entry_timeframe(self):
         shell = read("EnterpriseEA.mq5")
         for token in ("enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1, S07S_LIVE=2 };",
-                      "input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW;",
+                      "input EEA_S07SellModeInput InpS07SellMode = S07S_LIVE;",
                       "input EEA_S07EntryTfInput InpS07EntryTf = S07_ENTRY_M5;",
                       "g_s07_entry_tf=(InpS07EntryTf==S07_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);"):
             self.assertIn(token, shell)

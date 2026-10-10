@@ -61,17 +61,17 @@ enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
 input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
 input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
 enum EEA_S07ModeInput { S07_OFF=0, S07_SHADOW=1, S07_LIVE=2 };
-input EEA_S07ModeInput InpS07Mode       = S07_SHADOW; // G72 S07 DMI+EMA compression buy (M30 base): OFF, SHADOW or LIVE
-input EEA_S07ModeInput InpS07AddMode    = S07_SHADOW; // G72 S07 adds from M15/H1/H4 while the base is in profit (max 2 adds, 3 open): OFF, SHADOW or LIVE
+input EEA_S07ModeInput InpS07Mode       = S07_LIVE;   // G72 S07 DMI+EMA compression buy (M30 base): OFF, SHADOW or LIVE
+input EEA_S07ModeInput InpS07AddMode    = S07_LIVE;   // G72 S07 adds from M15/H1/H4 while the base is in profit (max 2 adds, 3 open): OFF, SHADOW or LIVE
 enum EEA_S07SellModeInput { S07S_OFF=0, S07S_SHADOW=1, S07S_LIVE=2 };
-input EEA_S07SellModeInput InpS07SellMode = S07S_SHADOW; // G72/G88 sell family (S07S H1 base, S07ES early, S07RS re-entry, S07AS adds): OFF, SHADOW or LIVE (no validated edge yet: G69-G85)
+input EEA_S07SellModeInput InpS07SellMode = S07S_LIVE; // G72/G88 sell family (S07S M30 base, S07ES early, S07RS re-entry, S07AS adds M15/H1/H4): OFF, SHADOW or LIVE (no validated sell edge: G69-G85)
 enum EEA_S07EntryTfInput { S07_ENTRY_M5=5, S07_ENTRY_M15=15 };
 input EEA_S07EntryTfInput InpS07EntryTf = S07_ENTRY_M5; // G88: entry bars of the early and re-entry engines (M5, or M15 as researched in G73/G78)
 input string InpS07Symbols              = "XAUUSD"; // G72: symbols with the S07 engines (research: XAUUSD only)
 enum EEA_S07EarlyModeInput { S07E_OFF=0, S07E_SHADOW=1, S07E_LIVE=2 };
 input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_LIVE; // G73/G87 S07E: the M30 buy rule at every closed M15 bar; shares the base slot with S07 (first trigger enters), capped by InpS07Mode
 enum EEA_S07ReentryModeInput { S07R_OFF=0, S07R_SHADOW=1, S07R_LIVE=2 };
-input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_SHADOW; // G87 S07R: re-enter within 2h after a closed S07 base when price is back in the setup (G78: negative 2021-2023, so SHADOW by default)
+input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE; // G87 S07R: re-enter within 2h after a closed S07 base when price is back in the setup (G78: negative 2021-2023; LIVE by the user's choice, G88)
 input bool   InpS07AdxExit              = true;  // G87: S07 base legs also exit on ADX >= 50 turning down (G86 X3)
 input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>EMA55>EMA100 at the signal (1.0% of 1.5%)
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
