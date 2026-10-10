@@ -66,7 +66,7 @@ class LiveLoopTests(unittest.TestCase):
                       self.loop)
         self.assertIn("c.scalp_risk_with_swing_same_side=0.5;", self.cl)
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        self.assertIn("input double InpScalpRiskWithSwingSameSide = 0.5;", shell)
+        self.assertIn("EEA_HIDDEN double InpScalpRiskWithSwingSameSide = 0.5;", shell)
         self.assertIn("MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));", shell)
 
     def test_reason_is_kept_per_candidate(self):

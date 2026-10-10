@@ -1,6 +1,21 @@
 #property strict
 #property version   "1.000"
+#ifdef EEA_S07_EDITION
+#property description "EnterpriseS07: the S07 family (XAUUSD DMI+EMA compression, buy and sell) on the EnterpriseEA core."
+#else
 #property description "Observer-first core with an explicitly armed, fail-closed paperless market-live profile."
+#endif
+
+// G94: EnterpriseS07.mq5 defines EEA_S07_EDITION and includes this file, so both editions share every
+// upgrade. In that edition the inputs of the other setups, the drill and the AI bridge become constants
+// (OFF / neutral) and leave the Inputs dialog; EEA_ED(main,s07) picks the value of each edition.
+#ifdef EEA_S07_EDITION
+   #define EEA_HIDDEN const
+   #define EEA_ED(main_value,s07_value) s07_value
+#else
+   #define EEA_HIDDEN input
+   #define EEA_ED(main_value,s07_value) main_value
+#endif
 
 #include "Core/Config.mqh"
 #include "Core/State.mqh"
@@ -40,26 +55,26 @@
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
 input bool   InpLiveTradeArmed         = false;
-input string InpDataRoot               = "EnterpriseEA";
+input string InpDataRoot               = EEA_ED("EnterpriseEA","EnterpriseS07");
 input bool   InpRuntimeEvidenceEnabled = true;
 input int    InpRuntimeRefreshSeconds  = 30;
 input int    InpHistoryLookbackDays    = 7;
-input string InpCanonicalSymbols       = "EURUSD,GBPUSD,XAUUSD,BTCUSD,USDJPY";
+input string InpCanonicalSymbols       = EEA_ED("EURUSD,GBPUSD,XAUUSD,BTCUSD,USDJPY","XAUUSD");
 input bool   InpShowSymbolPanel        = true;
 input int    InpPanelSubWindow         = 0; // OBJPROP_SUBWINDOW is represented by ObjectCreate sub_window.
-input bool   InpStrategyRuntimeEnabled=false; // S02 strategy engine (scan setups)
-input bool   InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
+input bool   InpStrategyRuntimeEnabled=EEA_ED(false,true); // strategy engine (scan setups)
+EEA_HIDDEN bool InpS02UsePrototype        = false; // S02 old prototype (keep false = v1 confluence zones)
 enum EEA_S02ModeInput { S02_OFF=0, S02_SHADOW=1, S02_LIVE=2 };
-input EEA_S02ModeInput InpS02Mode       = S02_SHADOW;   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
+EEA_HIDDEN EEA_S02ModeInput InpS02Mode       = EEA_ED(S02_SHADOW,S02_OFF);   // S02 Break Retest: OFF, SHADOW (record only) or LIVE
 enum EEA_S04ModeInput { S04_OFF=0, S04_SHADOW=1, S04_LIVE=2 };
-input EEA_S04ModeInput InpS04Mode       = S04_SHADOW; // S04 Failed Break: OFF, SHADOW (record only) or LIVE (G72: only S07 trades live)
+EEA_HIDDEN EEA_S04ModeInput InpS04Mode       = EEA_ED(S04_SHADOW,S04_OFF); // S04 Failed Break: OFF, SHADOW (record only) or LIVE (G72: only S07 trades live)
 enum EEA_S06ModeInput { S06_OFF=0, S06_SHADOW=1, S06_LIVE=2 };
-input EEA_S06ModeInput InpS06Mode       = S06_SHADOW; // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
+EEA_HIDDEN EEA_S06ModeInput InpS06Mode       = EEA_ED(S06_SHADOW,S06_OFF); // S06 Compression Expansion (SWING H1, fixed 3R): OFF, SHADOW or LIVE
 enum EEA_S06BModeInput { S06B_OFF=0, S06B_SHADOW=1, S06B_LIVE=2 };
-input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW; // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE (G72: only S07 trades live)
+EEA_HIDDEN EEA_S06BModeInput InpS06BMode     = EEA_ED(S06B_SHADOW,S06B_OFF); // S06B (24-bar box, entry on the release bar): OFF, SHADOW or LIVE (G72: only S07 trades live)
 enum EEA_T2ModeInput { T2_OFF=0, T2_SHADOW=1, T2_LIVE=2 };
-input EEA_T2ModeInput InpT2Mode         = T2_SHADOW;   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
-input string InpT2LiveSymbols           = "XAUUSD,BTCUSD"; // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
+EEA_HIDDEN EEA_T2ModeInput InpT2Mode         = EEA_ED(T2_SHADOW,T2_OFF);   // G38/G40 T2 (H4 Donchian 60, D1 EMA200 side): LIVE only after shadow matches the research
+EEA_HIDDEN string InpT2LiveSymbols           = EEA_ED("XAUUSD,BTCUSD",""); // G41: symbols T2 may trade LIVE (trend assets); others stay SHADOW
 enum EEA_S07ModeInput { S07_OFF=0, S07_SHADOW=1, S07_LIVE=2 };
 input EEA_S07ModeInput InpS07Mode       = S07_LIVE;   // G72 S07 DMI+EMA compression buy (M30 base): OFF, SHADOW or LIVE
 input EEA_S07ModeInput InpS07AddMode    = S07_LIVE;   // G72 S07 adds from M15/H1/H4 while the base is in profit (max 2 adds, 3 open): OFF, SHADOW or LIVE
@@ -77,31 +92,31 @@ input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
 enum EEA_RiskBaseInput { RISK_BASE_INITIAL=0, RISK_BASE_BALANCE=1 };
 input EEA_RiskBaseInput InpRiskBase      = RISK_BASE_INITIAL; // G91: per-trade / open caps on the initial capital (no compounding) or on max(initial, equity) (compounding)
-input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD"; // G49 (G41 assets): extra trend assets that run T2 only (no S02/S04/S06/S06B)
-input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
-input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
-input bool InpT2PyramidLive             = false; // G44: one add at +1R for a LIVE T2 trade (stop at the first entry, same target)
-input bool InpT2MomentumFilter          = true;  // G43/G44: T2 signals need a momentum close (signal bar or the bar before)
-input double InpRiskWeightS04           = 0.65;  // G43/G44: risk weight of S04 (0..1, x the risk of one trade)
-input double InpRiskWeightS06B          = 1.00;  // G43/G44: risk weight of S06B (0..1)
-input double InpRiskWeightT2            = 0.34;  // G43/G44: risk weight of T2 (0..1)
+EEA_HIDDEN string InpT2OnlySymbols           = EEA_ED("XAGUSD,ETHUSD,USOUSD",""); // G49 (G41 assets): extra trend assets that run T2 only (no S02/S04/S06/S06B)
+EEA_HIDDEN bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
+EEA_HIDDEN bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
+EEA_HIDDEN bool InpT2PyramidLive             = false; // G44: one add at +1R for a LIVE T2 trade (stop at the first entry, same target)
+EEA_HIDDEN bool InpT2MomentumFilter          = true;  // G43/G44: T2 signals need a momentum close (signal bar or the bar before)
+EEA_HIDDEN double InpRiskWeightS04           = 0.65;  // G43/G44: risk weight of S04 (0..1, x the risk of one trade)
+EEA_HIDDEN double InpRiskWeightS06B          = 1.00;  // G43/G44: risk weight of S06B (0..1)
+EEA_HIDDEN double InpRiskWeightT2            = 0.34;  // G43/G44: risk weight of T2 (0..1)
 enum EEA_ScalpModeInput { SCALP_OFF=0, SCALP_SHADOW=1, SCALP_LIVE=2 };
-input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
-input bool   InpSetupReplayEnabled      = true;   // replay S02+S04 on history (measurement only, never trades)
+EEA_HIDDEN EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW; // G26 cap for every SCALP (M5) engine: OFF, SHADOW or LIVE
+EEA_HIDDEN bool InpSetupReplayEnabled      = EEA_ED(true,false);   // replay S02+S04 on history (measurement only, never trades)
 input datetime InpSetupReplayFrom       = D'2026.01.01 00:00'; // setup replay start (UTC)
 input bool   InpResearchExportBars      = true;   // G10: export M5/H1/H4 bars to research/ for offline tuning (read-only)
 input datetime InpResearchExportFrom    = D'2023.01.01 00:00'; // G10: H1/H4 export start (SWING research on long history)
 input bool   InpResearchExportCalendar  = true;   // G53: export the MT5 economic calendar since 2010 to research/calendar/ (read-only)
 input string InpStrategyConfigVersion  = "";
-input double InpS02BreakBufferAtr      = 0.0;
-input double InpS02AcceptanceBufferAtr = 0.0;
-input double InpS02RetestToleranceAtr  = 0.0;
-input double InpS02InvalidationBufferAtr=0.0;
-input double InpS02HoldBufferAtr        = 0.0;
-input int    InpS02MaxBarsToAccept      = 0;
-input int    InpS02MaxBarsToRetest      = 0;
-input int    InpS02MaxBarsForReaction   = 0;
-input int    InpS02CandidateTtlBars     = 0;
+EEA_HIDDEN double InpS02BreakBufferAtr      = 0.0;
+EEA_HIDDEN double InpS02AcceptanceBufferAtr = 0.0;
+EEA_HIDDEN double InpS02RetestToleranceAtr  = 0.0;
+EEA_HIDDEN double InpS02InvalidationBufferAtr=0.0;
+EEA_HIDDEN double InpS02HoldBufferAtr        = 0.0;
+EEA_HIDDEN int InpS02MaxBarsToAccept      = 0;
+EEA_HIDDEN int InpS02MaxBarsToRetest      = 0;
+EEA_HIDDEN int InpS02MaxBarsForReaction   = 0;
+EEA_HIDDEN int InpS02CandidateTtlBars     = 0;
 input string InpLiveAuthorizationPath  = "";
 input int    InpSessionMaxScalpPerDay   = 6;      // session: SCALP (M5) entries per Prague day
 input int    InpSessionMaxSwingPerDay   = 2;      // session: SWING (H1) entries per Prague day
@@ -119,12 +134,12 @@ input bool   InpNewsAllowWhenUnknown    = false;  // News Guard: allow entries w
 input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // News Guard: HIGH event names to ignore (G30: no larger move than a normal hour; G57: ISM Non-Manufacturing removed, ISM Services measured x1.46 normal range, 15% shocks on the corrected calendar clock)
 input datetime InpNewsReplayFrom        = D'2026.01.01 00:00'; // News replay: measure HIGH events from this date (UTC)
 input bool   InpSentimentEnabled        = true;   // Market sentiment: reduce-only filter from cross-pair flow
-input bool   InpAiEnabled               = true;   // AI Bridge v1 (Level 0/1: reports only, never trades)
-input int    InpAiMaxCallsPerDay        = 30;     // AI Bridge: requests per local day
-input string InpAiAnalysisProvider      = "claude"; // AI Bridge: provider for news/status analysis (claude or codex)
-input string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data review (operator local time)
-input string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
-input int    InpAiPreNewsMinutes        = 45;     // AI Bridge: pre-release brief this many minutes before a HIGH cluster (0 = off)
+EEA_HIDDEN bool InpAiEnabled               = EEA_ED(true,false);   // AI Bridge v1 (Level 0/1: reports only, never trades)
+EEA_HIDDEN int InpAiMaxCallsPerDay        = 30;     // AI Bridge: requests per local day
+EEA_HIDDEN string InpAiAnalysisProvider      = "claude"; // AI Bridge: provider for news/status analysis (claude or codex)
+EEA_HIDDEN string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data review (operator local time)
+EEA_HIDDEN string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
+EEA_HIDDEN int InpAiPreNewsMinutes        = 45;     // AI Bridge: pre-release brief this many minutes before a HIGH cluster (0 = off)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 enum EEA_AccountPhaseInput { PHASE_EVALUATION=0, PHASE_FUNDED=1 };
@@ -147,15 +162,15 @@ input double InpLiveTargetRMultiple     = 0.0;
 input double InpLiveMaxSpreadPoints     = 0.0;
 input int    InpLiveQuoteFreshnessSec   = 30;
 input int    InpLiveReleaseTtlSec       = 20;
-input long   InpLiveMagic               = 888888;
+input long   InpLiveMagic               = EEA_ED(888888,707707); // G94: each edition its own magic
 input int    InpLiveDeviation           = 20;
 input int    InpLiveFillingMode         = 0;
-input double InpScalpRiskWithSwingSameSide = 0.5;  // G18: SCALP risk factor while a same-side SWING is open (1 = off)
-input bool   InpDrillEntry              = false;  // G66 D1: one live drill entry at the broker minimum volume (needs a nonce; once per nonce)
-input string InpDrillNonce              = "";     // G66 D1: unique id of the drill run (letters, digits, - and _); empty = off
-input string InpDrillSymbol             = "EURUSD"; // G66 D1: canonical symbol of the drill entry (must be a selected symbol)
+EEA_HIDDEN double InpScalpRiskWithSwingSameSide = 0.5;  // G18: SCALP risk factor while a same-side SWING is open (1 = off)
+EEA_HIDDEN bool InpDrillEntry              = false;  // G66 D1: one live drill entry at the broker minimum volume (needs a nonce; once per nonce)
+EEA_HIDDEN string InpDrillNonce              = "";     // G66 D1: unique id of the drill run (letters, digits, - and _); empty = off
+EEA_HIDDEN string InpDrillSymbol             = "EURUSD"; // G66 D1: canonical symbol of the drill entry (must be a selected symbol)
 enum EEA_DrillDirectionInput { DRILL_BUY=0, DRILL_SELL=1 };
-input EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY; // G66 D1: direction of the drill entry
+EEA_HIDDEN EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY; // G66 D1: direction of the drill entry
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -1190,6 +1205,9 @@ void EEA_PublishPanelEngineView()
             view.setup_symbol[row]=symbol; view.setup_state[row]=""; view.setup_detail[row]="";
            }
          const string setup=g_strategy_runtime.setup[i];
+#ifdef EEA_S07_EDITION
+         if(StringFind(setup,"S07")!=0) continue;
+#endif
          const string state_name=EEA_SetupStateName(setup,g_strategy_runtime.engines[i].state);
          string state=g_strategy_runtime.has_candidate[i] ?
             g_strategy_runtime.candidates[i].state+" "+g_strategy_runtime.candidates[i].direction : state_name;

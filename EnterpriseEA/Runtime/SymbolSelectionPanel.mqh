@@ -1,6 +1,21 @@
 #ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 #define ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 
+// G94: the EnterpriseS07 edition (EEA_S07_EDITION) shows its own name, no AI tab and the S07 setup column.
+#ifdef EEA_S07_EDITION
+   #define EEA_PANEL_PRODUCT_NAME   "EnterpriseS07"
+   #define EEA_PANEL_SETUP_COLUMN   "S07 setup"
+   #define EEA_PANEL_STRATEGY_LABEL "Strategy runtime (S07 family)"
+   #define EEA_PANEL_STRATEGY_STATUS "Strategy S07 / trade manager"
+   #define EEA_PANEL_DASH_TABS      6
+#else
+   #define EEA_PANEL_PRODUCT_NAME   "EnterpriseEA"
+   #define EEA_PANEL_SETUP_COLUMN   "S02 setup"
+   #define EEA_PANEL_STRATEGY_LABEL "Strategy runtime (S02/S04/S06)"
+   #define EEA_PANEL_STRATEGY_STATUS "Strategy S02/S04/S06 / trade manager"
+   #define EEA_PANEL_DASH_TABS      7
+#endif
+
 #include "ObserverRuntime.mqh"
 #include "ObserverPanelModel.mqh"
 #include "..\Market\SymbolRegistry.mqh"
@@ -894,7 +909,7 @@ void EEA_SymbolPanelCreateControls(const long chart_id,const int sub_window)
    EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"Brand",0,0,4,EEA_PANEL_HEADER_HEIGHT,
                              EEA_PANEL_ACCENT_FILL_COLOR,EEA_PANEL_ACCENT_FILL_COLOR);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Header",EEA_PANEL_MARGIN_X,7,
-                          "EnterpriseEA",EEA_PANEL_TEXT_COLOR,EEA_PANEL_TITLE_FONT_SIZE,EEA_PANEL_FONT_BOLD);
+                          EEA_PANEL_PRODUCT_NAME,EEA_PANEL_TEXT_COLOR,EEA_PANEL_TITLE_FONT_SIZE,EEA_PANEL_FONT_BOLD);
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Subheader",EEA_PANEL_MARGIN_X,29,
                           "Control center",EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE);
    EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_MAIN_PREFIX+"Btn_Collapse",EEA_PANEL_MAIN_WIDTH-40,12,28,24,
@@ -1086,6 +1101,9 @@ void EEA_SymbolPanelLoadUiState(const string data_root)
    if(view=="DASHBOARD" || view=="SETTINGS") g_panel_state.active_view=view;
    if(dash=="OVERVIEW" || dash=="MARKET" || dash=="TRADES" || dash=="RISK" || dash=="NEWS" || dash=="AI" || dash=="CALENDAR")
       g_panel_state.dashboard_tab=dash;
+#ifdef EEA_S07_EDITION
+   if(g_panel_state.dashboard_tab=="AI") g_panel_state.dashboard_tab="OVERVIEW";
+#endif
    if(settings=="RISK" || settings=="SYMBOLS" || settings=="AUTHORIZATION" || settings=="SYSTEM")
       g_panel_state.settings_tab=settings;
    g_panel_state.collapsed=StringFind(json,"\"collapsed\":true")>=0;
@@ -1616,7 +1634,7 @@ void EEA_SymbolPanelSettingsSystem(const long chart_id,EEA_ObserverRuntimeContex
                            (g_panel_engine.execution_enabled ? "ENABLED" : "EXECUTION_DISABLED")+
                            (g_panel_engine.live_armed ? " / ARMED" : " / not armed"),
                            g_panel_engine.execution_enabled ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,"Strategy runtime (S02/S04/S06)",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_Strategy",left,y+140,EEA_PANEL_STRATEGY_LABEL,
                            g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED",
                            g_panel_engine.strategy_enabled ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR);
    EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Sys_StrategyReason",right,y+140,"Strategy reason",
@@ -1674,9 +1692,14 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
   {
    EEA_SymbolPanelBeginOverlay(chart_id,"DASHBOARD");
    EEA_SymbolPanelRenderViewBase(chart_id);
-   string tabs[7]={"OVERVIEW","MARKET","TRADES","RISK","NEWS","AI","CALENDAR"};
-   string titles[7]={"Overview","Market","Trades","Risk","News","AI","Calendar"};
-   for(int t=0;t<7;t++)
+#ifdef EEA_S07_EDITION
+   string tabs[EEA_PANEL_DASH_TABS]={"OVERVIEW","MARKET","TRADES","RISK","NEWS","CALENDAR"};
+   string titles[EEA_PANEL_DASH_TABS]={"Overview","Market","Trades","Risk","News","Calendar"};
+#else
+   string tabs[EEA_PANEL_DASH_TABS]={"OVERVIEW","MARKET","TRADES","RISK","NEWS","AI","CALENDAR"};
+   string titles[EEA_PANEL_DASH_TABS]={"Overview","Market","Trades","Risk","News","AI","Calendar"};
+#endif
+   for(int t=0;t<EEA_PANEL_DASH_TABS;t++)
       EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tab_"+tabs[t],EEA_PANEL_INNER_X+t*77,
                                  EEA_PANEL_VIEW_Y,73,24,titles[t],
                                  g_panel_state.dashboard_tab==tabs[t] ? EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_GHOST,
@@ -1685,7 +1708,9 @@ void EEA_SymbolPanelRenderDashboard(const long chart_id,EEA_ObserverRuntimeConte
    else if(g_panel_state.dashboard_tab=="TRADES") EEA_SymbolPanelDashTrades(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="RISK") EEA_SymbolPanelDashRisk(chart_id,ctx);
    else if(g_panel_state.dashboard_tab=="NEWS") EEA_SymbolPanelDashNews(chart_id,ctx);
+#ifndef EEA_S07_EDITION
    else if(g_panel_state.dashboard_tab=="AI") EEA_SymbolPanelDashAi(chart_id,ctx);
+#endif
    else if(g_panel_state.dashboard_tab=="CALENDAR") EEA_SymbolPanelDashCalendar(chart_id,ctx);
    else EEA_SymbolPanelDashOverview(chart_id,ctx);
    ChartRedraw(chart_id);
@@ -1799,7 +1824,7 @@ void EEA_SymbolPanelDashOverview(const long chart_id,EEA_ObserverRuntimeContext 
                            (g_panel_engine.recovery_blocked ? "  RECOVERY BLOCKED" : ""),
                            g_panel_engine.controller_kill_active || g_panel_engine.recovery_blocked ?
                            EEA_PANEL_DANGER_COLOR : EEA_PANEL_WARNING_COLOR,40);
-   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,"Strategy S02/S04/S06 / trade manager",
+   EEA_SymbolPanelSetField(chart_id,EEA_PANEL_OVERLAY_PREFIX+"St_Strategy",left,s+124,EEA_PANEL_STRATEGY_STATUS,
                            (g_panel_engine.strategy_enabled ? "ENABLED" : "DISABLED")+
                            (g_panel_engine.trade_manager_reason=="" ? "" :
                             "  "+StringSubstr(g_panel_engine.trade_manager_reason,StringLen("TRADE_MANAGER_"))),
@@ -1873,7 +1898,7 @@ void EEA_SymbolPanelDashMarket(const long chart_id,EEA_ObserverRuntimeContext &c
    EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_SymbolTitle",EEA_PANEL_CONTENT_X,y,
                              "SELECTED SYMBOLS"+EEA_SymbolPanelSep()+"Digits: price precision"+EEA_SymbolPanelSep()+
                              "Trade mode: broker capability");
-   string labels[6]={"Symbol","Broker","Status","Digits","Trade mode","S02 setup"};
+   string labels[6]={"Symbol","Broker","Status","Digits","Trade mode",EEA_PANEL_SETUP_COLUMN};
    int xs[6]={24,104,214,330,352,452};
    bool right[6]={false,false,false,true,false,false};
    EEA_SymbolPanelTableHeader(chart_id,y+20,labels,xs,right,6);

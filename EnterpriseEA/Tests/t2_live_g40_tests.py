@@ -83,7 +83,7 @@ class LiveSymbolsTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_default_list_and_wiring(self):
-        self.assertIn('input string InpT2LiveSymbols           = "XAUUSD,BTCUSD";', self.shell)
+        self.assertIn('EEA_HIDDEN string InpT2LiveSymbols           = EEA_ED("XAUUSD,BTCUSD","");', self.shell)
         init = self.shell.index("(int)InpT2Mode,InpT2OnlySymbols,")
         self.assertLess(init, self.shell.index("g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;"))
 

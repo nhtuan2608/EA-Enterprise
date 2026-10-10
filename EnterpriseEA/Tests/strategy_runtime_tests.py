@@ -21,7 +21,7 @@ class StrategyRuntimeTests(unittest.TestCase):
             "MQL_TESTER",
         ):
             self.assertIn(token, source if token != "MQL_TESTER" else shell)
-        self.assertIn("InpStrategyRuntimeEnabled=false", shell)
+        self.assertIn("InpStrategyRuntimeEnabled=EEA_ED(false,true)", shell)
         self.assertIn('StrategyCandidateRuntime.mqh', shell)
         self.assertNotIn("OrderSend", source)
         self.assertNotIn("CTrade", source)

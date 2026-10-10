@@ -203,7 +203,7 @@ class WiringTests(unittest.TestCase):
         shell = read("EnterpriseEA.mq5")
         for token in ("input EEA_S07ModeInput InpS07Mode       = S07_LIVE;", "input EEA_S07ModeInput InpS07AddMode    = S07_LIVE;",
                       "input EEA_S07SellModeInput InpS07SellMode = S07S_LIVE;", 'input string InpS07Symbols              = "XAUUSD";',
-                      "input EEA_S04ModeInput InpS04Mode       = S04_SHADOW;", "input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW;",
+                      "EEA_HIDDEN EEA_S04ModeInput InpS04Mode       = EEA_ED(S04_SHADOW,S04_OFF);", "EEA_HIDDEN EEA_S06BModeInput InpS06BMode     = EEA_ED(S06B_SHADOW,S06B_OFF);",
                       "(int)InpS07SellMode,InpS07Symbols,(int)InpS07EarlyMode,",
                       "input EEA_S07EarlyModeInput InpS07EarlyMode = S07E_LIVE;",
                       "input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE;"):
@@ -386,6 +386,43 @@ class G91Tests(unittest.TestCase):
         for token in ("MathMin(equity,g_initial_capital)", "if(InpBlockOpposite && LegsOpen(-dir)>0)",
                       "spread/point>2.0*median", "if(spread>0.25*dist)", "CopyRates(_Symbol,PERIOD_M5,1,288,r)"):
             self.assertIn(token, src)
+
+
+class G94EditionTests(unittest.TestCase):
+    def test_edition_is_the_main_ea_compiled_with_a_flag(self):
+        src = read("EnterpriseS07.mq5")
+        code = [l for l in src.splitlines() if l.strip() and not l.strip().startswith("//")]
+        self.assertEqual(code, ['#define EEA_S07_EDITION', '#include "EnterpriseEA.mq5"'])
+
+    def test_other_setups_drill_and_ai_are_constants_off_in_the_edition(self):
+        ea = read("EnterpriseEA.mq5")
+        self.assertIn("#define EEA_HIDDEN const", ea)
+        self.assertIn("#define EEA_HIDDEN input", ea)
+        for name, off in (("InpS02Mode", "S02_OFF"), ("InpS04Mode", "S04_OFF"), ("InpS06Mode", "S06_OFF"),
+                          ("InpS06BMode", "S06B_OFF"), ("InpT2Mode", "T2_OFF"), ("InpAiEnabled", "false"),
+                          ("InpSetupReplayEnabled", "false"), ("InpT2OnlySymbols", '""')):
+            line = next(l for l in ea.splitlines() if f" {name} " in l and "=" in l and l.startswith(("input", "EEA_HIDDEN")))
+            self.assertTrue(line.startswith("EEA_HIDDEN"), line)
+            self.assertIn(f",{off});", line)
+        for name in ("InpDrillEntry", "InpDrillNonce", "InpAiMaxCallsPerDay", "InpS02BreakBufferAtr", "InpRiskWeightT2"):
+            self.assertRegex(ea, rf"(?m)^EEA_HIDDEN \w+\s+{name}\b")
+        # S07, risk, session, News Guard and sentiment stay in the Inputs dialog of both editions
+        for name in ("InpS07Mode", "InpS07SellMode", "InpS07EntryTf", "InpRiskBase", "InpNewsGuardEnabled",
+                     "InpSentimentEnabled", "InpEvalRiskPercent", "InpObserverOnly", "InpLiveTradeArmed"):
+            self.assertRegex(ea, rf"(?m)^input \w+\s+{name}\b")
+        self.assertIn('InpDataRoot               = EEA_ED("EnterpriseEA","EnterpriseS07");', ea)
+        self.assertIn("InpLiveMagic               = EEA_ED(888888,707707);", ea)
+        # safe defaults are shared: observer only, execution off, not armed
+        self.assertIn("input bool   InpObserverOnly           = true;", ea)
+        self.assertIn("input bool   InpLiveTradeArmed         = false;", ea)
+
+    def test_edition_panel_has_no_ai_tab_and_lists_s07_only(self):
+        panel = read("Runtime/SymbolSelectionPanel.mqh")
+        self.assertIn('#define EEA_PANEL_PRODUCT_NAME   "EnterpriseS07"', panel)
+        self.assertIn('string tabs[EEA_PANEL_DASH_TABS]={"OVERVIEW","MARKET","TRADES","RISK","NEWS","CALENDAR"};', panel)
+        self.assertIn('#ifndef EEA_S07_EDITION\n   else if(g_panel_state.dashboard_tab=="AI")', panel)
+        ea = read("EnterpriseEA.mq5")
+        self.assertIn('#ifdef EEA_S07_EDITION\n         if(StringFind(setup,"S07")!=0) continue;\n#endif', ea)
 
 
 class EarlyTests(unittest.TestCase):

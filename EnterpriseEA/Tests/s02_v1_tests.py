@@ -316,7 +316,7 @@ class RuntimeWiringTests(unittest.TestCase):
 
     def test_shell_defaults_to_v1_and_panel_shows_zone_detail(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        self.assertIn("input bool   InpS02UsePrototype        = false;", shell)
+        self.assertIn("EEA_HIDDEN bool InpS02UsePrototype        = false;", shell)
         self.assertIn("EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,", shell)
         self.assertIn("view.setup_detail[row]", shell)
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")

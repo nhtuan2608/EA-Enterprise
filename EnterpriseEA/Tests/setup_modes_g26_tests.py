@@ -19,11 +19,11 @@ class DefaultsTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_recommended_defaults(self):
-        for token in ("input EEA_S02ModeInput InpS02Mode       = S02_SHADOW;",
-                      "input EEA_S04ModeInput InpS04Mode       = S04_SHADOW;",
-                      "input EEA_S06ModeInput InpS06Mode       = S06_SHADOW;",
-                      "input EEA_S06BModeInput InpS06BMode     = S06B_SHADOW;",
-                      "input EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW;"):
+        for token in ("EEA_HIDDEN EEA_S02ModeInput InpS02Mode       = EEA_ED(S02_SHADOW,S02_OFF);",
+                      "EEA_HIDDEN EEA_S04ModeInput InpS04Mode       = EEA_ED(S04_SHADOW,S04_OFF);",
+                      "EEA_HIDDEN EEA_S06ModeInput InpS06Mode       = EEA_ED(S06_SHADOW,S06_OFF);",
+                      "EEA_HIDDEN EEA_S06BModeInput InpS06BMode     = EEA_ED(S06B_SHADOW,S06B_OFF);",
+                      "EEA_HIDDEN EEA_ScalpModeInput InpScalpMode   = SCALP_SHADOW;"):
             self.assertIn(token, self.shell)
 
     def test_ai_review_not_requeued_on_reinit(self):

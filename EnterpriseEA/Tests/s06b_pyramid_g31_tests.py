@@ -18,7 +18,7 @@ class ShellTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_off_by_default(self):
-        self.assertIn("input bool InpS06BPyramidLive           = false;", self.shell)
+        self.assertIn("EEA_HIDDEN bool InpS06BPyramidLive           = false;", self.shell)
         self.assertIn("g_s06b_pyramid_live=InpS06BPyramidLive;", self.shell)
         self.assertIn('#include "Integration/S06BPyramidRuntime.mqh"', self.shell)
 
