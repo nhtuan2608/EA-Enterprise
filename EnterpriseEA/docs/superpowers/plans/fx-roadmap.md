@@ -14,4 +14,4 @@ Mã **FXnn** dành riêng cho nghiên cứu FX, tách khỏi dãy **Gnn** (vàng
 
 | Mã | Nội dung | Trạng thái |
 |---|---|---|
-| FX01 | Vào lệnh theo USD (test lại đỉnh/đáy, phá cấu trúc), vùng cung/cầu, lực đẩy sau tin; lệnh limit, giờ tròn; M15/M30/H1 | đang chạy — `plans/2026-10-11-fx01-usd-led-limit.md` |
+| FX01 | Vào lệnh theo USD (test lại đỉnh/đáy, phá cấu trúc), vùng cung/cầu, lực đẩy sau tin; lệnh limit, giờ tròn; M15/M30/H1 | ❌ 11/10 cả 12 ô âm mọi kỳ, kể cả trước phí. Limit tệ hơn thị trường với tín hiệu theo nến (chọn lọc ngược), tốt hơn với vùng cung/cầu nhưng vẫn âm. `reports/2026-10-11-fx01-usd-led-limit.md` |
