@@ -332,6 +332,39 @@ class TesterEaTests(unittest.TestCase):
             self.assertIn(token, src)
 
 
+class G91Tests(unittest.TestCase):
+    def test_compounding_option(self):
+        risk = read("Risk/RiskLimitsProfile.mqh")
+        self.assertIn("bool g_risk_compound=false;", risk)
+        self.assertIn("return MathMax(initial_capital,equity);", risk)
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        for token in ("const double capital=EEA_RiskCapitalBasis(ledger.initial_capital,observer.account.equity);",
+                      "p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*capital,loss_room);",
+                      "p.portfolio_cap_money=limits.total_open_fraction*capital;"):
+            self.assertIn(token, live)
+        # the loss floors stay on the initial capital
+        self.assertIn("limits.internal_daily_fraction*ledger.initial_capital", live)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("input EEA_RiskBaseInput InpRiskBase      = RISK_BASE_INITIAL;", shell)
+        self.assertIn("g_risk_compound=(InpRiskBase==RISK_BASE_BALANCE);", shell)
+
+    def test_context_survives_a_restart(self):
+        s07 = read("Setups/DmiEmaCompression.mqh")
+        for token in ("void EEA_S07ContextSave()", "void EEA_S07ContextLoad()", 'if(g_s07_ctx_path=="") return;'):
+            self.assertIn(token, s07)
+        rec = section(s07, "void EEA_S07ContextRecordClose(")
+        self.assertIn("EEA_S07ContextSave();", rec)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn('g_s07_ctx_path=InpDataRoot+"/current/s07_context.csv";', shell)
+        self.assertIn("EEA_S07ContextLoad();", shell)
+
+    def test_tester_mirrors_live_sizing_opposite_and_spread(self):
+        src = read("S07Tester.mq5")
+        for token in ("MathMin(equity,g_initial_capital)", "if(InpBlockOpposite && LegsOpen(-dir)>0)",
+                      "spread/point>2.0*median", "if(spread>0.25*dist)", "CopyRates(_Symbol,PERIOD_M5,1,288,r)"):
+            self.assertIn(token, src)
+
+
 class EarlyTests(unittest.TestCase):
     def test_full_bar_equals_signal_at(self):
         bars = synthetic(1500, seed=5)

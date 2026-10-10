@@ -637,8 +637,9 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    if(EEA_S07IsBaseSetup(strategy.setup[index]) && StringFind(engine.candidate.reason_code,"_RB3")<0)
       weight*=MathMax(0.0,MathMin(1.0,g_s07_unordered_weight));
    p.base_risk_fraction=limits.per_trade_fraction*htf*weight;
-   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room);
-   p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
+   const double capital=EEA_RiskCapitalBasis(ledger.initial_capital,observer.account.equity);   // G91
+   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*capital,loss_room);
+   p.portfolio_cap_money=limits.total_open_fraction*capital;
    p.portfolio_cap_includes_existing=true;
    p.invalidation_price=invalidation;
    p.target_price=target;
@@ -648,12 +649,12 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.minimum_net_rr=swing ? 2.0 : 1.5;
    p.cost_per_lot_money=cost;
    p.cost_estimated=!learned;
-   p.currency_cap_money=limits.currency_exposure_fraction*ledger.initial_capital;
+   p.currency_cap_money=limits.currency_exposure_fraction*capital;
    p.max_correlated_trades=limits.max_correlated_trades;
    if(s07)
      {
       // G72 D3: up to EEA_S07_MAX_OPEN_LEGS S07 trades on one symbol (base + adds) at the full risk each.
-      p.currency_cap_money=MathMax(p.currency_cap_money,EEA_S07_MAX_OPEN_LEGS*limits.per_trade_fraction*weight*ledger.initial_capital);
+      p.currency_cap_money=MathMax(p.currency_cap_money,EEA_S07_MAX_OPEN_LEGS*limits.per_trade_fraction*weight*capital);
       p.max_correlated_trades=MathMax(p.max_correlated_trades,EEA_S07_MAX_OPEN_LEGS);
      }
    p.min_margin_level_percent=limits.min_margin_level_percent;

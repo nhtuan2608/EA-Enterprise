@@ -17,7 +17,11 @@
 
 enum S07T_EntryTf { S07T_ENTRY_M5=5, S07T_ENTRY_M15=15 };
 
-input double InpRiskPercent       = 1.5;   // Risk per trade, % of balance
+enum S07T_RiskBase { S07T_RISK_INITIAL=0, S07T_RISK_BALANCE=1 };
+input double InpRiskPercent       = 1.5;   // Risk per trade, %
+input S07T_RiskBase InpRiskBase   = S07T_RISK_INITIAL; // INITIAL: % of min(equity, initial deposit) like the live EA (no compounding); BALANCE: % of equity (compounding)
+input bool   InpBlockOpposite     = true;  // Like the live EA: no buy while a sell is open and the reverse
+input bool   InpSpreadFilter      = true;  // Like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
 input bool   InpBuy               = true;  // Buy family (S07, S07E, S07R, S07A)
 input bool   InpSell              = true;  // Sell family (S07S, S07ES, S07RS, S07AS)
 input bool   InpEarly             = true;  // Early entries (S07E / S07ES)
@@ -75,6 +79,24 @@ struct S07TContext
   };
 
 CTrade     g_trade;
+double     g_initial_capital=0.0;
+int        g_block_opposite=0, g_block_spread=0;
+
+// Median spread of the last 288 closed M5 bars in points (EEA_MedianSpreadPoints of the live EA).
+double MedianSpreadPoints()
+  {
+   MqlRates r[];
+   const int n=CopyRates(_Symbol,PERIOD_M5,1,288,r);
+   if(n<=0) return 0.0;
+   double v[];
+   ArrayResize(v,n);
+   int used=0;
+   for(int i=0;i<n;i++) if(r[i].spread>0) v[used++]=(double)r[i].spread;
+   if(used==0) return 0.0;
+   ArrayResize(v,used);
+   ArraySort(v);
+   return (used%2==1) ? v[used/2] : 0.5*(v[used/2-1]+v[used/2]);
+  }
 S07TFrame  g_m30, g_m15, g_h1, g_h4f, g_h4;   // g_h4: H4 EMA200 side only; g_h4f: H4 adds
 double     g_h4_ema[];
 S07TLeg    g_legs[S07T_MAX_LEGS];
@@ -176,7 +198,9 @@ void SyncLegs()
 
 double VolumeFor(const int dir,const double entry,const double stop,const double weight)
   {
-   const double money=AccountInfoDouble(ACCOUNT_BALANCE)*InpRiskPercent/100.0*MathMax(0.0,MathMin(1.0,weight));
+   const double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   const double basis=(InpRiskBase==S07T_RISK_BALANCE ? equity : MathMin(equity,g_initial_capital));
+   const double money=basis*InpRiskPercent/100.0*MathMax(0.0,MathMin(1.0,weight));
    double loss=0.0;
    if(!OrderCalcProfit(dir==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,_Symbol,1.0,entry,stop,loss) || loss>=0.0) return 0.0;
    const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
@@ -192,6 +216,7 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
   {
    if(atr<=0.0 || anchor<=0.0) return false;
    const int s=Side(dir);
+   if(InpBlockOpposite && LegsOpen(-dir)>0) { g_block_opposite++; return false; }
    if(LegsOpen(dir)>=EEA_S07_MAX_OPEN_LEGS) return false;
    const int b=BaseIndex(dir);
    if(base)
@@ -213,6 +238,14 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
    double dist=dir*(price-stop);
    if(dist<=0.0 || dist>EEA_S07_STOP_MAX_ATR*atr) return false;
    if(dist<EEA_S07_STOP_MIN_ATR*atr) { dist=EEA_S07_STOP_MIN_ATR*atr; stop=price-dir*dist; }
+   if(InpSpreadFilter)
+     {
+      const double spread=SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      const double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+      const double median=MedianSpreadPoints();
+      if(median>0.0 && point>0.0 && spread/point>2.0*median) { g_block_spread++; return false; }
+      if(spread>0.25*dist) { g_block_spread++; return false; }
+     }
    const double target=price+dir*EEA_S07_TARGET_R*dist;
    double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight);
    const double vol=VolumeFor(dir,price,stop,weight);
@@ -376,6 +409,7 @@ int OnInit()
    FrameInit(g_m30,PERIOD_M30,"M30"); FrameInit(g_m15,PERIOD_M15,"M15");
    FrameInit(g_h1,PERIOD_H1,"H1"); FrameInit(g_h4f,PERIOD_H4,"H4"); FrameInit(g_h4,PERIOD_H4,"H4");
    g_trade.SetExpertMagicNumber(InpMagic);
+   g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    g_trade.SetDeviationInPoints(20);
    for(int s=0;s<2;s++) { g_ctx[s].valid=false; g_base_free[s]=0; g_early_bucket[s]=0; }
    g_nlegs=0;
@@ -395,4 +429,9 @@ void OnTick()
    if(FrameRefresh(g_h1))  { ManageLegs(g_h1);  AddsOnClose(g_h1); }
    if(FrameRefresh(g_h4f)) { ManageLegs(g_h4f); AddsOnClose(g_h4f); }
    EntryBarEngines();
+  }
+
+void OnDeinit(const int reason)
+  {
+   PrintFormat("S07Tester: blocked by an open opposite side %d, by the spread filter %d",g_block_opposite,g_block_spread);
   }

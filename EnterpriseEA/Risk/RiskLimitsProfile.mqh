@@ -84,6 +84,15 @@ double g_risk_weight_s06b=1.0;
 double g_risk_weight_t2=1.0;
 double g_risk_weight_s07a=1.0;          // G87: S07A adds (research G86: 1.0% of the 1.5% base risk)
 double g_s07_unordered_weight=1.0;      // G87: S07 base without the ordered-ribbon label
+// G91: risk basis. false = initial capital (per-trade / open / currency caps never grow: no compounding);
+// true = max(initial capital, equity): the caps grow with the account (compounding). The loss floors
+// (daily, weekly, overall) stay on the initial capital either way.
+bool g_risk_compound=false;
+double EEA_RiskCapitalBasis(const double initial_capital,const double equity)
+  {
+   if(!g_risk_compound || !MathIsValidNumber(equity) || equity<=0.0) return initial_capital;
+   return MathMax(initial_capital,equity);
+  }
 
 double EEA_SetupRiskWeight(const string setup)
   {

@@ -95,7 +95,7 @@ class SourceTests(unittest.TestCase):
         self.assertIn("double weight=EEA_SetupRiskWeight(strategy.setup[index]);", live)
         self.assertIn("weight*=MathMax(0.0,MathMin(1.0,g_s07_unordered_weight));", live)   # G87: only lowers
         self.assertIn("p.base_risk_fraction=limits.per_trade_fraction*htf*weight;", live)
-        self.assertIn("MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room)", live)
+        self.assertIn("MathMin(limits.per_trade_fraction*weight*capital,loss_room)", live)
         add = read("Integration/S06BPyramidRuntime.mqh")
         self.assertIn("const double weight=EEA_SetupRiskWeight(setup);", add)
         self.assertIn("p.base_risk_fraction=limits.per_trade_fraction*weight;", add)

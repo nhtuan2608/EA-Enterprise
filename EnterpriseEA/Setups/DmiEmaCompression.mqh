@@ -217,6 +217,45 @@ struct EEA_S07Context
   };
 EEA_S07Context g_s07_ctx[EEA_S07_CTX_MAX];
 int g_s07_ctx_count=0;
+// G91: the live EA sets this path (data root/current/s07_context.csv) so the re-entry window survives a
+// restart; empty (the Strategy Tester EA) keeps the context in memory only.
+string g_s07_ctx_path="";
+
+void EEA_S07ContextSave()
+  {
+   if(g_s07_ctx_path=="") return;
+   const int h=FileOpen(g_s07_ctx_path,FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) return;
+   FileWriteString(h,"symbol;direction;entry_utc;closed_utc;cause;stop_ref;target_hit;used\r\n");
+   for(int i=0;i<g_s07_ctx_count;i++)
+      FileWriteString(h,g_s07_ctx[i].symbol+";"+IntegerToString(g_s07_ctx[i].direction)+";"+
+                      IntegerToString(g_s07_ctx[i].entry_utc)+";"+IntegerToString(g_s07_ctx[i].closed_utc)+";"+
+                      g_s07_ctx[i].cause+";"+DoubleToString(g_s07_ctx[i].stop_ref,8)+";"+
+                      (g_s07_ctx[i].target_hit ? "1" : "0")+";"+(g_s07_ctx[i].used ? "1" : "0")+"\r\n");
+   FileClose(h);
+  }
+
+void EEA_S07ContextLoad()
+  {
+   g_s07_ctx_count=0;
+   if(g_s07_ctx_path=="" || !FileIsExist(g_s07_ctx_path)) return;
+   const int h=FileOpen(g_s07_ctx_path,FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) return;
+   bool header=true;
+   while(!FileIsEnding(h) && g_s07_ctx_count<EEA_S07_CTX_MAX)
+     {
+      string line=FileReadString(h);
+      if(header) { header=false; continue; }
+      string f[];
+      if(StringSplit(line,';',f)!=8) continue;
+      const int k=g_s07_ctx_count++;
+      g_s07_ctx[k].symbol=f[0]; g_s07_ctx[k].direction=(int)StringToInteger(f[1]);
+      g_s07_ctx[k].entry_utc=StringToInteger(f[2]); g_s07_ctx[k].closed_utc=StringToInteger(f[3]);
+      g_s07_ctx[k].cause=f[4]; g_s07_ctx[k].stop_ref=StringToDouble(f[5]);
+      g_s07_ctx[k].target_hit=(f[6]=="1"); g_s07_ctx[k].used=(f[7]=="1");
+     }
+   FileClose(h);
+  }
 
 int EEA_S07ContextFind(const string symbol,const int direction)
   {
@@ -236,12 +275,13 @@ void EEA_S07ContextRecordClose(const string symbol,const int direction,const lon
    g_s07_ctx[k].symbol=symbol; g_s07_ctx[k].direction=direction; g_s07_ctx[k].entry_utc=entry_utc;
    g_s07_ctx[k].closed_utc=closed_utc; g_s07_ctx[k].cause=cause; g_s07_ctx[k].stop_ref=stop_ref;
    g_s07_ctx[k].target_hit=target_hit; g_s07_ctx[k].used=false;
+   EEA_S07ContextSave();
   }
 
 void EEA_S07ContextMarkUsed(const string symbol,const int direction)
   {
    const int k=EEA_S07ContextFind(symbol,direction);
-   if(k>=0) g_s07_ctx[k].used=true;
+   if(k>=0) { g_s07_ctx[k].used=true; EEA_S07ContextSave(); }
   }
 
 // Provisional DMI / ATR / EMAs of a forming bar after the closed bar q (G73 formulas), no setup rules.

@@ -75,6 +75,8 @@ input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE; // G87 S07R: re-ent
 input bool   InpS07AdxExit              = true;  // G87: S07 base legs also exit on ADX >= 50 turning down (G86 X3)
 input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>EMA55>EMA100 at the signal (1.0% of 1.5%)
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
+enum EEA_RiskBaseInput { RISK_BASE_INITIAL=0, RISK_BASE_BALANCE=1 };
+input EEA_RiskBaseInput InpRiskBase      = RISK_BASE_INITIAL; // G91: per-trade / open caps on the initial capital (no compounding) or on max(initial, equity) (compounding)
 input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD"; // G49 (G41 assets): extra trend assets that run T2 only (no S02/S04/S06/S06B)
 input bool InpS06BRequireUsdFlow        = true;  // G29: S06B LIVE enters only with the USD flow (logged for every candidate)
 input bool InpS06BPyramidLive           = false; // G31: one add at +1R for a LIVE S06B trade (stop at break-even, same target)
@@ -1287,7 +1289,10 @@ int OnInit()
    g_s07_unordered_weight=InpS07UnorderedRiskWeight;
    g_s07_adx_exit=InpS07AdxExit;
    g_s07_entry_tf=(InpS07EntryTf==S07_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
+   g_risk_compound=(InpRiskBase==RISK_BASE_BALANCE);
    g_config.data_root=InpDataRoot;
+   g_s07_ctx_path=InpDataRoot+"/current/s07_context.csv";    // G91: the S07 re-entry context survives a restart
+   EEA_S07ContextLoad();
    if(!EAConfig_Validate(g_config))
      {
       Print("INIT_PARAMETERS_INCORRECT: EAConfig_Validate failed; check InpDataRoot and core configuration.");
