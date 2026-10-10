@@ -20,7 +20,7 @@ import g89_full_book as m  # noqa: E402
 OUT = m.REPORT.parent / "img" / "g89_curve.png"
 DEPOSIT = 10_000.0
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
-S1, S2 = "#2a78d6", "#eb6834"          # reference categorical slots 1, 2
+S1, S2, S3, S4 = "#2a78d6", "#eb6834", "#1baf7a", "#eda100"   # reference categorical slots 1-4
 
 
 def series(variant):
@@ -63,21 +63,24 @@ def style(ax):
 
 def main():
     full = series(dict(sides=(1, -1), early=True, re=True, adds=True))
+    buy = series(dict(sides=(1,), early=True, re=True, adds=True))
     core = series(dict(sides=(1,), early=False, re=False, adds=True))
+    sell = series(dict(sides=(-1,), early=True, re=True, adds=True))
     fig, axes = plt.subplots(4, 1, figsize=(15, 11), sharex=True, gridspec_kw=dict(height_ratios=[3, 2, 1.4, 1.1]))
     fig.patch.set_facecolor(SURFACE)
-    names = ("Đầy đủ (mua + bán, vào sớm, vào lại, bồi)", "Chỉ mua, lõi (gốc + bồi)")
+    curves = ((full, S1, "Đầy đủ (mua + bán, vào sớm, vào lại, bồi)"),
+              (buy, S2, "Chỉ mua (vào sớm, vào lại, bồi)"),
+              (core, S3, "Chỉ mua, lõi (gốc + bồi)"),
+              (sell, S4, "Chỉ bán (vào sớm, vào lại, bồi)"))
     for ax in axes:
         style(ax)
     # balance, linear (like the MT5 tester) and log
-    for k, (s, col, name) in enumerate(((full, S1, names[0]), (core, S2, names[1]))):
+    for k, (s, col, name) in enumerate(curves):
         t, bal, dd, _ = s
         x = dt(t)
-        axes[0].step(x, bal, where="post", color=col, linewidth=2, label=name)
+        axes[0].step(x, bal, where="post", color=col, linewidth=2, label=f"{name} — cuối {bal[-1]:,.0f} USD")
         axes[1].step(x, bal, where="post", color=col, linewidth=2)
         axes[2].step(x, dd, where="post", color=col, linewidth=1.6)
-        axes[0].annotate(f"{bal[-1]:,.0f}", (x[-1], bal[-1]), xytext=(6, 0), textcoords="offset points",
-                         color=INK, fontsize=9, va="center")
     axes[0].set_title("S07 — mô phỏng 10 năm (XAUUSD, 10/2016 – 10/2026), vốn 10.000 USD, rủi ro 1,5% × trọng số, chi phí khắt khe",
                       loc="left", color=INK, fontsize=12, pad=10)
     axes[0].set_ylabel("Balance (USD)", color=INK2)
