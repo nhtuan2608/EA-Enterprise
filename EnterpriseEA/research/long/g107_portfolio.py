@@ -9,6 +9,7 @@ Bots (risk on the initial 10,000, no compounding, like InpRiskBase=INITIAL):
   S07   S07Tester full family (G89 port: base S07/S07S, early, re-entry, adds), 1.5% x weight; harsh G68 costs
   XRT   XauRegimeTester set A (D1 EMA50 + 10-day slope, buy only, market at the open, stop 3 ATR20 D1,
         exit when the regime turns off or a D1 close 3 ATR below the best close), 1.5%; spread 0.30 USD
+  BOX   CtxBoxTester M30 (G106: context switch on, BOX hold on H4, buy and sell, one per side), 1.5%; bar spread
   CTX   CtxLimitTester gold_limit (MKT04 plan L with the S07 gates and weights; walk-forward forecasts, so every
         trade from 2020 is out of sample for its model), 0.5% x weight
 Window: 2020-01-01 .. 2026-10-09 (CTX forecasts start 2020). Equity marks open S07 and XRT positions at bar closes;
@@ -97,6 +98,34 @@ def xrt_legs():
     return rows
 
 
+# ------------------------------------------------------------------------------------------------- BOX
+def box_legs(tf="M30"):
+    """CtxBoxTester (G106): context switch on + BOX hold on the higher TF, buy and sell, 1.5%, one per side."""
+    import g106_ctx_box as gb
+    m = gb.load(tf)
+    S = gb.Sim(m)
+    ts = m["ts"].to_numpy()
+    rows = []
+    for d in (-1, 1):
+        ctx = gb.context(m, d)
+        sw = ctx & ~np.concatenate([[False], ctx[:-1]])
+        free = 0
+        for i in np.flatnonzero(sw):
+            if i < free:
+                continue
+            res = S.run(i, d)
+            if res is None:
+                continue
+            r, jx, why = res
+            entry = S.o[i + 1] + (S.sp[i + 1] if d == 1 else 0.0)
+            stop = (S.ll16[i] - 0.1 * S.atr[i]) if d == 1 else (S.hh16[i] + 0.1 * S.atr[i])
+            rows.append(dict(bot="BOX", d=d, t_in=pd.Timestamp(ts[i]), t_out=pd.Timestamp(ts[jx]), r=r,
+                             money=CAPITAL * 0.015, U=pd.to_datetime(ts[i + 1:jx + 1]), C=S.c[i + 1:jx + 1],
+                             entry=entry, risk=d * (entry - stop)))
+            free = jx + 1
+    return rows
+
+
 # ------------------------------------------------------------------------------------------------- CTX
 def ctx_legs():
     import mkt03_context as m3
@@ -123,7 +152,7 @@ def ctx_legs():
 
 def curves(legs):
     days = pd.date_range(START, END, freq="D")
-    realized = {b: np.zeros(len(days)) for b in ("S07", "XRT", "CTX")}
+    realized = {b: np.zeros(len(days)) for b in ("S07", "XRT", "CTX", "BOX")}
     openpnl = np.zeros(len(days))
     for L in legs:
         if L["t_out"] < START or L["t_in"] >= END:
@@ -155,7 +184,7 @@ def stats(days, eq):
 
 
 def main():
-    legs = s07_legs() + xrt_legs() + ctx_legs()
+    legs = s07_legs() + xrt_legs() + ctx_legs() + box_legs("M30")
     legs = [L for L in legs if START <= L["t_in"] < END]
     days, balance, equity, per = curves(legs)
     import matplotlib
@@ -166,13 +195,13 @@ def main():
     st = stats(days, equity)
     ax[0].plot(days, equity, color="#2a6fdb", lw=1.0, label=f"Equity chung (cuối {equity[-1]:,.0f} USD)")
     ax[0].plot(days, balance, color="#1b1b1b", lw=1.4, label=f"Balance chung (cuối {balance[-1]:,.0f} USD)")
-    colors = {"S07": "#e07b00", "XRT": "#2e9d57", "CTX": "#9b4dca"}
-    names = {"S07": "S07Tester", "XRT": "XauRegimeTester", "CTX": "CtxLimitTester"}
+    colors = {"S07": "#e07b00", "XRT": "#2e9d57", "CTX": "#9b4dca", "BOX": "#c2185b"}
+    names = {"S07": "S07Tester", "XRT": "XauRegimeTester", "CTX": "CtxLimitTester", "BOX": "CtxBoxTester M30"}
     for b, v in per.items():
         ax[0].plot(days, v, color=colors[b], lw=0.9, alpha=0.85, label=f"{names[b]} riêng (cuối {v[-1]:,.0f})")
     ax[0].axhline(CAPITAL, color="#999", lw=0.6, ls="--")
     ax[0].set_ylabel("USD")
-    ax[0].set_title(f"3 bot trên một tài khoản 10.000 USD, XAUUSD, 01/2020 – 10/2026 · "
+    ax[0].set_title(f"4 bot trên một tài khoản 10.000 USD, XAUUSD, 01/2020 – 10/2026 · "
                     f"{st['cagr'] * 100:+.0f}%/năm, sụt equity lớn nhất {st['maxdd'] * 100:.0f}%")
     ax[0].legend(loc="upper left", fontsize=9)
     ax[0].grid(alpha=0.3)
@@ -181,7 +210,7 @@ def main():
     ax[1].set_ylabel("Sụt equity %")
     ax[1].grid(alpha=0.3)
     fig.tight_layout()
-    out = IMG / "g107_portfolio.png"
+    out = IMG / "g107_portfolio_4bots.png"
     fig.savefig(out, dpi=130)
     print("saved", out)
     print("combined:", {k: (round(v, 3) if isinstance(v, float) else v) for k, v in st.items()})
