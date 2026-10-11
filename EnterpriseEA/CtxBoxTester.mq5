@@ -49,6 +49,7 @@ CTrade   g_trade;
 double   g_initial_capital=0.0;
 int      g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
 int      g_entries=0, g_exit_level=0;
+int      g_too_small=0;              // entries skipped: the risk budget is below the minimum volume
 
 // --- News Guard and sentiment: the S07Tester (G91) implementation --------------------------------------------
 long   g_news_t[];
@@ -272,7 +273,17 @@ double VolumeFor(const int dir,const double entry,const double stop,const double
    const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
    const double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN), vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
    double v=MathFloor(money/(-loss)/step+1e-9)*step;
-   if(v<vmin) return 0.0;
+   if(v<vmin)
+     {
+      // the risk budget buys less than the minimum volume (small deposit, wide stop, or the tester's
+      // "profit in pips" mode, where OrderCalcProfit returns points instead of money)
+      g_too_small++;
+      if(g_too_small==1)
+         PrintFormat("%s: risk %.2f buys %.4f lots < minimum %.2f (stop %.2f away, loss per lot %.2f). "
+                     "Use money profit (not pips) in the tester, a larger deposit or a higher risk %%.",
+                     "CtxBoxTester",money,money/(-loss),vmin,MathAbs(entry-stop),-loss);
+      return 0.0;
+     }
    return MathMin(v,vmax);
   }
 
@@ -454,6 +465,7 @@ void OnTick()
 
 void OnDeinit(const int reason)
   {
+   if(g_too_small>0) PrintFormat("CtxBoxTester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("CtxBoxTester %s: entries %d, level exits %d; blocked by opposite %d, spread %d, news %d, sentiment %d; sentiment-reduced %d; news break-evens %d",
                EnumToString(EntryTf()),g_entries,g_exit_level,g_block_opposite,g_block_spread,g_block_news,g_block_sent,
                g_sent_reduced,g_news_be);
