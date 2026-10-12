@@ -440,6 +440,7 @@ void NewsBreakEven()
 int OnInit()
   {
    g_trade.SetExpertMagicNumber(InpMagic);
+   g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
    g_trade.SetDeviationInPoints(20);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    for(int s=0;s<2;s++) g_leg[s].open=false;

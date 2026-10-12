@@ -410,9 +410,12 @@ bool PlaceEntry()
      }
    else
      {
-      const datetime expiry=(datetime)(iTime(_Symbol,PERIOD_D1,0)+86400-60);
-      ok=(dir==1 ? g_trade.BuyLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,ORDER_TIME_SPECIFIED,expiry,"XRT")
-                 : g_trade.SellLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,ORDER_TIME_SPECIFIED,expiry,"XRT"));
+      // brokers without dated expiry (common on cent accounts) get a GTC order; OnNewDay deletes it anyway
+      const bool dated=((SymbolInfoInteger(_Symbol,SYMBOL_EXPIRATION_MODE)&SYMBOL_EXPIRATION_SPECIFIED)!=0);
+      const ENUM_ORDER_TYPE_TIME tt=(dated ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC);
+      const datetime expiry=(dated ? (datetime)(iTime(_Symbol,PERIOD_D1,0)+86400-60) : 0);
+      ok=(dir==1 ? g_trade.BuyLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT")
+                 : g_trade.SellLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT"));
       if(ok) { g_pending=g_trade.ResultOrder(); g_pending_dir=dir; g_pending_level=level; g_limits_placed++; }
      }
    if(InpVerbose) PrintFormat("XRT %s %s level %.2f stop %.2f vol %.2f ok %d",dir==1 ? "BUY" : "SELL",
@@ -465,6 +468,7 @@ int OnInit()
   {
    if(InpStopAtr<=0.0 || InpEmaPeriod<2 || InpSlopeDays<1 || InpAtrPeriod<2) return INIT_PARAMETERS_INCORRECT;
    g_trade.SetExpertMagicNumber(InpMagic);
+   g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
    g_trade.SetDeviationInPoints(20);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    LoadNews();

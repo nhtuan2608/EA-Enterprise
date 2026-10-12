@@ -92,6 +92,7 @@ struct S07TContext
   };
 
 CTrade     g_trade;
+int        g_too_small=0;               // entries skipped: the risk budget is below the minimum volume
 double     g_initial_capital=0.0;
 int        g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
 
@@ -366,7 +367,17 @@ double VolumeFor(const int dir,const double entry,const double stop,const double
    const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
    const double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN), vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
    double v=MathFloor(money/(-loss)/step+1e-9)*step;
-   if(v<vmin) return 0.0;
+   if(v<vmin)
+     {
+      // the risk budget buys less than the minimum volume (small or cent deposit, wide stop, or the tester's
+      // "profit in pips" mode, where OrderCalcProfit returns points instead of money)
+      g_too_small++;
+      if(g_too_small==1)
+         PrintFormat("%s: risk %.2f buys %.4f lots < minimum %.2f (stop %.2f away, loss per lot %.2f). "
+                     "Use a larger deposit, a higher risk %% or money profit (not pips) in the tester.",
+                     "S07Tester",money,money/(-loss),vmin,MathAbs(entry-stop),-loss);
+      return 0.0;
+     }
    return MathMin(v,vmax);
   }
 
@@ -592,6 +603,7 @@ int OnInit()
    FrameInit(g_m30,PERIOD_M30,"M30"); FrameInit(g_m15,PERIOD_M15,"M15");
    FrameInit(g_h1,PERIOD_H1,"H1"); FrameInit(g_h4f,PERIOD_H4,"H4"); FrameInit(g_h4,PERIOD_H4,"H4");
    g_trade.SetExpertMagicNumber(InpMagic);
+   g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    LoadNews();
    LoadSentiment();
@@ -619,6 +631,7 @@ void OnTick()
 
 void OnDeinit(const int reason)
   {
+   if(g_too_small>0) PrintFormat("S07Tester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
                g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
   }

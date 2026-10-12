@@ -256,6 +256,7 @@ CTrade   g_trade;
 double   g_initial_capital=0.0;
 datetime g_last_bar=0;
 bool     g_warm=false;
+int      g_too_small=0;              // entries skipped: the risk budget is below the minimum volume
 int      g_parity=INVALID_HANDLE;
 int      g_decisions=0, g_signals=0, g_gated=0, g_orders=0, g_fills=0, g_expired=0, g_timeouts=0;
 
@@ -323,7 +324,17 @@ double VolumeFor(const int dir,const double entry,const double stop,const double
    const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
    const double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN), vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
    double v=MathFloor(money/(-loss)/step+1e-9)*step;
-   if(v<vmin) return 0.0;
+   if(v<vmin)
+     {
+      // the risk budget buys less than the minimum volume (small or cent deposit, wide stop, or the tester's
+      // "profit in pips" mode, where OrderCalcProfit returns points instead of money)
+      g_too_small++;
+      if(g_too_small==1)
+         PrintFormat("%s: risk %.2f buys %.4f lots < minimum %.2f (stop %.2f away, loss per lot %.2f). "
+                     "Use a larger deposit, a higher risk %% or money profit (not pips) in the tester.",
+                     "CtxLimitTester",money,money/(-loss),vmin,MathAbs(entry-stop),-loss);
+      return 0.0;
+     }
    return MathMin(v,vmax);
   }
 
@@ -421,6 +432,7 @@ int OnInit()
      { Print("CtxLimitTester: model feature order mismatch"); return INIT_FAILED; }
    CtxInit();
    g_trade.SetExpertMagicNumber(InpMagic);
+   g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
    g_trade.SetDeviationInPoints(20);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    g_last_bar=0; g_warm=false;
@@ -460,6 +472,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
 void OnDeinit(const int reason)
   {
+   if(g_too_small>0) PrintFormat("CtxLimitTester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    if(g_parity!=INVALID_HANDLE) FileClose(g_parity);
    PrintFormat("CtxLimitTester: decisions %d, signals above threshold %d, gated by S07 %d, orders %d, fills %d, expired limits %d, 48h time stops %d",
                g_decisions,g_signals,g_gated,g_orders,g_fills,g_expired,g_timeouts);
