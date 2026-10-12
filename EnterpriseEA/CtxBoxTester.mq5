@@ -1,4 +1,4 @@
-#property strict
+﻿#property strict
 #property version   "1.000"
 #property description "G106 context-switch + BOX hold backtest EA for the MT5 Strategy Tester (XAUUSD): entry TF M5/M15/M30/H1, buy and sell; S07Tester risk, news and sentiment gates."
 
@@ -44,6 +44,7 @@ input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
 input long   InpMagic                   = 106106;
 input bool   InpVerbose                 = false;
+input bool   InpPanel                   = true;   // On-chart analysis panel (context, box, trades, blocks)
 
 CTrade   g_trade;
 double   g_initial_capital=0.0;
@@ -207,6 +208,21 @@ double MedianSpreadPoints()
    ArraySort(v);
    return (used%2==1) ? v[used/2] : 0.5*(v[used/2-1]+v[used/2]);
   }
+#define PNL_NEWS
+#include "Tester/TesterPanel.mqh"
+
+// what the panel shows (filled by OnEntryBar / OnHigherBar)
+struct CBTView
+  {
+   bool   ok;
+   double close, lo, hi, e[4];
+   int    hs, before;
+   double hclose, h200;
+   bool   box_ok;
+   double box_hi, box_lo, hatr;
+  };
+CBTView g_cb;
+
 // --- context + BOX ------------------------------------------------------------------------------------------------
 ENUM_TIMEFRAMES EntryTf()
   {
@@ -355,7 +371,14 @@ void OnEntryBar()
       const double hi=MathMax(MathMax(e21[i],e55[i]),MathMax(e100[i],e200[i]));
       const int ctx=(r[i].close>hi && hs==1) ? 1 : ((r[i].close<lo && hs==-1) ? -1 : 0);
       if(pass==0) g_prev_ctx[0]=ctx; else g_prev_ctx[1]=ctx;
+      if(pass==0)
+        {
+         g_cb.ok=true; g_cb.close=r[i].close; g_cb.lo=lo; g_cb.hi=hi; g_cb.hs=hs;
+         g_cb.e[0]=e21[i]; g_cb.e[1]=e55[i]; g_cb.e[2]=e100[i]; g_cb.e[3]=e200[i];
+         for(int k=hn-1;k>=0;k--) if(h[k].time<bucket) { g_cb.hclose=h[k].close; g_cb.h200=he[k]; break; }
+        }
      }
+   g_cb.before=g_prev_ctx[1];
    const int now=g_prev_ctx[0], before=g_prev_ctx[1];
    if(now==0 || now==before) return;
    const int i=n-1;
@@ -385,6 +408,7 @@ void OnHigherBar()
    double bh=h[b].high, bl=h[b].low;
    for(int q=b-InpBoxBars+1;q<=b;q++) { bh=MathMax(bh,h[q].high); bl=MathMin(bl,h[q].low); }
    const bool box_ok=(bh-bl)<=InpBoxMaxAtr*atr[b];
+   g_cb.box_ok=box_ok; g_cb.box_hi=bh; g_cb.box_lo=bl; g_cb.hatr=atr[hn-1];
    const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
    for(int s=0;s<2;s++)
      {
@@ -437,6 +461,66 @@ void NewsBreakEven()
      }
   }
 
+// --- on-chart analysis panel (Tester/TesterPanel.mqh) ----------------------------------------------------------
+string CbtTfName(const ENUM_TIMEFRAMES tf)
+  {
+   switch(tf) { case PERIOD_M5: return "M5"; case PERIOD_M15: return "M15"; case PERIOD_M30: return "M30"; case PERIOD_H1: return "H1"; case PERIOD_H4: return "H4"; }
+   return "?";
+  }
+
+void CbtPanel()
+  {
+   if(!PnlActive()) return;
+   PnlBegin();
+   const string etf=CbtTfName(EntryTf()), htf=CbtTfName(HigherTf());
+   const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   PnlHead(StringFormat("CtxBoxTester  %s  %s (giờ server)  | vào %s, giữ theo hộp %s | %s%s | rủi ro %.2f%%",_Symbol,
+                        PnlTime(TimeCurrent()),etf,htf,InpBuy ? "MUA " : "",InpSell ? "BÁN" : "",InpRiskPercent));
+   if(!g_cb.ok) { PnlWarn("Bối cảnh   : chưa đủ nến "+etf+"/"+htf); PnlFlush(); return; }
+   const string where=(g_cb.close>g_cb.hi ? "TRÊN cả 4 EMA" : (g_cb.close<g_cb.lo ? "DƯỚI cả 4 EMA" : "trong dải EMA"));
+   PnlAdd(StringFormat("%-3s đã đóng : giá %s %s (EMA21 %s | 55 %s | 100 %s | 200 %s)",etf,PnlPx(g_cb.close),where,
+                       PnlPx(g_cb.e[0]),PnlPx(g_cb.e[1]),PnlPx(g_cb.e[2]),PnlPx(g_cb.e[3])));
+   PnlAdd(StringFormat("%-3s trước  : đóng %s %s EMA200 %s %s",htf,PnlPx(g_cb.hclose),g_cb.hs==1 ? "TRÊN" : (g_cb.hs==-1 ? "DƯỚI" : "—"),
+                       htf,PnlPx(g_cb.h200)));
+   for(int s=0;s<2;s++)
+     {
+      const int d=(s==0 ? 1 : -1);
+      if((d==1 && !InpBuy) || (d==-1 && !InpSell)) continue;
+      const bool px=(d==1 ? g_cb.close>g_cb.hi : g_cb.close<g_cb.lo), hs=(g_cb.hs==d);
+      const bool on=(px && hs);
+      string state=(on ? (g_cb.before==d ? "BẬT (đã bật từ trước — chỉ vào ở nến vừa bật)" : "VỪA BẬT → vào lệnh") : "TẮT");
+      PnlAdd(StringFormat("Bối cảnh %s: %s giá %s cả 4 EMA %s   %s %s %s EMA200  => %s",PnlDir(d),PnlMark(px),d==1 ? "trên" : "dưới",
+                          etf,PnlMark(hs),htf,d==1 ? "trên" : "dưới",state),on ? PnlOkColor : clrNONE);
+     }
+   PnlAdd(StringFormat("Hộp nghỉ %s: %s",htf,g_cb.box_ok ? StringFormat("có (%s – %s, rộng ≤ %.1f ATR)",PnlPx(g_cb.box_lo),PnlPx(g_cb.box_hi),InpBoxMaxAtr)
+                                                         : StringFormat("8 nến gần nhất chưa đủ hẹp (≤ %.1f ATR)",InpBoxMaxAtr)));
+   PnlAdd("");
+   bool any=false;
+   for(int s=0;s<2;s++)
+     {
+      if(!g_leg[s].open) continue;
+      any=true;
+      const int d=(s==0 ? 1 : -1);
+      const double px=(d==1 ? bid : ask);
+      const double rnow=(g_leg[s].risk>0.0 ? d*(px-g_leg[s].entry)/g_leg[s].risk : 0.0);
+      const double rbest=(g_leg[s].risk>0.0 ? d*(g_leg[s].best-g_leg[s].entry)/g_leg[s].risk : 0.0);
+      PnlAdd(StringFormat("Lệnh %s    : vào %s, stop cứng %s, đang %s (tốt nhất %s)",PnlDir(d),PnlPx(g_leg[s].entry),
+                          PnlPx(g_leg[s].hard),PnlR(rnow),PnlR(rbest)),rnow>=0.0 ? PnlOkColor : PnlWarnColor);
+      if(g_leg[s].level!=0.0)
+         PnlAdd(StringFormat("Giữ lệnh   : mốc hộp %s; thoát khi nến %s đóng %s %s",PnlPx(g_leg[s].level),htf,d==1 ? "dưới" : "trên",
+                             PnlPx(g_leg[s].level-d*InpCloseBufAtr*g_cb.hatr)));
+      else
+         PnlAdd(StringFormat("Giữ lệnh   : chưa dời stop — cần lãi tốt nhất ≥ +1R%s",g_leg[s].has_box ? " (đã có hộp để dời)" : " và một hộp nghỉ bị phá theo chiều lệnh"));
+     }
+   if(!any) PnlAdd("Lệnh mở    : không có");
+   PnlAdd("");
+   PnlNewsLines();
+   PnlAdd(StringFormat("Đã đếm     : vào %d | thoát theo hộp %d",g_entries,g_exit_level));
+   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
+                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlFlush();
+  }
+
 int OnInit()
   {
    g_trade.SetExpertMagicNumber(InpMagic);
@@ -444,6 +528,7 @@ int OnInit()
    g_trade.SetDeviationInPoints(20);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    for(int s=0;s<2;s++) g_leg[s].open=false;
+   g_cb.ok=false; g_cb.box_ok=false; g_cb.hatr=0.0;
    LoadNews();
    LoadSentiment();
    return INIT_SUCCEEDED;
@@ -461,11 +546,13 @@ void OnTick()
       g_last_entry_bar=eb;
       NewsBreakEven();
       OnEntryBar();
+      if(InpPanel) CbtPanel();
      }
   }
 
 void OnDeinit(const int reason)
   {
+   PnlClear();
    if(g_too_small>0) PrintFormat("CtxBoxTester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("CtxBoxTester %s: entries %d, level exits %d; blocked by opposite %d, spread %d, news %d, sentiment %d; sentiment-reduced %d; news break-evens %d",
                EnumToString(EntryTf()),g_entries,g_exit_level,g_block_opposite,g_block_spread,g_block_news,g_block_sent,

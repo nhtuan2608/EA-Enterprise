@@ -1,4 +1,4 @@
-#property strict
+﻿#property strict
 #property version   "1.000"
 #property description "CtxLimitTester: the MKT04 gold context-forecast plan (limit or market) with the S07 gates, for the MT5 Strategy Tester."
 
@@ -14,6 +14,7 @@
 
 #include <Trade/Trade.mqh>
 #include "CtxLimit/CtxGoldModel.mqh"
+#include "Tester/TesterPanel.mqh"
 
 enum CtxPlan     { CTX_PLAN_LIMIT=0, CTX_PLAN_MARKET=1 };
 enum CtxRiskBase { CTX_RISK_INITIAL=0, CTX_RISK_BALANCE=1 };
@@ -36,6 +37,7 @@ input int         InpMaxPending      = 8;     // Limits waiting at once (the fir
 input bool        InpParityFile      = false; // Write every decision (features + forecasts) to Common\Files\CtxLimitTester_parity.csv
 input long        InpMagic           = 717171;
 input bool        InpVerbose         = false;
+input bool        InpPanel           = true;  // On-chart analysis panel (context, forecasts, orders)
 
 #define CTX_SLOTS 48
 #define CTX_VOLHIST 20
@@ -256,6 +258,9 @@ CTrade   g_trade;
 double   g_initial_capital=0.0;
 datetime g_last_bar=0;
 bool     g_warm=false;
+datetime g_dl_time=0;                // last decision (panel)
+double   g_dl_buy=0.0, g_dl_sell=0.0;
+string   g_dl_result="";
 int      g_too_small=0;              // entries skipped: the risk budget is below the minimum volume
 int      g_parity=INVALID_HANDLE;
 int      g_decisions=0, g_signals=0, g_gated=0, g_orders=0, g_fills=0, g_expired=0, g_timeouts=0;
@@ -354,11 +359,13 @@ void Decide(const datetime bar_time)
    for(int k=0;k<CTX_NFEAT;k++) x[k]=g.f[k];
    const double pll=PredLL(x), pls=PredLS(x), pml=PredML(x), pms=PredMS(x);
    WriteParity(bar_time,pll,pls,pml,pms);
-   ulong tk=0;
-   if(HasPosition(tk)) return;
-   if(InpPlan==CTX_PLAN_LIMIT && PendingCount()>=InpMaxPending) return;
    const double th=Threshold();
    const double p_buy=(InpPlan==CTX_PLAN_LIMIT ? pll : pml), p_sell=(InpPlan==CTX_PLAN_LIMIT ? pls : pms);
+   g_dl_time=bar_time; g_dl_buy=p_buy; g_dl_sell=p_sell; g_dl_result="";
+   ulong tk=0;
+   if(HasPosition(tk)) { g_dl_result="bỏ qua — đang có lệnh mở (một lệnh mỗi lúc)"; return; }
+   if(InpPlan==CTX_PLAN_LIMIT && PendingCount()>=InpMaxPending) { g_dl_result="bỏ qua — đã đủ limit chờ"; return; }
+   string why="";
    int dir=0; double best=-1e9;
    for(int s=0;s<2;s++)
      {
@@ -367,11 +374,11 @@ void Decide(const datetime bar_time)
       if((d==1 && !InpBuy) || (d==-1 && !InpSell)) continue;
       if(!(p>th && p>0.0)) continue;
       g_signals++;
-      if(InpH4SideGate && !(CtxOk(g.f[7]) && (int)g.f[7]==d)) { g_gated++; continue; }
-      if(d==-1 && InpSellLocation && !(CtxOk(g.h4ema) && CtxOk(g.top9) && g.top9>=g.h4ema-0.5*g.a14)) { g_gated++; continue; }
+      if(InpH4SideGate && !(CtxOk(g.f[7]) && (int)g.f[7]==d)) { g_gated++; why+=(d==1 ? "MUA" : "BÁN")+string(" qua ngưỡng nhưng ngược phía EMA200 H4; "); continue; }
+      if(d==-1 && InpSellLocation && !(CtxOk(g.h4ema) && CtxOk(g.top9) && g.top9>=g.h4ema-0.5*g.a14)) { g_gated++; why+="BÁN qua ngưỡng nhưng chưa đạt vị trí L2; "; continue; }
       if(p>best) { best=p; dir=d; }
      }
-   if(dir==0 || !CtxOk(g.A) || g.A<=0.0) return;
+   if(dir==0 || !CtxOk(g.A) || g.A<=0.0) { g_dl_result=(why!="" ? "không vào — "+why : "không vào — chưa chiều nào qua ngưỡng"); return; }
    const bool ordered=(dir==1 ? (g.x21>g.x55 && g.x55>g.x100 && g.c>g.x21) : (g.x21<g.x55 && g.x55<g.x100 && g.c<g.x21));
    const double weight=(ordered ? 1.0 : InpUnorderedWeight);
    const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
@@ -386,7 +393,7 @@ void Decide(const datetime bar_time)
      }
    const double stop=entry-dir*InpStopAtr*g.A, target=entry+dir*InpTargetAtr*g.A;
    const double vol=VolumeFor(dir,entry,stop,weight);
-   if(vol<=0.0) return;
+   if(vol<=0.0) { g_dl_result="không vào — khối lượng dưới mức tối thiểu"; return; }
    const string tag=StringFormat("CTX%s %.2f%s",InpPlan==CTX_PLAN_LIMIT ? "L" : "M",best,ordered ? "" : " w");
    bool ok;
    if(market)
@@ -396,6 +403,8 @@ void Decide(const datetime bar_time)
       ok=(dir==1 ? g_trade.BuyLimit(vol,NormalizeDouble(entry,digits),_Symbol,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),ORDER_TIME_GTC,0,tag)
                  : g_trade.SellLimit(vol,NormalizeDouble(entry,digits),_Symbol,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),ORDER_TIME_GTC,0,tag));
    if(ok) g_orders++;
+   g_dl_result=StringFormat("%s %s %s %.2f lot tại %s (SL %s, TP %s)%s",ok ? (market ? "VÀO" : "ĐẶT") : "LỖI gửi",market ? "market" : "limit",
+                            dir==1 ? "MUA" : "BÁN",vol,PnlPx(entry),PnlPx(stop),PnlPx(target),ok ? "" : " — xem tab Experts/Journal");
    if(InpVerbose)
       PrintFormat("%s %s %s vol %.2f entry %.2f stop %.2f target %.2f forecast %.3f weight %.2f %s",TimeToString(bar_time),
                   dir==1 ? "BUY" : "SELL",market ? "MARKET" : "LIMIT",vol,entry,stop,target,best,weight,ok ? "" : "FAILED");
@@ -424,6 +433,68 @@ void ProcessBars()
       if(g_warm && live && ((long)r[i].time+1800)%3600==0) Decide(r[i].time);
      }
    g_warm=true;
+  }
+
+// --- on-chart analysis panel (Tester/TesterPanel.mqh) ----------------------------------------------------------
+void CtxPanel()
+  {
+   if(!PnlActive()) return;
+   PnlBegin();
+   const double th=Threshold();
+   PnlHead(StringFormat("CtxLimitTester  %s  %s (giờ server)  | kế hoạch %s, ngưỡng dự báo %.3fR | rủi ro %.2f%%",_Symbol,
+                        PnlTime(TimeCurrent()),InpPlan==CTX_PLAN_LIMIT ? "LIMIT" : "MARKET",th,InpRiskPercent));
+   if(!g_warm || !CtxOk(g.A))
+     { PnlWarn("Ngữ cảnh   : đang nạp lịch sử M30 (cần ~200 ngày để EMA200 H4/D1 ổn định)"); PnlFlush(); return; }
+   const int h4side=(CtxOk(g.f[7]) ? (int)g.f[7] : 0);
+   PnlAdd(StringFormat("M30 đã đóng: giá %s | ATR14 H4 %s | EMA21 %s, 55 %s, 100 %s",PnlPx(g.c),PnlPx(g.A),PnlPx(g.x21),PnlPx(g.x55),PnlPx(g.x100)));
+   PnlAdd(StringFormat("H4 EMA200  : %s → lọc S07 chỉ cho %s%s",CtxOk(g.h4ema) ? PnlPx(g.h4ema) : "—",PnlDir(h4side),
+                       InpH4SideGate ? "" : " (lọc đang TẮT)"),h4side==1 ? PnlOkColor : (h4side==-1 ? PnlWarnColor : clrNONE));
+   const bool ord_b=(g.x21>g.x55 && g.x55>g.x100 && g.c>g.x21), ord_s=(g.x21<g.x55 && g.x55<g.x100 && g.c<g.x21);
+   PnlAdd(StringFormat("EMA xếp    : %s (trọng số %s)",ord_b ? "TĂNG đủ thứ tự" : (ord_s ? "GIẢM đủ thứ tự" : "chưa xếp thứ tự"),
+                       (ord_b || ord_s) ? "1.0" : DoubleToString(InpUnorderedWeight,2)));
+   if(InpSell && InpSellLocation && CtxOk(g.h4ema) && CtxOk(g.top9))
+      PnlAdd(StringFormat("Vị trí bán : %s đỉnh 9 nến M30 %s ≥ EMA200 H4 - 0.5 ATR (%s)",PnlMark(g.top9>=g.h4ema-0.5*g.a14),
+                          PnlPx(g.top9),PnlPx(g.h4ema-0.5*g.a14)));
+   PnlAdd("");
+   if(g_dl_time==0)
+      PnlAdd("Quyết định : chưa có (bot chỉ xét ở nến M30 đóng đúng giờ tròn)");
+   else
+     {
+      PnlAdd(StringFormat("Quyết định : lúc %s — dự báo MUA %+.3fR %s | BÁN %+.3fR %s (ngưỡng %.3f)",PnlHm(g_dl_time+1800),
+                          g_dl_buy,PnlMark(g_dl_buy>th),g_dl_sell,PnlMark(g_dl_sell>th),th));
+      PnlAdd("Kết quả    : "+g_dl_result,StringFind(g_dl_result,"ĐẶT")==0 || StringFind(g_dl_result,"VÀO")==0 ? PnlOkColor : clrNONE);
+     }
+   const datetime nextdec=(datetime)(((long)TimeCurrent()/3600+1)*3600);
+   PnlAdd("Xét tiếp   : lúc "+PnlHm(nextdec)+" (nến M30 đóng giờ tròn)");
+   PnlAdd("");
+   ulong tk=0;
+   if(HasPosition(tk) && PositionSelectByTicket(tk))
+     {
+      const int d=(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY ? 1 : -1);
+      const double op=PositionGetDouble(POSITION_PRICE_OPEN), sl=PositionGetDouble(POSITION_SL), tp=PositionGetDouble(POSITION_TP);
+      const double cur=PositionGetDouble(POSITION_PRICE_CURRENT);
+      const double r=(MathAbs(op-sl)>0.0 ? d*(cur-op)/MathAbs(op-sl) : 0.0);
+      const datetime opened=(datetime)PositionGetInteger(POSITION_TIME);
+      PnlAdd(StringFormat("Lệnh %s    : vào %s, SL %s, TP %s, đang %s; tự đóng lúc %s (48 giờ)",PnlDir(d),PnlPx(op),PnlPx(sl),PnlPx(tp),
+                          PnlR(r),PnlTime((datetime)((long)opened-(long)opened%1800+(long)InpHoldBars*1800))),r>=0.0 ? PnlOkColor : PnlWarnColor);
+     }
+   else
+      PnlAdd("Lệnh mở    : không có");
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      const ulong o=OrderGetTicket(i);
+      if(o==0 || OrderGetString(ORDER_SYMBOL)!=_Symbol || OrderGetInteger(ORDER_MAGIC)!=InpMagic) continue;
+      const bool buy=(OrderGetInteger(ORDER_TYPE)==ORDER_TYPE_BUY_LIMIT);
+      const datetime placed=(datetime)OrderGetInteger(ORDER_TIME_SETUP);
+      PnlAdd(StringFormat("Limit %s   : tại %s, SL %s, TP %s, hủy lúc %s",buy ? "MUA" : "BÁN",PnlPx(OrderGetDouble(ORDER_PRICE_OPEN)),
+                          PnlPx(OrderGetDouble(ORDER_SL)),PnlPx(OrderGetDouble(ORDER_TP)),PnlHm((datetime)((long)placed+(long)InpLimitBars*1800))));
+     }
+   PnlAdd("");
+   PnlAdd(StringFormat("Đã đếm     : xét %d | qua ngưỡng %d | bị lọc S07 %d | lệnh %d | khớp %d | limit hết hạn %d | đóng 48h %d",
+                       g_decisions,g_signals,g_gated,g_orders,g_fills,g_expired,g_timeouts));
+   if(g_too_small>0) PnlWarn(StringFormat("Đã chặn    : khối lượng < tối thiểu %d lần (xem tab Experts)",g_too_small));
+   PnlAdd("Không có News Guard / sentiment trong bot này.");
+   PnlFlush();
   }
 
 int OnInit()
@@ -461,6 +532,7 @@ void OnTick()
    ManagePosition();
    ManagePending(HasPosition(tk));
    ProcessBars();
+   if(InpPanel) CtxPanel();
   }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
@@ -472,6 +544,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 
 void OnDeinit(const int reason)
   {
+   PnlClear();
    if(g_too_small>0) PrintFormat("CtxLimitTester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    if(g_parity!=INVALID_HANDLE) FileClose(g_parity);
    PrintFormat("CtxLimitTester: decisions %d, signals above threshold %d, gated by S07 %d, orders %d, fills %d, expired limits %d, 48h time stops %d",

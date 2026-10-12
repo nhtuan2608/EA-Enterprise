@@ -1,4 +1,4 @@
-#property strict
+﻿#property strict
 #property version   "1.000"
 #property description "G96 gold trend-regime backtest EA for the MT5 Strategy Tester: D1 regime (EMA side + slope), market or limit-zone entries, trail; S07Tester risk, news and sentiment gates."
 
@@ -56,6 +56,7 @@ input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
 input long   InpMagic                   = 969696;
 input bool   InpVerbose                 = false;
+input bool   InpPanel                   = true;   // On-chart analysis panel (regime, what it waits for, trade, blocks)
 
 #define XRT_D1_HISTORY 800
 
@@ -222,12 +223,16 @@ double MedianSpreadPoints()
    return (used%2==1) ? v[used/2] : 0.5*(v[used/2-1]+v[used/2]);
   }
 
+#define PNL_NEWS
+#include "Tester/TesterPanel.mqh"
+
 // --- D1 regime ------------------------------------------------------------------------------------------------
 struct XRTDay
   {
    bool     ok;
    int      state;       // regime of the last closed D1 bar
    double   atr, close, high, low, ema21, ema50, swing_low, swing_high;
+   double   ema, ema_prev;   // regime EMA on the last closed bar and InpSlopeDays bars before
   };
 
 XRTDay   g_day;
@@ -266,6 +271,7 @@ bool RefreshDay()
    const int side=(r[i].close>e[i] ? 1 : (r[i].close<e[i] ? -1 : 0));
    const int slope=(e[i]>e[i-InpSlopeDays] ? 1 : (e[i]<e[i-InpSlopeDays] ? -1 : 0));
    g_day.state=(side==slope ? side : 0);
+   g_day.ema=e[i]; g_day.ema_prev=e[i-InpSlopeDays];
    g_day.close=r[i].close; g_day.high=r[i].high; g_day.low=r[i].low; g_day.ema21=e21[i]; g_day.ema50=e50[i];
    g_day.swing_low=0.0; g_day.swing_high=0.0;
    for(int k=i-2;k>=2;k--)            // fractal confirmed two bars later
@@ -464,6 +470,83 @@ void NewsBreakEven()
    if(g_trade.PositionModify(g_ticket,be,0.0)) { g_be_done=true; g_news_be++; }
   }
 
+// --- on-chart analysis panel (Tester/TesterPanel.mqh) ----------------------------------------------------------
+string XrtZoneName(const XRT_Zone z)
+  {
+   switch(z)
+     {
+      case XRT_MARKET:       return "market đầu ngày";
+      case XRT_EMA21_D1:     return "limit EMA21 D1";
+      case XRT_EMA50_D1:     return "limit EMA50 D1";
+      case XRT_PREV_EXTREME: return "limit đáy/đỉnh ngày trước";
+      case XRT_PREV_MID:     return "limit giữa nến ngày trước";
+      case XRT_CLOSE_05ATR:  return "limit đóng cửa ± 0.5 ATR";
+      case XRT_CLOSE_1ATR:   return "limit đóng cửa ± 1 ATR";
+      case XRT_SWING:        return "limit swing gần nhất";
+      case XRT_EMA21_H4:     return "limit EMA21 H4";
+     }
+   return "?";
+  }
+
+void XrtPanel()
+  {
+   if(!PnlActive()) return;
+   PnlBegin();
+   const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   const string mode=(InpMode==XRT_LONG_ONLY ? "chỉ MUA" : (InpMode==XRT_SHORT_ONLY ? "chỉ BÁN" : "MUA + BÁN"));
+   PnlHead(StringFormat("XauRegimeTester  %s  %s (giờ server)  | %s | EMA%d D1, dốc %d ngày | rủi ro %.2f%%",
+                        _Symbol,PnlTime(TimeCurrent()),mode,InpEmaPeriod,InpSlopeDays,InpRiskPercent));
+   if(!g_day.ok) { PnlWarn("D1         : chưa đủ nến D1 để tính chế độ"); PnlFlush(); return; }
+   const bool above=(g_day.close>g_day.ema), rising=(g_day.ema>g_day.ema_prev);
+   PnlAdd(StringFormat("D1 đã đóng : giá %s | EMA%d %s (%d ngày trước %s → đang %s) | ATR%d %s",PnlPx(g_day.close),InpEmaPeriod,
+                       PnlPx(g_day.ema),InpSlopeDays,PnlPx(g_day.ema_prev),rising ? "DỐC LÊN" : "DỐC XUỐNG",InpAtrPeriod,PnlPx(g_day.atr)));
+   PnlAdd(StringFormat("           %s giá %s EMA   %s EMA %s",PnlMark(above),above ? "TRÊN" : "DƯỚI",PnlMark(rising),rising ? "đi lên" : "đi xuống"));
+   const string st=(g_day.state==1 ? "TĂNG (bật MUA)" : (g_day.state==-1 ? "GIẢM (bật BÁN)" : "TRUNG TÍNH (giá và độ dốc ngược nhau)"));
+   PnlAdd("Chế độ     : "+st,g_day.state==1 ? PnlOkColor : (g_day.state==-1 ? PnlWarnColor : clrNONE));
+   int dir=0;
+   const bool pos=OwnPosition(dir);
+   if(!pos)
+     {
+      if(Allowed(g_day.state) && g_day.state!=g_blocked_dir)
+        {
+         const XRT_Zone z=(g_day.state==1 ? InpBuyZone : InpSellZone);
+         if(g_pending!=0)
+            PnlOk(StringFormat("Hành động  : đang chờ %s %s tại %s (hết hạn cuối ngày)",PnlDir(g_pending_dir),XrtZoneName(z),PnlPx(g_pending_level)));
+         else if(g_want_entry)
+            PnlAdd(StringFormat("Hành động  : muốn vào %s (%s) nhưng chưa vào được — xem dòng chặn bên dưới",PnlDir(g_day.state),XrtZoneName(z)),PnlWarnColor);
+         else
+            PnlAdd(StringFormat("Hành động  : đã xét hôm nay; ngày mai lại vào %s nếu chế độ còn bật (%s)",PnlDir(g_day.state),XrtZoneName(z)));
+        }
+      else if(g_day.state!=0 && g_day.state==g_blocked_dir)
+         PnlAdd(StringFormat("Hành động  : đứng ngoài — vừa thoát bằng trail, chờ chế độ %s tắt rồi bật lại",PnlDir(g_blocked_dir)));
+      else
+        {
+         string need="";
+         if(InpMode!=XRT_SHORT_ONLY) need="MUA khi D1 đóng TRÊN EMA"+IntegerToString(InpEmaPeriod)+" ("+PnlPx(g_day.ema)+") và EMA cao hơn "+IntegerToString(InpSlopeDays)+" ngày trước";
+         if(InpMode!=XRT_LONG_ONLY) need+=(need=="" ? "" : "; ")+"BÁN khi D1 đóng DƯỚI EMA và EMA thấp hơn "+IntegerToString(InpSlopeDays)+" ngày trước";
+         PnlAdd("Hành động  : đứng ngoài. Chờ "+need);
+        }
+     }
+   else
+     {
+      const double px=(dir==1 ? bid : ask);
+      const double rnow=(g_risk>0.0 ? dir*(px-g_entry)/g_risk : 0.0);
+      const double trail=g_best-dir*InpTrailAtr*g_day.atr;
+      double sl=0.0;
+      if(PositionSelectByTicket(g_ticket)) sl=PositionGetDouble(POSITION_SL);
+      PnlAdd(StringFormat("Lệnh %s    : vào %s, stop %s, đang %s",PnlDir(dir),PnlPx(g_entry),PnlPx(sl),PnlR(rnow)),rnow>=0.0 ? PnlOkColor : PnlWarnColor);
+      PnlAdd(StringFormat("Giữ lệnh   : thoát khi chế độ hết %s, hoặc D1 đóng %s %s (giá đóng tốt nhất %s - %.1f ATR)%s",
+                          PnlDir(dir),dir==1 ? "dưới" : "trên",PnlPx(trail),PnlPx(g_best),InpTrailAtr,InpTrail ? "" : " [trail TẮT]"));
+     }
+   PnlAdd("");
+   PnlNewsLines();
+   PnlAdd(StringFormat("Đã đếm     : vào %d | limit đặt %d (hết hạn %d) | thoát chế độ %d, trail %d",g_entries,g_limits_placed,
+                       g_limits_expired,g_exit_regime,g_exit_trail));
+   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
+                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlFlush();
+  }
+
 int OnInit()
   {
    if(InpStopAtr<=0.0 || InpEmaPeriod<2 || InpSlopeDays<1 || InpAtrPeriod<2) return INIT_PARAMETERS_INCORRECT;
@@ -494,10 +577,12 @@ void OnTick()
      }
    if(g_want_entry && g_pending==0 && g_ticket==0 && g_day.ok)
       if(PlaceEntry()) g_want_entry=false;
+   if(InpPanel) XrtPanel();
   }
 
 void OnDeinit(const int reason)
   {
+   PnlClear();
    if(g_too_small>0) PrintFormat("XauRegimeTester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("XauRegimeTester: entries %d, limits placed %d (expired %d), exits regime %d trail %d; blocked by opposite %d, spread %d, news %d, sentiment %d; sentiment-reduced %d; news break-evens %d",
                g_entries,g_limits_placed,g_limits_expired,g_exit_regime,g_exit_trail,g_block_opposite,g_block_spread,

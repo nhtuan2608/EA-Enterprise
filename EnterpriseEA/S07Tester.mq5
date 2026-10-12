@@ -1,4 +1,4 @@
-#property strict
+﻿#property strict
 #property version   "1.000"
 #property description "S07 family backtest EA for the MT5 Strategy Tester: the S07 rules of EnterpriseEA on one symbol, no files, sessions or registry."
 
@@ -48,6 +48,7 @@ input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
 input long   InpMagic             = 707070;
 input bool   InpVerbose           = false;
+input bool   InpPanel             = true;  // On-chart analysis panel (context, checklist, open trades, blocks)
 
 #define S07T_HISTORY 1500
 #define S07T_H4_HISTORY 1200
@@ -258,6 +259,8 @@ double MedianSpreadPoints()
    ArraySort(v);
    return (used%2==1) ? v[used/2] : 0.5*(v[used/2-1]+v[used/2]);
   }
+#define PNL_NEWS
+#include "Tester/TesterPanel.mqh"
 S07TFrame  g_m30, g_m15, g_h1, g_h4f, g_h4;   // g_h4: H4 EMA200 side only; g_h4f: H4 adds
 double     g_h4_ema[];
 S07TLeg    g_legs[S07T_MAX_LEGS];
@@ -598,6 +601,106 @@ void NewsBreakEven()
   }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// on-chart analysis panel (Tester/TesterPanel.mqh)
+// ---------------------------------------------------------------------------
+// One frame: compression -> expansion checklist of the S07 rule on its last closed bar, for the side allowed by
+// the H4 EMA200 (want = 0 when the H4 side is unknown).
+void S07PanelFrame(S07TFrame &f,const int want,const string role)
+  {
+   if(f.n<400) { PnlAdd(StringFormat("%-4s %s: chưa đủ 400 nến",f.name,role)); return; }
+   const int i=f.n-1, w=EEA_S07WindowBars(f.name);
+   int k=i-w;
+   for(int j=i-w+1;j<i;j++) if(f.adx[j]<f.adx[k]) k=j;
+   const double gk=f.pdi[k]-f.mdi[k];
+   const bool comp=(f.adx[k]<=EEA_S07_ADX_LOW && MathAbs(gk)<=EEA_S07_DI_GAP);
+   const bool rise=(f.adx[i]>f.adx[i-1] && f.adx[i]-f.adx[k]<=EEA_S07_ADX_RISE);
+   const double gap=f.pdi[i]-f.mdi[i], gp=f.pdi[i-1]-f.mdi[i-1];
+   const double hi=MathMax(MathMax(f.e21[i],f.e55[i]),MathMax(f.e100[i],f.e200[i]));
+   const double lo=MathMin(MathMin(f.e21[i],f.e55[i]),MathMin(f.e100[i],f.e200[i]));
+   const double c=f.r[i].close;
+   const string where=(c>hi ? "TRÊN cả 4 EMA" : (c<lo ? "DƯỚI cả 4 EMA" : "trong dải EMA "+PnlPx(lo)+"–"+PnlPx(hi)));
+   const bool di_ok=(want==1 ? (gap>0.0 && gap>gp) : (want==-1 ? (gap<0.0 && gap<gp) : false));
+   const bool px_ok=(want==1 ? c>hi : (want==-1 ? c<lo : false));
+   const bool sig=(want!=0 && comp && rise && di_ok && px_ok);
+   PnlAdd(StringFormat("%-4s %s (nến đóng %s, cửa sổ %d nến)",f.name,role,PnlHm(f.r[i].time+PeriodSeconds(f.tf)),w),PnlHeadColor);
+   PnlAdd(StringFormat("     %s Nén     : ADX đáy %.1f (≤20) | lệch DI lúc đó %.1f (≤6)",PnlMark(comp),f.adx[k],MathAbs(gk)));
+   PnlAdd(StringFormat("     %s ADX bung: %.1f → %.1f, tăng %.1f từ đáy (≤10)",PnlMark(rise),f.adx[i-1],f.adx[i],f.adx[i]-f.adx[k]));
+   PnlAdd(StringFormat("     %s DI      : DI+ %.1f  DI- %.1f  (cần %s và đang tách)",PnlMark(di_ok),f.pdi[i],f.mdi[i],
+                       want==1 ? "DI+ > DI-" : (want==-1 ? "DI- > DI+" : "—")));
+   PnlAdd(StringFormat("     %s Giá     : %s  (đóng %s)",PnlMark(px_ok),where,PnlPx(c)));
+   if(sig) PnlOk(StringFormat("     => TÍN HIỆU %s trên %s",PnlDir(want),f.name));
+  }
+
+void S07Panel()
+  {
+   if(!PnlActive()) return;
+   PnlBegin();
+   const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   PnlHead(StringFormat("S07Tester  %s  %s (giờ server)  | rủi ro %.2f%% %s",_Symbol,PnlTime(TimeCurrent()),
+                        InpRiskPercent,InpRiskBase==S07T_RISK_BALANCE ? "lãi kép" : "trên vốn đầu"));
+   // H4 side
+   double h4e=0.0;
+   const int side=H4Side(TimeCurrent(),h4e);
+   int want=side;
+   if(side==1 && !InpBuy) want=0;
+   if(side==-1 && !InpSell) want=0;
+   if(side==0)
+      PnlWarn("H4 EMA200 : chưa đủ dữ liệu H4 → chưa xét lệnh");
+   else
+      PnlAdd(StringFormat("H4 EMA200 : giá %s %s EMA200 H4 %s → chỉ xét %s%s",PnlPx(bid),side==1 ? "TRÊN" : "DƯỚI",PnlPx(h4e),
+                          PnlDir(side),want==0 ? " (chiều này đang TẮT trong Inputs)" : ""),side==1 ? PnlOkColor : PnlWarnColor);
+   if(want==-1 && InpSellLocation && g_m30.n>=400)
+     {
+      const int i=g_m30.n-1;
+      const bool l2=EEA_S07SellLocation(g_m30.r,i,EEA_S07WindowBars("M30"),h4e,g_m30.atr[i]);
+      PnlAdd(StringFormat("Vị trí L2 : %s đỉnh vùng nén M30 chạm EMA200 H4 - 0.5 ATR (lệnh bán gốc cần)",PnlMark(l2)));
+     }
+   PnlAdd("");
+   S07PanelFrame(g_m30,want,"lệnh gốc S07/S07S; vào sớm S07E xét ở mỗi nến "+(InpEntryTf==S07T_ENTRY_M15 ? "M15" : "M5"));
+   if(InpAdds)
+     {
+      S07PanelFrame(g_m15,want,"bồi");
+      S07PanelFrame(g_h1,want,"bồi");
+      S07PanelFrame(g_h4f,want,"bồi");
+     }
+   PnlAdd("");
+   // memory: re-entry window and base cool-down
+   for(int s=0;s<2;s++)
+     {
+      const int d=(s==0 ? 1 : -1);
+      if(g_ctx[s].valid && !g_ctx[s].used && !g_ctx[s].target_hit && (long)TimeCurrent()-(long)g_ctx[s].closed<=EEA_S07_REENTRY_SECONDS && InpReentry)
+         PnlAdd(StringFormat("Vào lại %s : còn hiệu lực tới %s (lệnh gốc đóng %s, chưa chạm TP)",PnlDir(d),
+                             PnlHm((datetime)((long)g_ctx[s].closed+EEA_S07_REENTRY_SECONDS)),PnlHm(g_ctx[s].closed)));
+      if(TimeCurrent()<g_base_free[s])
+         PnlAdd(StringFormat("Nghỉ %s   : chưa mở lệnh gốc mới tới %s",PnlDir(d),PnlHm(g_base_free[s])));
+     }
+   // open legs
+   if(g_nlegs==0) PnlAdd("Lệnh mở    : không có");
+   for(int i=0;i<g_nlegs;i++)
+     {
+      const S07TLeg L=g_legs[i];
+      const double px=(L.dir==1 ? bid : ask);
+      const double rnow=(L.risk>0.0 ? L.dir*(px-L.entry)/L.risk : 0.0);
+      const bool wide=(L.mfe_r>=EEA_S07_TRAIL_SWITCH_R);
+      double ema=0.0;
+      if(L.tfname=="M30" && g_m30.n>0) ema=(wide ? g_m30.e100[g_m30.n-1] : g_m30.e55[g_m30.n-1]);
+      if(L.tfname=="M15" && g_m15.n>0) ema=(wide ? g_m15.e100[g_m15.n-1] : g_m15.e55[g_m15.n-1]);
+      if(L.tfname=="H1"  && g_h1.n>0)  ema=(wide ? g_h1.e100[g_h1.n-1] : g_h1.e55[g_h1.n-1]);
+      if(L.tfname=="H4"  && g_h4f.n>0) ema=(wide ? g_h4f.e100[g_h4f.n-1] : g_h4f.e55[g_h4f.n-1]);
+      PnlAdd(StringFormat("Lệnh %-5s %s %s: vào %s, stop %s, đang %s (đỉnh %s)%s",L.setup,L.tfname,PnlDir(L.dir),PnlPx(L.entry),
+                          PnlPx(L.stop),PnlR(rnow),PnlR(L.mfe_r),L.base ? StringFormat(", bồi %d/2",L.adds) : ""),
+             rnow>=0.0 ? PnlOkColor : PnlWarnColor);
+      PnlAdd(StringFormat("           thoát khi nến %s đóng %s EMA%s %s%s; TP 8R",L.tfname,L.dir==1 ? "dưới" : "trên",
+                          wide ? "100" : "55",PnlPx(ema),L.base && InpAdxExit ? " hoặc ADX ≥ 50 quay đầu" : ""));
+     }
+   PnlAdd("");
+   PnlNewsLines();
+   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
+                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlFlush();
+  }
+
 int OnInit()
   {
    FrameInit(g_m30,PERIOD_M30,"M30"); FrameInit(g_m15,PERIOD_M15,"M15");
@@ -627,10 +730,12 @@ void OnTick()
    if(FrameRefresh(g_h1))  { ManageLegs(g_h1);  AddsOnClose(g_h1); }
    if(FrameRefresh(g_h4f)) { ManageLegs(g_h4f); AddsOnClose(g_h4f); }
    EntryBarEngines();
+   if(InpPanel) S07Panel();
   }
 
 void OnDeinit(const int reason)
   {
+   PnlClear();
    if(g_too_small>0) PrintFormat("S07Tester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
                g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
