@@ -94,3 +94,5 @@ Theo đề xuất của người dùng: nén rồi bung, vùng thiếu thanh kho
   - **VP** = bối cảnh + volume + price action;
 
   so với C (chỉ bối cảnh), V (bối cảnh + volume) và R (ngẫu nhiên). Chỉ giữ nhóm nào **hơn C ở cả train lẫn validate**.
+
+Ghi chú khi viết test, trước khi có kết quả: "hội tụ" của nêm = độ dốc đáy − độ dốc đỉnh > 25% của độ dốc lớn hơn, để kênh song song không bị tính là nêm.
