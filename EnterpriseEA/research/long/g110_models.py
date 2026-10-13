@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
@@ -150,7 +150,7 @@ def section(sym: str) -> list[str]:
 def main(symbols):
     L = ["# G110 bước 3: học cuốn chiếu — phá thật hay giả, với bối cảnh (C), + volume (V), + price action (P), + cả hai (VP)", "",
          "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g110-break-quality-volume.md (mục 3 và 5). Chỉ train và validate; "
-         "**test 2026 niêm phong**. Mỗi tháng, mô hình học từ các sự kiện trước tháng ít nhất 1 ngày (có assert). "
+         "**test 2026 niêm phong**. " + run_label() + " Mỗi tháng, mô hình học từ các sự kiện trước tháng ít nhất 1 ngày (có assert). "
          "Script: research/long/g110_models.py.", ""]
     for s in symbols:
         L += section(s)

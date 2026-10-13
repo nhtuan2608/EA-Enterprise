@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
@@ -99,10 +99,10 @@ def section(sym: str) -> list[str]:
 def main(symbols):
     L = ["# G111 bước 1–2: thoái lui, Fibonacci và test vùng (đảo chiều khi giá chạm mức mà không phá)", "",
          "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g111-retrace-fib-tests.md. Dữ liệu raw MT5 (EURUSD/GBPUSD đã đổi "
-         "sang giờ server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); **test 2026 niêm phong**. "
+         "sang giờ server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); **test 2026 niêm phong**. " + run_label() + " "
          "Script: research/long/g111_levels.py, g111_stats.py, g111_audit.py.", "",
          "Lệnh đảo chiều T: limit đặt sẵn ở mép gần của mức; stop = mép xa + 0,5 w + spread; mục tiêu 2R; nến khớp chỉ xét stop; "
-         "tối đa 4 giờ; stop ≥ 8 spread. Đặc trưng chỉ dùng nến trước nến chạm. Fibonacci giả = tỉ lệ 30/45/55/70%.", ""]
+         "chi phí, bộ lọc và thời gian giữ theo dòng trên. Đặc trưng chỉ dùng nến trước nến chạm. Fibonacci giả = tỉ lệ 30/45/55/70%.", ""]
     for s in symbols:
         L += section(s)
         print(s, "done", flush=True)

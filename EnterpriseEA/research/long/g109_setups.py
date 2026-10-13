@@ -7,7 +7,7 @@ S1 sweep & reclaim  the first time price goes beyond the zone's far edge (from t
                     excursion beyond that edge stays <= 0.5 ATR14 M30 and an M5 close comes back inside within 3 bars,
                     enter against the sweep at the next open; stop = sweep extreme +/- spread
 S2 break & retest   the first 2 consecutive M5 closes beyond the far edge: a limit at that edge (12 bars); stop =
-                    the other side of the zone +/- spread
+                    the other side of the zone +/- spread; the fill bar can only stop (its high / low may come first)
 target              the nearest real zone beyond the entry (its near edge), kept when RR >= 1 (fixed before results);
                     comparison: a fixed 2R target
 exits               a: stop / target; b: break-even once +1R was reached on an earlier bar; c: 50 % off at +1R,
@@ -31,10 +31,33 @@ SUF = g8.TFSUF + ("_nf" if NOFILTER else "") + ("_nc" if g8.NOCOST else "")
 OUT_T = g8.DATA / f"g109_trades_{gz.SYMBOL}{SUF}.pkl"
 MAX_BARS, SWEEP_ATR, RECLAIM_BARS, BREAK_CLOSES, LIMIT_BARS = 48, 0.5, 3, 2, 12
 MIN_STOP_SPREADS, MIN_ATR5_SPREADS, MIN_RR = (0.0, 0.0, 1.0) if NOFILTER else (8.0, 3.0, 1.0)
+
+
+def run_label(nofilter: bool = NOFILTER, nocost: bool = g8.NOCOST, tf: int = g8.TF) -> str:
+    """Report header text for the run switches (timeframe, spread, cost filter), each stated on its own."""
+    spread = "0 (bản thô, không trừ chi phí)" if nocost else "trừ thật vào mỗi lệnh"
+    filt = ("không còn tác dụng vì spread = 0" if nocost else
+            ("TẮT (theo yêu cầu người dùng)" if nofilter else "bật (stop ≥ 8 spread, ATR M5 ≥ 3 spread)"))
+    return f"Khung M{tf}. Spread: {spread}. Bộ lọc chi phí: {filt}. Giữ tối đa {MAX_BARS} nến = {MAX_BARS * tf / 60:g} giờ."
 N_RANDOM = 5
 
 
 # --------------------------------------------------------------------------------------------- pure helpers
+def simulate_limit(d: int, entry: float, stop: float, target: float, h, l, c, sp) -> dict | None:
+    """Trade filled on bar 0 at a resting limit: the bar's high / low may come before the fill, so bar 0 can only
+    stop it (fix 14/10/2026, as G111 trade_t); exits a / b / c from bar 1, bars counted from bar 0."""
+    risk = d * (entry - stop)
+    if risk <= 0:
+        return None
+    if (d == 1 and l[0] <= stop) or (d == -1 and h[0] + sp[0] >= stop):
+        return {"a": -1.0, "b": -1.0, "c": -1.0, "bars": 1}
+    if len(h) < 2:
+        return None
+    r = simulate(d, entry, stop, target, h[1:], l[1:], c[1:], sp[1:])
+    r["bars"] += 1
+    return r
+
+
 def simulate(d: int, entry: float, stop: float, target: float, h, l, c, sp) -> dict:
     """Forward bars from the entry bar. Returns R for exits a / b / c and the bars held (exit a)."""
     risk = d * (entry - stop)
@@ -191,7 +214,10 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, seed=109) -> pd.Da
                     rr = d * (target - entry) / risk
                     if tgt_name == "zone" and rr < MIN_RR:
                         continue
-                    res = simulate(d, entry, stop, target, h[fwd], l[fwd], c[fwd], sp[fwd])
+                    sim = simulate_limit if setup == "S2" else simulate     # S2 rests a limit: bar 0 only stops
+                    res = sim(d, entry, stop, target, h[fwd], l[fwd], c[fwd], sp[fwd])
+                    if res is None:
+                        continue
                     # Z2: random entries the same day, same direction, stop distance and RR
                     rnd = []
                     if not z.fake:

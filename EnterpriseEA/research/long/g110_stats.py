@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 
 HERE = Path(__file__).resolve().parent
 REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g110-volume{SUF}.md"
@@ -115,10 +115,10 @@ def main(symbols):
     L = ["# G110 bước 1–2: volume từng nến và volume cộng dồn so với giá — phá thật hay phá giả", "",
          "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g110-break-quality-volume.md. Dữ liệu raw MT5 có tick volume "
          "(EURUSD/GBPUSD đã đổi sang giờ server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); "
-         "**test 2026 niêm phong**. Script: research/long/g110_breaks.py, g110_stats.py, g110_audit.py.", "",
+         "**test 2026 niêm phong**. " + run_label() + " Script: research/long/g110_breaks.py, g110_stats.py, g110_audit.py.", "",
          "Sự kiện phá = lần đầu 2 nến M5 đóng bên kia mép mức. Giữ = 6 nến sau không có nến nào đóng quay lại. Theo (S2) = limit "
          "tại mép, stop phía bên kia mức; ngược (F) = sau khi đóng quay lại, vào ngược, stop sau cực trị cú phá. Cả hai mục tiêu 2R, "
-         "spread thật, tối đa 4 giờ, stop ≥ 8 spread. Volume tương đối = tick volume / trung vị cùng phút 20 ngày trước.", ""]
+         "chi phí, bộ lọc và thời gian giữ theo dòng trên. Volume tương đối = tick volume / trung vị cùng phút 20 ngày trước.", ""]
     for s in symbols:
         L += section(s)
         print(s, "done", flush=True)

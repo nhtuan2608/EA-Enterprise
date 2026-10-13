@@ -51,6 +51,51 @@ class G113InfraTests(unittest.TestCase):
         finally:
             g8.TF, g8.BAR_SEC, g8.NOCOST = old
 
+    def test_run_label_states_each_switch(self):
+        import g109_setups as gs
+        m30_cost = gs.run_label(nofilter=False, nocost=False, tf=30)
+        self.assertIn("Khung M30", m30_cost)
+        self.assertIn("trừ thật", m30_cost)
+        self.assertIn("bật", m30_cost)                                   # M30 with spread keeps the cost filter on
+        self.assertIn("24 giờ", m30_cost)                                # 48 bars x 30 min
+        nc = gs.run_label(nofilter=False, nocost=True, tf=5)
+        self.assertIn("Spread: 0", nc)
+        self.assertNotIn("trừ thật", nc)
+        self.assertIn("4 giờ", nc)
+        nf = gs.run_label(nofilter=True, nocost=False, tf=15)
+        self.assertIn("TẮT", nf)
+        self.assertIn("12 giờ", nf)
+
+    def test_drift_control_other_days_same_month(self):
+        import g109_setups as gs
+        import g113_summary as su
+        rng = np.random.default_rng(1)
+        n = 20 * 288
+        t = int(pd.Timestamp("2025-03-03").timestamp()) + 300 * np.arange(n)
+        c = 100 + np.cumsum(rng.normal(0, 0.1, n))
+        df = pd.DataFrame({"time": t, "open": c, "high": c + 0.2, "low": c - 0.2, "close": c, "sp": 0.0})
+        P = pd.DataFrame({"i": [300, 3000], "d": [1, -1], "risk": [0.5, 0.5], "day": [t[300] // 86400, t[3000] // 86400]})
+        seen = []
+        real = gs.simulate
+        try:
+            def spy(d, entry, stop, target, h, l, c_, sp):
+                seen.append((d, round(entry - stop, 9)))
+                return real(d, entry, stop, target, h, l, c_, sp)
+            gs.simulate = spy
+            su.drift_control(P, df, gs, n_draw=3)
+        finally:
+            gs.simulate = real
+        self.assertEqual(len(seen), 6)
+        self.assertEqual(sorted(set(seen)), [(-1, -0.5), (1, 0.5)])          # same direction and stop distance
+        picks = []
+        su.drift_control(P, df, gs, n_draw=5, picks=picks)
+        day, mon = t // 86400, pd.to_datetime(t, unit="s").strftime("%Y-%m")
+        self.assertEqual(len(picks), 10)
+        for i, q in picks:
+            self.assertNotEqual(day[q], day[i])                               # never the trade's own day
+            self.assertEqual(mon[q], mon[i])                                  # same month
+            self.assertTrue(1 <= (t[q] % 86400) // 3600 < 23)
+
     def test_default_suffixes(self):
         import g109_setups as gs
         if g8.TF == 5 and not g8.NOCOST and not gs.NOFILTER:

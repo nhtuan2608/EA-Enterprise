@@ -7,7 +7,8 @@ Levels known before the break: Z = real G109 zones (day map + intraday), G = the
 lows of the day (fractal 2/2), F = G109 fake zones (control). Half-width w as G109 (from the day table).
 Break: the first 2 consecutive M5 closes beyond the far edge; decision at the second close (bar j). Labels:
   hold     no close back inside within the next 6 bars
-  follow   limit at the far edge for 12 bars, stop on the other side of the level +/- spread, target 2R
+  follow   limit at the far edge for 12 bars, stop on the other side of the level +/- spread, target 2R; the fill
+           bar can only stop (its high / low may come before the fill)
   fade     a close back inside within 6 bars -> enter against the break at the next open, stop beyond the break
            extreme +/- spread, target 2R
 Both trades: exits a / b / c (g109_setups.simulate), at most 4 h, stop >= 8 spreads, ATR M5 >= 3 spreads, no entry
@@ -162,13 +163,14 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, hist: pd.DataFrame
     rng = np.random.default_rng(seed)
     rows = []
 
-    def trade(d, entry, stop, e):
+    def trade(d, entry, stop, e, limit=False):
         risk = d * (entry - stop)
         if risk <= 0 or risk < gs.MIN_STOP_SPREADS * sp[e] or atr5[e - 1] < gs.MIN_ATR5_SPREADS * sp[e] or hour[e] >= 23 or hour[e] < 1:
             return None
         f = slice(e, min(n, e + gs.MAX_BARS))
-        r = gs.simulate(d, entry, stop, entry + d * RR * risk, h[f], l[f], c[f], sp[f])
-        return r, risk
+        sim = gs.simulate_limit if limit else gs.simulate         # a resting limit: the fill bar can only stop
+        r = sim(d, entry, stop, entry + d * RR * risk, h[f], l[f], c[f], sp[f])
+        return None if r is None else (r, risk)
 
     def rand_r(d, risk, a, b):
         out = []
@@ -262,7 +264,7 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, hist: pd.DataFrame
                     break
             if fill is not None:
                 stop = (cen - w - sp[j]) if s == 1 else (cen + w + sp[j])
-                res = trade(s, far, stop, fill)
+                res = trade(s, far, stop, fill, limit=True)
                 if res is not None:
                     r, risk = res
                     rec.update(fo_i=fill, fo_Ra=r["a"], fo_Rb=r["b"], fo_Rc=r["c"], fo_bars=r["bars"], fo_risk=risk,

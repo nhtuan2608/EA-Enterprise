@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
@@ -43,7 +43,7 @@ def section(sym: str) -> list[str]:
     C = pd.read_pickle(g8.DATA / f"g112_chase_{sym}{SUF}.pkl")
     assert not (C["period"] == "test").any()
     L = [f"## {sym}", "", f"Tín hiệu (train + validate): {len(C)} — {C.groupby('typ').size().to_dict()}.", "",
-         "### 1. Phân phối: một cú đuổi đi được bao xa (4 giờ, không bồi)", "",
+         "### 1. Phân phối: một cú đuổi đi được bao xa (48 nến, không bồi)", "",
          "| Tín hiệu | Chiều | Kỳ | Lệnh | MFE trung vị (R) | MFE 75% (R) | +1R trước −1R | +2R | +3R | TP 2R: R/lệnh | Ngẫu nhiên: R/lệnh |",
          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for typ in sorted(C["typ"].unique()):
@@ -100,8 +100,8 @@ def section(sym: str) -> list[str]:
 def main(symbols):
     L = ["# G112 bước 1–2: mua đuổi / bán đuổi — phân phối, sự lặp lại, bồi lệnh và cách chốt", "",
          "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g112-chase-and-adds.md. Dữ liệu raw MT5 (EURUSD/GBPUSD đã đổi sang giờ "
-         f"server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); **test 2026 niêm phong**. Bộ lọc chi phí: "
-         f"{'TẮT (spread vẫn trừ)' if SUF else 'bật (stop ≥ 8 spread)'}. Script: research/long/g112_chase.py, g112_stats.py, g112_audit.py.", ""]
+         f"server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); **test 2026 niêm phong**. " + run_label() +
+         f" Script: research/long/g112_chase.py, g112_stats.py, g112_audit.py.", ""]
     for s in symbols:
         L += section(s)
         print(s, "done", flush=True)

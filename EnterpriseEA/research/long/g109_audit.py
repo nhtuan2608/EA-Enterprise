@@ -147,6 +147,10 @@ def audit_trades(n=200):
             target = entry + r.d * 2 * risk
         R = None
         for k in range(e, min(len(t), e + 48)):
+            if r.setup == "S2" and k == e:                      # limit fill bar: only the stop counts
+                if (l[k] <= stop) if r.d == 1 else (h[k] + sp[k] >= stop):
+                    R = -1.0; break
+                continue
             st_hit = l[k] <= stop if r.d == 1 else h[k] + sp[k] >= stop
             tg_hit = h[k] >= target if r.d == 1 else l[k] + sp[k] <= target
             if st_hit:

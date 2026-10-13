@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 from g110_models import LGB, auc
 
@@ -105,8 +105,8 @@ def section(sym: str) -> list[str]:
 
 def main(symbols):
     L = ["# G111 bước 3: học cuốn chiếu cho lệnh đảo chiều khi test mức", "",
-         "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g111-retrace-fib-tests.md. Chỉ train và validate; **test 2026 niêm phong**. "
-         f"Bộ lọc chi phí: {'TẮT (theo yêu cầu người dùng; spread vẫn trừ vào mỗi lệnh)' if SUF else 'bật'}. "
+         "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g111-retrace-fib-tests.md. Chỉ train và validate; **test 2026 niêm phong**. " +
+         run_label() + " "
          "Mỗi tháng mô hình học từ các test trước tháng ít nhất 1 ngày (có assert); vào lệnh ở nhóm 10% cao nhất (ngưỡng từ các "
          "tháng trước), lệnh không chồng; đối chứng chọn ngẫu nhiên cùng số sự kiện mỗi tháng (200 lần).", ""]
     for s in symbols:

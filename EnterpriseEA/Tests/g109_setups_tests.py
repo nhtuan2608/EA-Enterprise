@@ -43,6 +43,25 @@ class G109SetupsTests(unittest.TestCase):
         r2 = self.sim(-1, 100.0, 101.0, 97.0, [100.95], [99.0], [99.5], np.array([0.1]))
         self.assertEqual(r2["a"], -1.0)                                    # ask high 101.05 >= stop
 
+    def test_limit_fill_bar_only_stops(self):
+        z = np.zeros(4)
+        # buy limit at 100, stop 99, target 102: bar 0 spans 98.5-102.5 -> the high may come before the fill: stop only
+        h = np.array([102.5, 101.0, 102.5, 101.0])
+        l = np.array([98.5, 100.2, 100.5, 100.5])
+        r = gs.simulate_limit(1, 100.0, 99.0, 102.0, h, l, h, z)
+        self.assertEqual(r["a"], -1.0)
+        # same bar without touching the stop: the target on bar 0 is ignored, reached on bar 2
+        l2 = np.array([99.5, 100.2, 100.5, 100.5])
+        r = gs.simulate_limit(1, 100.0, 99.0, 102.0, h, l2, h, z)
+        self.assertEqual(r["a"], 2.0)
+        self.assertEqual(r["bars"], 3)
+        # plain simulate would have taken bar 0's high (the bias this fixes)
+        self.assertEqual(gs.simulate(1, 100.0, 99.0, 102.0, h, l2, h, z)["a"], 2.0)
+        self.assertEqual(gs.simulate(1, 100.0, 99.0, 102.0, h, l2, h, z)["bars"], 1)
+        # sell limit at 100, stop 101 (ask = bid + spread)
+        hs = np.array([100.9, 100.0, 99.0]); ls = np.array([97.0, 99.0, 97.5]); sp = np.full(3, 0.2)
+        self.assertEqual(gs.simulate_limit(-1, 100.0, 101.0, 98.0, hs, ls, ls, sp)["a"], -1.0)   # 100.9 + 0.2 >= 101
+
     def test_detect_s1(self):
         # upper zone 105 +/- 0.5 (far edge 105.5); sweep to 105.9 then a close back below 105.5
         h = np.array([104.0, 105.2, 105.9, 105.6]); l = h - 0.6; c = np.array([103.8, 105.0, 105.7, 105.3])

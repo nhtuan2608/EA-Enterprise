@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
@@ -95,8 +95,8 @@ def main(symbols):
     L = ["# G109 bước 3: scalp tại vùng (S1 quét rồi rút râu, S2 phá rồi retest bằng limit)", "",
          "Ngày 13/10/2026. Plan: docs/superpowers/plans/2026-10-13-g109-day-zone-map.md (mục 3, 3b). Dữ liệu raw MT5 "
          "(EURUSD/GBPUSD đã đổi sang giờ server). Chỉ train 07/2024–03/2025 và validate 04–12/2025 (FX tới 10/2025); "
-         "**test 2026 niêm phong**. Script: research/long/g109_setups.py, g109_eval3.py.", "",
-         "Chi phí thật (spread), stop ≥ 8 spread, ATR M5 ≥ 3 spread, không vào 23:00–01:00, giữ tối đa 4 giờ. Mục tiêu "
+         "**test 2026 niêm phong**. " + run_label() + " Script: research/long/g109_setups.py, g109_eval3.py.", "",
+         "Chi phí và bộ lọc theo dòng trên, không vào 23:00–01:00, giữ tối đa 48 nến. Mục tiêu "
          "\"zone\" = mép gần của vùng thật kế tiếp, chỉ nhận RR ≥ 1 (chốt trước khi xem kết quả); \"2R\" = mục tiêu cố định. "
          "Z1 = cùng luật tại vùng giả (dời ± 0,5–1,5 ATR D1); Z2 = vào ngẫu nhiên cùng ngày, cùng chiều, cùng khoảng stop và RR.", ""]
     for s in symbols:

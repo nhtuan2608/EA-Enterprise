@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
-from g109_setups import SUF
+from g109_setups import SUF, run_label
 from g108_patterns import boot_lower
 from g110_models import LGB, auc
 from g112_stats import no_overlap
@@ -97,8 +97,8 @@ def section(sym: str) -> list[str]:
 
 def main(symbols):
     L = ["# G112 bước 3: học cuốn chiếu chọn cú đuổi tốt (đạt +2R trước −1R)", "",
-         "Ngày 14/10/2026. Plan: docs/superpowers/plans/2026-10-13-g112-chase-and-adds.md (mục 4). Chỉ train và validate; **test 2026 niêm phong**. "
-         f"Bộ lọc chi phí: {'TẮT (spread vẫn trừ)' if SUF else 'bật'}. Mỗi tháng mô hình học từ tín hiệu trước tháng ít nhất 1 ngày (có assert); "
+         "Ngày 14/10/2026. Plan: docs/superpowers/plans/2026-10-13-g112-chase-and-adds.md (mục 4). Chỉ train và validate; **test 2026 niêm phong**. " +
+         run_label() + f" Mỗi tháng mô hình học từ tín hiệu trước tháng ít nhất 1 ngày (có assert); "
          "vào nhóm 20% xác suất cao nhất (ngưỡng từ các tháng trước); lệnh không chồng theo loại tín hiệu. R/lệnh kèm cận dưới 90% trong ngoặc.", ""]
     for s in symbols:
         L += section(s)

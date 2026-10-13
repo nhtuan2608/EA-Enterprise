@@ -39,12 +39,14 @@ def main():
         r = h[i] - l[i]
         return ((c[i] - l[i]) - (h[i] - c[i])) / r if r > 0 else 0.0
 
-    def sim_a(d, entry, stop, e):
+    def sim_a(d, entry, stop, e, limit=False):
         risk = d * (entry - stop)
         target = entry + d * gb.RR * risk
         for k in range(e, min(len(t), e + 48)):
             if (d == 1 and l[k] <= stop) or (d == -1 and h[k] + sp[k] >= stop):
                 return d * (stop - entry) / risk
+            if limit and k == e:                                 # limit fill bar: only the stop counts
+                continue
             if (d == 1 and h[k] >= target) or (d == -1 and l[k] + sp[k] <= target):
                 return d * (target - entry) / risk
         k = min(len(t), e + 48) - 1
@@ -86,7 +88,7 @@ def main():
                 if (s == 1 and l[k] + sp[k] <= far) or (s == -1 and h[k] >= far):
                     fill = k; break
             stop = (r.center - r.w - sp[j]) if s == 1 else (r.center + r.w + sp[j])
-            R = sim_a(s, far, stop, fill)
+            R = sim_a(s, far, stop, fill, limit=True)
             if fill != r.fo_i or not np.isclose(R, r.fo_Ra):
                 problems.append(("follow", fill, r.fo_i, R, r.fo_Ra))
         # fade
