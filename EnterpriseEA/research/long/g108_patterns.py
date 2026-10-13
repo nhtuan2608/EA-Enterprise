@@ -44,8 +44,9 @@ def usable(D: pd.DataFrame, open_test: bool = False) -> pd.DataFrame:
 
 
 def dedupe(D: pd.DataFrame) -> pd.DataFrame:
-    key = (D["d"].astype(str) + "|" + D["stop"].round(6).astype(str) + "|" + D["target"].round(6).astype(str) + "|" +
-           (D["time"] // 86400).astype(str))
+    # a fixed-RR target moves with the entry: one plan = (direction, stop, day) there
+    tgt = ("|" + D["target"].round(6).astype(str)) if g.LABEL not in g.FIXED_RR else ""
+    key = D["d"].astype(str) + "|" + D["stop"].round(6).astype(str) + tgt + "|" + (D["time"] // 86400).astype(str)
     return D.loc[~key.duplicated()].copy()
 
 
@@ -116,7 +117,7 @@ def main(open_test: bool = False):
          "g108_audit.py.", "",
          "**Cách chấm plan:** mỗi nến M5 đóng là một quyết định; vào ở giá mở nến M5 kế tiếp. Mức sai = swing M5 gần nhất "
          "phía ngược lại (± spread). Mục tiêu = vùng thanh khoản gần nhất chưa bị lấy (đỉnh/đáy ngày trước, phiên đã xong "
-         "trong 24 giờ, swing H1 trong 5 ngày). Chỉ giữ plan RR ≥ 2. Thắng = chạm mục tiêu trước (+RR); thua = phá mức sai "
+         "trong 24 giờ, swing H1 trong 5 ngày). Nhãn của báo cáo này: " + g.LABEL_DESC[g.LABEL] + ". Thắng = chạm mục tiêu trước (+RR); thua = phá mức sai "
          "trước, kể cả chạm cùng nến (−1); hết ngày server thì đóng ở giá cuối ngày. Có spread thật.", "",
          f"**Số plan:** {len(raw[raw['period'] != 'test'])} quyết định trên train + validate; sau khi gộp các quyết định lặp lại "
          f"cùng một plan (cùng chiều, mức sai, mục tiêu, ngày) còn **{len(D)} plan**.", "",

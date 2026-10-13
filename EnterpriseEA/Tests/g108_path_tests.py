@@ -168,6 +168,35 @@ class G108PathTests(unittest.TestCase):
         self.assertFalse(sel[:600].any())                               # no earlier month -> no threshold
         self.assertTrue(sel[600:].all())                                # 0.95 >= 90th pct of January (0.9)
 
+    def test_nearest_target_min_distance(self):
+        cands = [(101.0, 1), (102.0, 2), (104.0, 3)]
+        never = lambda d, lev, last: False
+        self.assertEqual(g.nearest_target(1, 100.0, cands, never, min_dist=1.5), 102.0)
+        self.assertEqual(g.nearest_target(1, 100.0, cands, never, min_dist=2.0), 104.0)
+
+    def test_label_variants(self):
+        df = synthetic(days=4, seed=9)
+        L = g.build(df, start=0, label="liq15")
+        self.assertGreater(len(L), 20)
+        self.assertTrue(((L["rr"] >= 1.5 - 1e-9) & (L["rr"] <= 3.0 + 1e-9)).all())
+        for lab, k in g.FIXED_RR.items():
+            X = g.build(df, start=0, label=lab)
+            with self.subTest(label=lab):
+                self.assertTrue(np.allclose(X["rr"], k))
+                self.assertTrue(np.allclose(X["target"], X["entry"] + X["d"] * k * X["risk"]))
+                win = X[X["outcome"] == 1]
+                self.assertTrue(np.allclose(win["R"], k))
+        # fixed RR: the same stop on the same day is one plan even though the target moves with the entry
+        old = g.LABEL
+        try:
+            g.LABEL = "rr2"
+            D = pd.DataFrame({"d": [1, 1], "stop": [99.0, 99.0], "target": [103.0, 103.4], "time": [86400 * 5, 86400 * 5 + 300]})
+            self.assertEqual(len(gp.dedupe(D)), 1)
+            g.LABEL = "liq"
+            self.assertEqual(len(gp.dedupe(D)), 2)
+        finally:
+            g.LABEL = old
+
 
 if __name__ == "__main__":
     unittest.main()

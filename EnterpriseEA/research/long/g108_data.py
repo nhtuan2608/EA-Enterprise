@@ -31,9 +31,19 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
 SOURCE = os.environ.get("G108_SOURCE", "ea")
-SUFFIX = "" if SOURCE == "ea" else f"_{SOURCE}"
+# Label (G108_LABEL): liq = nearest untaken liquidity, RR >= 2 (steps 1-3); liq15 = nearest liquidity at least
+# 1.5R away, kept when RR <= 3; rr15 / rr2 / rr3 = fixed target at 1.5 / 2 / 3 R (same structural stop)
+LABEL = os.environ.get("G108_LABEL", "liq")
+FIXED_RR = {"rr15": 1.5, "rr2": 2.0, "rr3": 3.0}
+LABEL_DESC = {"liq": "mục tiêu = vùng thanh khoản gần nhất chưa bị lấy, chỉ giữ plan RR ≥ 2",
+              "liq15": "mục tiêu = vùng thanh khoản gần nhất chưa bị lấy cách ít nhất 1,5R, chỉ giữ plan RR ≤ 3",
+              "rr15": "mục tiêu cố định 1,5R", "rr2": "mục tiêu cố định 2R", "rr3": "mục tiêu cố định 3R"}
+# Symbol (G108_SYMBOL): XAUUSD (default) or an FX pair read from the raw MT5 exports (same method, no re-tuning)
+SYMBOL = os.environ.get("G108_SYMBOL", "XAUUSD")
+POINT = {"XAUUSD": 0.01, "EURUSD": 1e-5, "GBPUSD": 1e-5, "USDJPY": 1e-3}
+SUFFIX = ("" if SYMBOL == "XAUUSD" else f"_{SYMBOL}") + ("" if SOURCE == "ea" else f"_{SOURCE}") +          ("" if LABEL == "liq" else f"_{LABEL}")
 OUT = DATA / f"g108_decisions{SUFFIX}.pkl"
-RAW = Path("D:/Work/Private/AI APP/Trading-with-AI/input/raw/XAUUSD")
+RAW = Path("D:/Work/Private/AI APP/Trading-with-AI/input/raw") / SYMBOL
 RAW_FILES = ("XAUUSD_M5_202405141015_202510082355.csv", "XAUUSD_M5_202505141945_202610131840.csv")
 SPLIT_TERMINAL = int(pd.Timestamp("2025-05-22").timestamp())
 START = int(pd.Timestamp("2024-07-01").timestamp())          # after ~1100 M30 bars of EMA warm-up
@@ -53,15 +63,18 @@ def read_raw(path: Path) -> pd.DataFrame:
 
 
 def load_m5_raw() -> pd.DataFrame:
-    old, new = (read_raw(RAW / f) for f in RAW_FILES)
-    df = pd.concat([old[old["time"] < new["time"].iloc[0]], new], ignore_index=True)
+    """The raw M5 exports in order; a later file replaces the earlier one from its first bar on."""
+    files = RAW_FILES if SYMBOL == "XAUUSD" else tuple(sorted(f.name for f in RAW.glob(f"{SYMBOL}_M5_*.csv")))
+    parts = [read_raw(RAW / f) for f in files]
+    keep = [p[p["time"] < parts[k + 1]["time"].iloc[0]] for k, p in enumerate(parts[:-1])] + [parts[-1]]
+    df = pd.concat(keep, ignore_index=True)
     df = df.drop_duplicates("time").sort_values("time").reset_index(drop=True)
-    df["sp"] = df["spread"] * 0.01
+    df["sp"] = df["spread"] * POINT[SYMBOL]
     return df
 
 
 def load_m5(terminal: pd.DataFrame | None = None) -> pd.DataFrame:
-    if SOURCE == "raw" and terminal is None:
+    if (SOURCE == "raw" or SYMBOL != "XAUUSD") and terminal is None:
         return load_m5_raw()
     f = pd.read_csv(DATA / "bars_XAUUSD_M5.csv")
     f = f[f["time"] < SPLIT_TERMINAL]
@@ -142,11 +155,11 @@ def first_touch(d: int, entry: float, stop: float, target: float, h: np.ndarray,
     return d * (target - entry) / risk, 1, int(t)
 
 
-def nearest_target(d: int, entry: float, cands: list[tuple[float, int]], taken) -> float:
-    """Nearest untaken level beyond the entry. cands: (level, index of the last bar of its formation)."""
+def nearest_target(d: int, entry: float, cands: list[tuple[float, int]], taken, min_dist: float = 0.0) -> float:
+    """Nearest untaken level beyond the entry by more than `min_dist`. cands: (level, last bar of its formation)."""
     best = np.nan
     for lev, end in cands:
-        if d * (lev - entry) <= 0 or taken(d, lev, end):
+        if d * (lev - entry) <= min_dist or taken(d, lev, end):
             continue
         if best != best or d * (lev - best) < 0:
             best = lev
@@ -177,7 +190,8 @@ def session_of(hour: int) -> int:
     return 0 if hour < 10 else (1 if hour < 15 else 2)          # Asia / London / New York (server time)
 
 
-def build(df: pd.DataFrame, start: int = START, end: int | None = None) -> pd.DataFrame:
+def build(df: pd.DataFrame, start: int = START, end: int | None = None, label: str | None = None) -> pd.DataFrame:
+    label = label or LABEL
     t = df["time"].to_numpy(np.int64)
     o, h, l, c, sp = (df[k].to_numpy(float) for k in ("open", "high", "low", "close", "sp"))
     n = len(t)
@@ -275,12 +289,16 @@ def build(df: pd.DataFrame, start: int = START, end: int | None = None) -> pd.Da
             risk = d * (entry - stop)
             if risk < MIN_RISK_SPREADS * sp[i]:
                 continue
-            cands = window(hi_c if d == 1 else lo_c, hi_from if d == 1 else lo_from, i)
-            target = nearest_target(d, entry, cands, lambda dd, lev, last: taken(dd, lev, last, i))
+            if label in FIXED_RR:
+                target = entry + d * FIXED_RR[label] * risk
+            else:
+                cands = window(hi_c if d == 1 else lo_c, hi_from if d == 1 else lo_from, i)
+                target = nearest_target(d, entry, cands, lambda dd, lev, last: taken(dd, lev, last, i),
+                                        min_dist=(1.5 * risk if label == "liq15" else 0.0))
             if target != target:
                 continue
             rr = d * (target - entry) / risk
-            if rr < MIN_RR:
+            if (label == "liq" and rr < MIN_RR) or (label == "liq15" and not (1.5 - 1e-9 <= rr <= 3.0)):
                 continue
             j = i + HORIZON
             R, outcome, k_exit = first_touch(d, entry, stop, target, h[i + 1:j + 1], l[i + 1:j + 1], sp[i + 1:j + 1], c[j], sp[j])

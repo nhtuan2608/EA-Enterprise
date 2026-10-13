@@ -64,9 +64,13 @@ def slow_plan(df, i, d):
              (x[2] < x[0] and x[2] < x[1] and x[2] <= x[3] and x[2] <= x[4])
         if ok and t[last] + 300 >= now - 5 * 86400:
             levels.append((x[2], t[last] + 300))
-    best = None
+    risk0 = d * (entry - stop)
+    if g.LABEL in g.FIXED_RR:
+        levels = []
+    min_dist = 1.5 * risk0 if g.LABEL == "liq15" else 0.0
+    best = entry + d * g.FIXED_RR[g.LABEL] * risk0 if g.LABEL in g.FIXED_RR else None
     for lev, end in levels:
-        if d * (lev - entry) <= 0:
+        if d * (lev - entry) <= min_dist:
             continue
         after = (t + 300 > end) & (np.arange(len(t)) <= i)
         if after.any() and (ext[after].max() > lev if d == 1 else ext[after].min() < lev):
@@ -157,7 +161,7 @@ def main():
     print("time strictly increasing within dir:", bool(all((D[D.d == d]["time"].diff().dropna() > 0).all() for d in (1, -1))))
     print("decision times on the M5 grid:", bool((D["time"] % 300 == 0).all()), "| bar index matches time:",
           bool((t[D["i"].to_numpy()] == D["time"].to_numpy()).all()))
-    print("rr >= 2:", bool((D["rr"] >= 2 - 1e-9).all()), "| outcomes", D["outcome"].value_counts().to_dict())
+    print("rr range:", round(float(D["rr"].min()), 3), round(float(D["rr"].max()), 3), "| label", g.LABEL, "| outcomes", D["outcome"].value_counts().to_dict())
     print("first decision", pd.to_datetime(D["time"].min(), unit="s"), "last", pd.to_datetime(D["time"].max(), unit="s"))
     print("== recompute", n_sample, "random plans with plain loops")
     S = D.sample(n_sample, random_state=108)

@@ -75,6 +75,8 @@ def walk_forward(X: pd.DataFrame, F: pd.DataFrame, seed=108):
         s, e = int(m0.timestamp()), int((m0 + pd.offsets.MonthBegin(1)).timestamp())
         tr = train_mask(X, s)
         te = ((X["time"] >= s) & (X["time"] < e)).to_numpy()
+        if te.sum() == 0:                                         # no data that month (FX exports stop 10/2025)
+            continue
         assert X.loc[tr, "exit_time"].max() < s and X.loc[te, "time"].min() >= s
         assert not (X.loc[te, "period"] == "test").any()
         audit.append((m0.strftime("%Y-%m"), int(tr.sum()), int(te.sum()), pd.to_datetime(X.loc[tr, "exit_time"].max(), unit="s")))
@@ -157,7 +159,7 @@ def main():
          "đầu tháng** (có assert trong code) rồi dự báo plan của tháng đó. **Kỳ test 2026 vẫn niêm phong.** "
          "Script: research/long/g108_features.py, g108_models.py.", "",
          f"Plan đã gộp (một plan một lần): {len(X)}; có dự báo ngoài mẫu: {int(oos.sum())}. "
-         "p = xác suất chạm mục tiêu trước mức sai; EV = p × RR − (1 − p).", "",
+         "p = xác suất chạm mục tiêu trước mức sai; EV = p × RR − (1 − p). Nhãn: " + g.LABEL_DESC[g.LABEL] + ".", "",
          "## Mô hình có xếp hạng được plan không (AUC, ngoài mẫu)", "",
          "| Mô hình | Kỳ | MUA | BÁN |", "|---|---|---|---|"]
     for name in ["lgbm", "knn", "C2 time", "C3 no path", "C4 shuffled"]:

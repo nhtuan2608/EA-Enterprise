@@ -51,7 +51,11 @@ def dmi(h, l, c, n=14):
 
 
 def long_m30() -> pd.DataFrame:
-    df = pd.read_csv(g.DATA / "m30v" / "XAUUSD.csv")
+    """Long history for the H1 / H4 / D1 context: research m30v for gold, the raw H1 export for an FX pair."""
+    if g.SYMBOL == "XAUUSD":
+        df = pd.read_csv(g.DATA / "m30v" / "XAUUSD.csv")
+    else:
+        df = g.read_raw(sorted(g.RAW.glob(f"{g.SYMBOL}_H1_*.csv"))[0])
     return df[["time", "high", "low", "close"]]
 
 
