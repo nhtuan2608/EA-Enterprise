@@ -477,24 +477,35 @@ void CbtPanel()
    PnlHead(StringFormat("CtxBoxTester  %s  %s (giờ server)  | vào %s, giữ theo hộp %s | %s%s | rủi ro %.2f%%",_Symbol,
                         PnlTime(TimeCurrent()),etf,htf,InpBuy ? "MUA " : "",InpSell ? "BÁN" : "",InpRiskPercent));
    if(!g_cb.ok) { PnlWarn("Bối cảnh   : chưa đủ nến "+etf+"/"+htf); PnlFlush(); return; }
-   const string where=(g_cb.close>g_cb.hi ? "TRÊN cả 4 EMA" : (g_cb.close<g_cb.lo ? "DƯỚI cả 4 EMA" : "trong dải EMA"));
-   PnlAdd(StringFormat("%-3s đã đóng : giá %s %s (EMA21 %s | 55 %s | 100 %s | 200 %s)",etf,PnlPx(g_cb.close),where,
-                       PnlPx(g_cb.e[0]),PnlPx(g_cb.e[1]),PnlPx(g_cb.e[2]),PnlPx(g_cb.e[3])));
-   PnlAdd(StringFormat("%-3s trước  : đóng %s %s EMA200 %s %s",htf,PnlPx(g_cb.hclose),g_cb.hs==1 ? "TRÊN" : (g_cb.hs==-1 ? "DƯỚI" : "—"),
-                       htf,PnlPx(g_cb.h200)));
+   // entry context (closed bars only): one summary per side, the EMA detail behind the button
+   string sum="";
+   bool fired=false;
+   string side_line[2];
    for(int s=0;s<2;s++)
      {
+      side_line[s]="";
       const int d=(s==0 ? 1 : -1);
       if((d==1 && !InpBuy) || (d==-1 && !InpSell)) continue;
       const bool px=(d==1 ? g_cb.close>g_cb.hi : g_cb.close<g_cb.lo), hs=(g_cb.hs==d);
       const bool on=(px && hs);
-      string state=(on ? (g_cb.before==d ? "BẬT (đã bật từ trước — chỉ vào ở nến vừa bật)" : "VỪA BẬT → vào lệnh") : "TẮT");
-      PnlAdd(StringFormat("Bối cảnh %s: %s giá %s cả 4 EMA %s   %s %s %s EMA200  => %s",PnlDir(d),PnlMark(px),d==1 ? "trên" : "dưới",
-                          etf,PnlMark(hs),htf,d==1 ? "trên" : "dưới",state),on ? PnlOkColor : clrNONE);
+      if(on && g_cb.before!=d) fired=true;
+      const string state=(on ? (g_cb.before==d ? "BẬT từ trước" : "VỪA BẬT → vào lệnh") : "TẮT");
+      sum+=(sum=="" ? "" : " | ")+PnlDir(d)+" "+state;
+      side_line[s]=StringFormat("     %s: %s giá %s cả 4 EMA %s   %s %s %s EMA200%s",PnlDir(d),PnlMark(px),d==1 ? "trên" : "dưới",etf,
+                                PnlMark(hs),htf,d==1 ? "trên" : "dưới",on && g_cb.before==d ? "  (chỉ vào ở nến vừa bật)" : "");
      }
-   PnlAdd(StringFormat("Hộp nghỉ %s: %s",htf,g_cb.box_ok ? StringFormat("có (%s – %s, rộng ≤ %.1f ATR)",PnlPx(g_cb.box_lo),PnlPx(g_cb.box_hi),InpBoxMaxAtr)
-                                                         : StringFormat("8 nến gần nhất chưa đủ hẹp (≤ %.1f ATR)",InpBoxMaxAtr)));
-   PnlAdd("");
+   if(PnlSection("ctx",StringFormat("Bối cảnh %-3s: %s",etf,sum),true,fired ? PnlOkColor : clrNONE))
+     {
+      const string where=(g_cb.close>g_cb.hi ? "TRÊN cả 4 EMA" : (g_cb.close<g_cb.lo ? "DƯỚI cả 4 EMA" : "trong dải EMA"));
+      PnlAdd(StringFormat("     %s đã đóng: giá %s %s (EMA21 %s | 55 %s | 100 %s | 200 %s)",etf,PnlPx(g_cb.close),where,
+                          PnlPx(g_cb.e[0]),PnlPx(g_cb.e[1]),PnlPx(g_cb.e[2]),PnlPx(g_cb.e[3])));
+      PnlAdd(StringFormat("     %s trước: đóng %s %s EMA200 %s",htf,PnlPx(g_cb.hclose),g_cb.hs==1 ? "TRÊN" : (g_cb.hs==-1 ? "DƯỚI" : "—"),
+                          PnlPx(g_cb.h200)));
+      for(int s=0;s<2;s++) if(side_line[s]!="") PnlAdd(side_line[s]);
+     }
+   if(PnlSection("box",StringFormat("Hộp nghỉ %-3s: %s",htf,g_cb.box_ok ? "có" : "chưa có"),false))
+      PnlAdd(g_cb.box_ok ? StringFormat("     %s – %s, rộng ≤ %.1f ATR",PnlPx(g_cb.box_lo),PnlPx(g_cb.box_hi),InpBoxMaxAtr)
+                         : StringFormat("     8 nến %s gần nhất chưa đủ hẹp (≤ %.1f ATR)",htf,InpBoxMaxAtr));
    bool any=false;
    for(int s=0;s<2;s++)
      {
@@ -504,20 +515,19 @@ void CbtPanel()
       const double px=(d==1 ? bid : ask);
       const double rnow=(g_leg[s].risk>0.0 ? d*(px-g_leg[s].entry)/g_leg[s].risk : 0.0);
       const double rbest=(g_leg[s].risk>0.0 ? d*(g_leg[s].best-g_leg[s].entry)/g_leg[s].risk : 0.0);
-      PnlAdd(StringFormat("Lệnh %s    : vào %s, stop cứng %s, đang %s (tốt nhất %s)",PnlDir(d),PnlPx(g_leg[s].entry),
-                          PnlPx(g_leg[s].hard),PnlR(rnow),PnlR(rbest)),rnow>=0.0 ? PnlOkColor : PnlWarnColor);
-      if(g_leg[s].level!=0.0)
-         PnlAdd(StringFormat("Giữ lệnh   : mốc hộp %s; thoát khi nến %s đóng %s %s",PnlPx(g_leg[s].level),htf,d==1 ? "dưới" : "trên",
-                             PnlPx(g_leg[s].level-d*InpCloseBufAtr*g_cb.hatr)));
-      else
-         PnlAdd(StringFormat("Giữ lệnh   : chưa dời stop — cần lãi tốt nhất ≥ +1R%s",g_leg[s].has_box ? " (đã có hộp để dời)" : " và một hộp nghỉ bị phá theo chiều lệnh"));
+      if(PnlSection("leg_"+IntegerToString(s),StringFormat("Lệnh %s    : vào %s, stop cứng %s, đang %s (tốt nhất %s)",PnlDir(d),
+                    PnlPx(g_leg[s].entry),PnlPx(g_leg[s].hard),PnlR(rnow),PnlR(rbest)),true,rnow>=0.0 ? PnlOkColor : PnlWarnColor))
+        {
+         if(g_leg[s].level!=0.0)
+            PnlAdd(StringFormat("     mốc hộp %s; thoát khi nến %s đóng %s %s",PnlPx(g_leg[s].level),htf,d==1 ? "dưới" : "trên",
+                                PnlPx(g_leg[s].level-d*InpCloseBufAtr*g_cb.hatr)));
+         else
+            PnlAdd(StringFormat("     chưa dời stop — cần lãi tốt nhất ≥ +1R%s",g_leg[s].has_box ? " (đã có hộp để dời)" : " và một hộp nghỉ bị phá theo chiều lệnh"));
+        }
      }
    if(!any) PnlAdd("Lệnh mở    : không có");
-   PnlAdd("");
-   PnlNewsLines();
-   PnlAdd(StringFormat("Đã đếm     : vào %d | thoát theo hộp %d",g_entries,g_exit_level));
-   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
-                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlNewsSection(StringFormat("vào %d | thoát theo hộp %d | chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
+                               g_entries,g_exit_level,g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
    PnlFlush();
   }
 
@@ -557,4 +567,9 @@ void OnDeinit(const int reason)
    PrintFormat("CtxBoxTester %s: entries %d, level exits %d; blocked by opposite %d, spread %d, news %d, sentiment %d; sentiment-reduced %d; news break-evens %d",
                EnumToString(EntryTf()),g_entries,g_exit_level,g_block_opposite,g_block_spread,g_block_news,g_block_sent,
                g_sent_reduced,g_news_be);
+  }
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK && PnlOnClick(sparam) && InpPanel) CbtPanel();
   }

@@ -445,28 +445,36 @@ void CtxPanel()
                         PnlTime(TimeCurrent()),InpPlan==CTX_PLAN_LIMIT ? "LIMIT" : "MARKET",th,InpRiskPercent));
    if(!g_warm || !CtxOk(g.A))
      { PnlWarn("Ngữ cảnh   : đang nạp lịch sử M30 (cần ~200 ngày để EMA200 H4/D1 ổn định)"); PnlFlush(); return; }
+   // context of the last closed M30 bar: one summary line, the values behind the button
    const int h4side=(CtxOk(g.f[7]) ? (int)g.f[7] : 0);
-   PnlAdd(StringFormat("M30 đã đóng: giá %s | ATR14 H4 %s | EMA21 %s, 55 %s, 100 %s",PnlPx(g.c),PnlPx(g.A),PnlPx(g.x21),PnlPx(g.x55),PnlPx(g.x100)));
-   PnlAdd(StringFormat("H4 EMA200  : %s → lọc S07 chỉ cho %s%s",CtxOk(g.h4ema) ? PnlPx(g.h4ema) : "—",PnlDir(h4side),
-                       InpH4SideGate ? "" : " (lọc đang TẮT)"),h4side==1 ? PnlOkColor : (h4side==-1 ? PnlWarnColor : clrNONE));
    const bool ord_b=(g.x21>g.x55 && g.x55>g.x100 && g.c>g.x21), ord_s=(g.x21<g.x55 && g.x55<g.x100 && g.c<g.x21);
-   PnlAdd(StringFormat("EMA xếp    : %s (trọng số %s)",ord_b ? "TĂNG đủ thứ tự" : (ord_s ? "GIẢM đủ thứ tự" : "chưa xếp thứ tự"),
-                       (ord_b || ord_s) ? "1.0" : DoubleToString(InpUnorderedWeight,2)));
-   if(InpSell && InpSellLocation && CtxOk(g.h4ema) && CtxOk(g.top9))
-      PnlAdd(StringFormat("Vị trí bán : %s đỉnh 9 nến M30 %s ≥ EMA200 H4 - 0.5 ATR (%s)",PnlMark(g.top9>=g.h4ema-0.5*g.a14),
-                          PnlPx(g.top9),PnlPx(g.h4ema-0.5*g.a14)));
-   PnlAdd("");
+   const string ord=(ord_b ? "TĂNG đủ thứ tự" : (ord_s ? "GIẢM đủ thứ tự" : "chưa xếp thứ tự"));
+   if(PnlSection("ctx",StringFormat("Ngữ cảnh   : giá %s | lọc H4 chỉ cho %s%s | EMA %s",PnlPx(g.c),PnlDir(h4side),
+                                    InpH4SideGate ? "" : " (TẮT)",ord),false,
+                 h4side==1 ? PnlOkColor : (h4side==-1 ? PnlWarnColor : clrNONE)))
+     {
+      PnlAdd(StringFormat("     M30 đã đóng giá %s | ATR14 H4 %s | EMA21 %s, 55 %s, 100 %s",PnlPx(g.c),PnlPx(g.A),PnlPx(g.x21),
+                          PnlPx(g.x55),PnlPx(g.x100)));
+      PnlAdd(StringFormat("     EMA200 H4 %s | trọng số %s",CtxOk(g.h4ema) ? PnlPx(g.h4ema) : "—",
+                          (ord_b || ord_s) ? "1.0" : DoubleToString(InpUnorderedWeight,2)));
+      if(InpSell && InpSellLocation && CtxOk(g.h4ema) && CtxOk(g.top9))
+         PnlAdd(StringFormat("     vị trí bán %s: đỉnh 9 nến M30 %s ≥ EMA200 H4 - 0.5 ATR (%s)",PnlMark(g.top9>=g.h4ema-0.5*g.a14),
+                             PnlPx(g.top9),PnlPx(g.h4ema-0.5*g.a14)));
+     }
+   // the decision (the base order): open by default
+   const datetime nextdec=(datetime)(((long)TimeCurrent()/3600+1)*3600);
    if(g_dl_time==0)
-      PnlAdd("Quyết định : chưa có (bot chỉ xét ở nến M30 đóng đúng giờ tròn)");
+      PnlAdd("Quyết định : chưa có (bot chỉ xét ở nến M30 đóng đúng giờ tròn) | xét tiếp lúc "+PnlHm(nextdec));
    else
      {
-      PnlAdd(StringFormat("Quyết định : lúc %s — dự báo MUA %+.3fR %s | BÁN %+.3fR %s (ngưỡng %.3f)",PnlHm(g_dl_time+1800),
-                          g_dl_buy,PnlMark(g_dl_buy>th),g_dl_sell,PnlMark(g_dl_sell>th),th));
-      PnlAdd("Kết quả    : "+g_dl_result,StringFind(g_dl_result,"ĐẶT")==0 || StringFind(g_dl_result,"VÀO")==0 ? PnlOkColor : clrNONE);
+      const bool placed=(StringFind(g_dl_result,"ĐẶT")==0 || StringFind(g_dl_result,"VÀO")==0);
+      if(PnlSection("dec","Quyết định "+PnlHm(g_dl_time+1800)+": "+g_dl_result,true,placed ? PnlOkColor : clrNONE))
+        {
+         PnlAdd(StringFormat("     dự báo MUA %+.3fR %s | BÁN %+.3fR %s (ngưỡng %.3f)",g_dl_buy,PnlMark(g_dl_buy>th),
+                             g_dl_sell,PnlMark(g_dl_sell>th),th));
+         PnlAdd("     xét tiếp lúc "+PnlHm(nextdec)+" (nến M30 đóng giờ tròn); quyết định đã chốt không tính lại theo giá");
+        }
      }
-   const datetime nextdec=(datetime)(((long)TimeCurrent()/3600+1)*3600);
-   PnlAdd("Xét tiếp   : lúc "+PnlHm(nextdec)+" (nến M30 đóng giờ tròn)");
-   PnlAdd("");
    ulong tk=0;
    if(HasPosition(tk) && PositionSelectByTicket(tk))
      {
@@ -489,11 +497,15 @@ void CtxPanel()
       PnlAdd(StringFormat("Limit %s   : tại %s, SL %s, TP %s, hủy lúc %s",buy ? "MUA" : "BÁN",PnlPx(OrderGetDouble(ORDER_PRICE_OPEN)),
                           PnlPx(OrderGetDouble(ORDER_SL)),PnlPx(OrderGetDouble(ORDER_TP)),PnlHm((datetime)((long)placed+(long)InpLimitBars*1800))));
      }
-   PnlAdd("");
-   PnlAdd(StringFormat("Đã đếm     : xét %d | qua ngưỡng %d | bị lọc S07 %d | lệnh %d | khớp %d | limit hết hạn %d | đóng 48h %d",
-                       g_decisions,g_signals,g_gated,g_orders,g_fills,g_expired,g_timeouts));
-   if(g_too_small>0) PnlWarn(StringFormat("Đã chặn    : khối lượng < tối thiểu %d lần (xem tab Experts)",g_too_small));
-   PnlAdd("Không có News Guard / sentiment trong bot này.");
+   if(PnlSection("cnt",StringFormat("Đã đếm     : lệnh %d | khớp %d%s",g_orders,g_fills,
+                                    g_too_small>0 ? StringFormat(" | khối lượng < tối thiểu %d",g_too_small) : ""),false,
+                 g_too_small>0 ? PnlWarnColor : clrNONE))
+     {
+      PnlAdd(StringFormat("     xét %d | qua ngưỡng %d | bị lọc S07 %d | lệnh %d | khớp %d | limit hết hạn %d | đóng 48h %d",
+                          g_decisions,g_signals,g_gated,g_orders,g_fills,g_expired,g_timeouts));
+      if(g_too_small>0) PnlAdd(StringFormat("     khối lượng < tối thiểu %d lần (xem tab Experts)",g_too_small));
+      PnlAdd("     không có News Guard / sentiment trong bot này");
+     }
    PnlFlush();
   }
 
@@ -549,4 +561,9 @@ void OnDeinit(const int reason)
    if(g_parity!=INVALID_HANDLE) FileClose(g_parity);
    PrintFormat("CtxLimitTester: decisions %d, signals above threshold %d, gated by S07 %d, orders %d, fills %d, expired limits %d, 48h time stops %d",
                g_decisions,g_signals,g_gated,g_orders,g_fills,g_expired,g_timeouts);
+  }
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK && PnlOnClick(sparam) && InpPanel) CtxPanel();
   }

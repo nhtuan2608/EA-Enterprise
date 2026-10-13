@@ -246,6 +246,20 @@ ulong    g_pending=0;         // today's limit order
 int      g_pending_dir=0;
 double   g_pending_level=0.0;
 bool     g_want_entry=false;  // an entry for today still to be placed (news / spread can delay it)
+// The day's plan, fixed at the day open from closed D1 data (and the open price): direction, entry (limit level
+// or the market reference price) and stop. A delayed placement (news, spread) reuses it unchanged; a market entry
+// that would chase more than XRT_MAX_CHASE_ATR past the reference is dropped for the day instead of recomputed.
+#define XRT_MAX_CHASE_ATR 0.5
+struct XRTPlan
+  {
+   bool     ok;
+   int      dir;
+   bool     market;
+   double   ref, level, stop;
+   datetime made;
+   string   note;              // what happened to the plan (panel)
+  };
+XRTPlan  g_plan;
 
 void Ema(const MqlRates &r[],const int n,const int period,double &out[])
   {
@@ -390,29 +404,57 @@ double EntryGate(const int dir,const double price,const double stop)
   }
 
 // Place today's entry (market or limit). Returns true when nothing is left to do today.
+// Fix the day's plan at the day open (called by OnNewDay when no position is open).
+void MakePlan()
+  {
+   g_plan.ok=false; g_plan.note="";
+   const int dir=g_day.state;
+   if(!Allowed(dir)) { g_plan.note="chế độ không cho phép vào hôm nay"; return; }
+   if(dir==g_blocked_dir) { g_plan.note="vừa thoát bằng trail: chờ chế độ đổi"; return; }
+   const XRT_Zone zone=(dir==1 ? InpBuyZone : InpSellZone);
+   const double market=(dir==1 ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
+   g_plan.dir=dir; g_plan.made=TimeCurrent();
+   g_plan.market=(zone==XRT_MARKET);
+   g_plan.ref=market;
+   g_plan.level=(g_plan.market ? 0.0 : ZoneLevel(zone,dir));
+   if(!g_plan.market && g_plan.level<=0.0) { g_plan.note="không tính được vùng limit"; return; }
+   // a level already through the price at the open: a market plan from the open price (as before the plan lock)
+   if(!g_plan.market && dir*(market-g_plan.level)<=0.0) { g_plan.market=true; g_plan.level=0.0; }
+   const double base=(g_plan.market ? g_plan.ref : g_plan.level);
+   g_plan.stop=base-dir*InpStopAtr*g_day.atr;
+   g_plan.ok=true;
+  }
+
+// Place today's planned entry. Returns true when nothing is left to do today.
 bool PlaceEntry()
   {
-   const int dir=g_day.state;
-   if(!Allowed(dir) || dir==g_blocked_dir) return true;
-   const XRT_Zone zone=(dir==1 ? InpBuyZone : InpSellZone);
+   if(!g_plan.ok) return true;
+   const int dir=g_plan.dir;
    const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
-   const double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   const double market=(dir==1 ? ask : bid);
-   double level=(zone==XRT_MARKET ? 0.0 : ZoneLevel(zone,dir));
-   if(zone!=XRT_MARKET && level<=0.0) return true;
-   const bool at_market=(zone==XRT_MARKET || dir*(market-level)<=0.0);   // a level already through the price
-   const double price=(at_market ? market : level);
-   const double stop=price-dir*InpStopAtr*g_day.atr;
+   const double market=(dir==1 ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
+   // a planned limit whose level the price already passed is taken at market (a better price than planned)
+   const bool at_market=(g_plan.market || dir*(market-g_plan.level)<=0.0);
+   if(at_market)
+     {
+      const double ref=(g_plan.market ? g_plan.ref : g_plan.level);
+      if(dir*(market-ref)>XRT_MAX_CHASE_ATR*g_day.atr)
+        { g_plan.ok=false; g_plan.note=StringFormat("bỏ hôm nay: giá đã chạy %.2f ATR qua giá kế hoạch",dir*(market-ref)/g_day.atr); return true; }
+      if(dir*(market-g_plan.stop)<=0.0)
+        { g_plan.ok=false; g_plan.note="bỏ hôm nay: giá đã qua stop kế hoạch"; return true; }
+     }
+   const double price=(at_market ? market : g_plan.level);
+   const double stop=g_plan.stop;
    const double w=EntryGate(dir,price,stop);
-   if(w<=0.0) return false;                                            // retry on a later M5 bar today
+   if(w<=0.0) { g_plan.note="đang chờ: bị chặn (tin / spread / sentiment), thử lại ở nến M5 sau"; return false; }
    const double vol=VolumeFor(dir,price,stop,w);
-   if(vol<=0.0) return true;
+   if(vol<=0.0) { g_plan.ok=false; g_plan.note="bỏ hôm nay: khối lượng dưới mức tối thiểu"; return true; }
    bool ok;
    if(at_market)
      {
       ok=(dir==1 ? g_trade.Buy(vol,_Symbol,0.0,NormalizeDouble(stop,digits),0.0,"XRT")
                  : g_trade.Sell(vol,_Symbol,0.0,NormalizeDouble(stop,digits),0.0,"XRT"));
-      if(ok && g_trade.ResultRetcode()==TRADE_RETCODE_DONE) { int d; OwnPosition(d); }
+      if(ok && g_trade.ResultRetcode()==TRADE_RETCODE_DONE) { int d; OwnPosition(d); g_plan.note="đã vào market"; }
+      else g_plan.note=StringFormat("broker từ chối lệnh market (mã %u)",g_trade.ResultRetcode());
      }
    else
      {
@@ -420,9 +462,10 @@ bool PlaceEntry()
       const bool dated=((SymbolInfoInteger(_Symbol,SYMBOL_EXPIRATION_MODE)&SYMBOL_EXPIRATION_SPECIFIED)!=0);
       const ENUM_ORDER_TYPE_TIME tt=(dated ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC);
       const datetime expiry=(dated ? (datetime)(iTime(_Symbol,PERIOD_D1,0)+86400-60) : 0);
-      ok=(dir==1 ? g_trade.BuyLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT")
-                 : g_trade.SellLimit(vol,NormalizeDouble(level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT"));
-      if(ok) { g_pending=g_trade.ResultOrder(); g_pending_dir=dir; g_pending_level=level; g_limits_placed++; }
+      ok=(dir==1 ? g_trade.BuyLimit(vol,NormalizeDouble(g_plan.level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT")
+                 : g_trade.SellLimit(vol,NormalizeDouble(g_plan.level,digits),_Symbol,NormalizeDouble(stop,digits),0.0,tt,expiry,"XRT"));
+      if(ok) { g_pending=g_trade.ResultOrder(); g_pending_dir=dir; g_pending_level=g_plan.level; g_limits_placed++; g_plan.note="limit đang chờ"; }
+      else g_plan.note=StringFormat("broker từ chối lệnh limit (mã %u)",g_trade.ResultRetcode());
      }
    if(InpVerbose) PrintFormat("XRT %s %s level %.2f stop %.2f vol %.2f ok %d",dir==1 ? "BUY" : "SELL",
                               at_market ? "market" : "limit",price,stop,vol,ok);
@@ -453,6 +496,8 @@ void OnNewDay()
      }
    if(g_blocked_dir!=0 && g_day.state!=g_blocked_dir) g_blocked_dir=0;
    g_want_entry=!OwnPosition(dir);
+   g_plan.ok=false; g_plan.note="";
+   if(g_want_entry) MakePlan();
   }
 
 void NewsBreakEven()
@@ -494,37 +539,36 @@ void XrtPanel()
    PnlBegin();
    const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
    const string mode=(InpMode==XRT_LONG_ONLY ? "chỉ MUA" : (InpMode==XRT_SHORT_ONLY ? "chỉ BÁN" : "MUA + BÁN"));
-   PnlHead(StringFormat("XauRegimeTester  %s  %s (giờ server)  | %s | EMA%d D1, dốc %d ngày | rủi ro %.2f%%",
-                        _Symbol,PnlTime(TimeCurrent()),mode,InpEmaPeriod,InpSlopeDays,InpRiskPercent));
+   PnlHead(StringFormat("XauRegimeTester  %s  %s (giờ server)  | %s | rủi ro %.2f%%",_Symbol,PnlTime(TimeCurrent()),mode,InpRiskPercent));
    if(!g_day.ok) { PnlWarn("D1         : chưa đủ nến D1 để tính chế độ"); PnlFlush(); return; }
    const bool above=(g_day.close>g_day.ema), rising=(g_day.ema>g_day.ema_prev);
-   PnlAdd(StringFormat("D1 đã đóng : giá %s | EMA%d %s (%d ngày trước %s → đang %s) | ATR%d %s",PnlPx(g_day.close),InpEmaPeriod,
-                       PnlPx(g_day.ema),InpSlopeDays,PnlPx(g_day.ema_prev),rising ? "DỐC LÊN" : "DỐC XUỐNG",InpAtrPeriod,PnlPx(g_day.atr)));
-   PnlAdd(StringFormat("           %s giá %s EMA   %s EMA %s",PnlMark(above),above ? "TRÊN" : "DƯỚI",PnlMark(rising),rising ? "đi lên" : "đi xuống"));
-   const string st=(g_day.state==1 ? "TĂNG (bật MUA)" : (g_day.state==-1 ? "GIẢM (bật BÁN)" : "TRUNG TÍNH (giá và độ dốc ngược nhau)"));
-   PnlAdd("Chế độ     : "+st,g_day.state==1 ? PnlOkColor : (g_day.state==-1 ? PnlWarnColor : clrNONE));
+   const string st=(g_day.state==1 ? "TĂNG (bật MUA)" : (g_day.state==-1 ? "GIẢM (bật BÁN)" : "TRUNG TÍNH"));
+   if(PnlSection("d1",StringFormat("Chế độ D1  : %s | giá %s EMA%d %s, EMA %s",st,above ? "trên" : "dưới",InpEmaPeriod,PnlMark(above),
+                                    rising ? "đi lên ✓" : "đi xuống ✗"),true,
+                 g_day.state==1 ? PnlOkColor : (g_day.state==-1 ? PnlWarnColor : clrNONE)))
+     {
+      PnlAdd(StringFormat("     D1 đã đóng giá %s | EMA%d %s | %d ngày trước %s | ATR%d %s",PnlPx(g_day.close),InpEmaPeriod,PnlPx(g_day.ema),
+                          InpSlopeDays,PnlPx(g_day.ema_prev),InpAtrPeriod,PnlPx(g_day.atr)));
+      PnlAdd(StringFormat("     bật MUA khi D1 đóng > EMA và EMA > %d ngày trước; bật BÁN ngược lại; còn lại trung tính",InpSlopeDays));
+     }
    int dir=0;
    const bool pos=OwnPosition(dir);
    if(!pos)
      {
-      if(Allowed(g_day.state) && g_day.state!=g_blocked_dir)
+      if(g_plan.made>0 && (g_plan.ok || g_plan.note!=""))
         {
-         const XRT_Zone z=(g_day.state==1 ? InpBuyZone : InpSellZone);
-         if(g_pending!=0)
-            PnlOk(StringFormat("Hành động  : đang chờ %s %s tại %s (hết hạn cuối ngày)",PnlDir(g_pending_dir),XrtZoneName(z),PnlPx(g_pending_level)));
-         else if(g_want_entry)
-            PnlAdd(StringFormat("Hành động  : muốn vào %s (%s) nhưng chưa vào được — xem dòng chặn bên dưới",PnlDir(g_day.state),XrtZoneName(z)),PnlWarnColor);
-         else
-            PnlAdd(StringFormat("Hành động  : đã xét hôm nay; ngày mai lại vào %s nếu chế độ còn bật (%s)",PnlDir(g_day.state),XrtZoneName(z)));
+         const string what=(g_plan.market ? "market, giá tham chiếu "+PnlPx(g_plan.ref) : "limit tại "+PnlPx(g_plan.level));
+         if(PnlSection("plan",StringFormat("Kế hoạch   : %s %s, stop %s — %s",PnlDir(g_plan.dir),what,PnlPx(g_plan.stop),
+                                           g_plan.note=="" ? "chờ đặt lệnh" : g_plan.note),true,g_plan.ok ? PnlOkColor : clrNONE))
+            PnlAdd(StringFormat("     chốt lúc %s (mở ngày), không tính lại trong ngày; market không đuổi quá %.1f ATR",
+                                PnlTime(g_plan.made),XRT_MAX_CHASE_ATR));
         }
-      else if(g_day.state!=0 && g_day.state==g_blocked_dir)
-         PnlAdd(StringFormat("Hành động  : đứng ngoài — vừa thoát bằng trail, chờ chế độ %s tắt rồi bật lại",PnlDir(g_blocked_dir)));
       else
         {
          string need="";
-         if(InpMode!=XRT_SHORT_ONLY) need="MUA khi D1 đóng TRÊN EMA"+IntegerToString(InpEmaPeriod)+" ("+PnlPx(g_day.ema)+") và EMA cao hơn "+IntegerToString(InpSlopeDays)+" ngày trước";
-         if(InpMode!=XRT_LONG_ONLY) need+=(need=="" ? "" : "; ")+"BÁN khi D1 đóng DƯỚI EMA và EMA thấp hơn "+IntegerToString(InpSlopeDays)+" ngày trước";
-         PnlAdd("Hành động  : đứng ngoài. Chờ "+need);
+         if(InpMode!=XRT_SHORT_ONLY) need="MUA khi D1 đóng TRÊN EMA"+IntegerToString(InpEmaPeriod)+" ("+PnlPx(g_day.ema)+") và EMA đi lên";
+         if(InpMode!=XRT_LONG_ONLY) need+=(need=="" ? "" : "; ")+"BÁN khi D1 đóng DƯỚI EMA và EMA đi xuống";
+         PnlAdd(g_plan.note!="" ? "Kế hoạch   : "+g_plan.note : "Hành động  : đứng ngoài. Chờ "+need);
         }
      }
    else
@@ -534,16 +578,14 @@ void XrtPanel()
       const double trail=g_best-dir*InpTrailAtr*g_day.atr;
       double sl=0.0;
       if(PositionSelectByTicket(g_ticket)) sl=PositionGetDouble(POSITION_SL);
-      PnlAdd(StringFormat("Lệnh %s    : vào %s, stop %s, đang %s",PnlDir(dir),PnlPx(g_entry),PnlPx(sl),PnlR(rnow)),rnow>=0.0 ? PnlOkColor : PnlWarnColor);
-      PnlAdd(StringFormat("Giữ lệnh   : thoát khi chế độ hết %s, hoặc D1 đóng %s %s (giá đóng tốt nhất %s - %.1f ATR)%s",
-                          PnlDir(dir),dir==1 ? "dưới" : "trên",PnlPx(trail),PnlPx(g_best),InpTrailAtr,InpTrail ? "" : " [trail TẮT]"));
+      if(PnlSection("pos",StringFormat("Lệnh %s    : vào %s, stop %s, đang %s",PnlDir(dir),PnlPx(g_entry),PnlPx(sl),PnlR(rnow)),true,
+                    rnow>=0.0 ? PnlOkColor : PnlWarnColor))
+         PnlAdd(StringFormat("     thoát khi chế độ hết %s, hoặc D1 đóng %s %s (giá đóng tốt nhất %s - %.1f ATR)%s",PnlDir(dir),
+                             dir==1 ? "dưới" : "trên",PnlPx(trail),PnlPx(g_best),InpTrailAtr,InpTrail ? "" : " [trail TẮT]"));
      }
-   PnlAdd("");
-   PnlNewsLines();
-   PnlAdd(StringFormat("Đã đếm     : vào %d | limit đặt %d (hết hạn %d) | thoát chế độ %d, trail %d",g_entries,g_limits_placed,
-                       g_limits_expired,g_exit_regime,g_exit_trail));
-   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
-                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlNewsSection(StringFormat("vào %d | limit %d (hết hạn %d) | thoát chế độ %d, trail %d | chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng nhỏ %d",
+                               g_entries,g_limits_placed,g_limits_expired,g_exit_regime,g_exit_trail,g_block_opposite,g_block_spread,
+                               g_block_news,g_block_sent,g_too_small));
    PnlFlush();
   }
 
@@ -554,6 +596,7 @@ int OnInit()
    g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
    g_trade.SetDeviationInPoints(20);
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
+   g_plan.ok=false; g_plan.note=""; g_plan.made=0;
    LoadNews();
    LoadSentiment();
    return INIT_SUCCEEDED;
@@ -575,7 +618,7 @@ void OnTick()
       if(!OrderSelect(g_pending)) { g_pending=0; g_pending_dir=0; }
       else if(NewsBlocked((long)TimeCurrent())) { DeletePending(); g_block_news++; g_want_entry=true; }
      }
-   if(g_want_entry && g_pending==0 && g_ticket==0 && g_day.ok)
+   if(g_want_entry && g_pending==0 && g_ticket==0 && g_day.ok && g_plan.ok)
       if(PlaceEntry()) g_want_entry=false;
    if(InpPanel) XrtPanel();
   }
@@ -587,4 +630,9 @@ void OnDeinit(const int reason)
    PrintFormat("XauRegimeTester: entries %d, limits placed %d (expired %d), exits regime %d trail %d; blocked by opposite %d, spread %d, news %d, sentiment %d; sentiment-reduced %d; news break-evens %d",
                g_entries,g_limits_placed,g_limits_expired,g_exit_regime,g_exit_trail,g_block_opposite,g_block_spread,
                g_block_news,g_block_sent,g_sent_reduced,g_news_be);
+  }
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK && PnlOnClick(sparam) && InpPanel) XrtPanel();
   }

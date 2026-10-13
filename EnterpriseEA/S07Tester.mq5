@@ -94,6 +94,9 @@ struct S07TContext
 
 CTrade     g_trade;
 int        g_too_small=0;               // entries skipped: the risk budget is below the minimum volume
+int        g_skip_chase=0;              // signals not taken: price ran > InpMaxChaseAtr past the signal close
+datetime   g_skip_time=0;               // last signal that did not become a trade (panel)
+string     g_skip_what="", g_skip_why="";
 double     g_initial_capital=0.0;
 int        g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
 
@@ -385,21 +388,27 @@ double VolumeFor(const int dir,const double entry,const double stop,const double
   }
 
 // One entry through the S07 gates. anchor = window extreme (no buffer); atr = signal ATR; sig_close = signal close.
+bool Skip(const string what,const string why)
+  {
+   g_skip_time=TimeCurrent(); g_skip_what=what; g_skip_why=why;
+   return false;
+  }
+
 bool TryEnter(const string setup,const string tfname,const int dir,const bool base,const double anchor,const double atr,
               const double sig_close,const bool ordered)
   {
    if(atr<=0.0 || anchor<=0.0) return false;
    const int s=Side(dir);
-   if(InpBlockOpposite && LegsOpen(-dir)>0) { g_block_opposite++; return false; }
-   if(NewsBlocked((long)TimeCurrent())) { g_block_news++; return false; }
+   if(InpBlockOpposite && LegsOpen(-dir)>0) { g_block_opposite++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đang có lệnh chiều ngược"); }
+   if(NewsBlocked((long)TimeCurrent())) { g_block_news++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"News Guard đang chặn"); }
    const double sent=SentimentFactor(dir,(long)TimeCurrent());
-   if(sent<=0.0) { g_block_sent++; return false; }
-   if(LegsOpen(dir)>=EEA_S07_MAX_OPEN_LEGS) return false;
+   if(sent<=0.0) { g_block_sent++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"sentiment ngược mạnh"); }
+   if(LegsOpen(dir)>=EEA_S07_MAX_OPEN_LEGS) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đã đủ 3 lệnh cùng chiều");
    const int b=BaseIndex(dir);
    if(base)
      {
-      if(b>=0) return false;
-      if(setup!="S07R" && setup!="S07RS" && TimeCurrent()<g_base_free[s]) return false;
+      if(b>=0) return false;                     // the base slot is taken: not a missed signal
+      if(setup!="S07R" && setup!="S07RS" && TimeCurrent()<g_base_free[s]) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đang nghỉ sau lệnh gốc tới "+TimeToString(g_base_free[s],TIME_MINUTES));
      }
    else
      {
@@ -410,28 +419,28 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
       if(dir*(now-g_legs[b].entry)<=0.0) return false;
      }
    const double price=(dir==1 ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
-   if(dir*(price-sig_close)>InpMaxChaseAtr*atr) return false;
+   if(dir*(price-sig_close)>InpMaxChaseAtr*atr) { g_skip_chase++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("giá đã chạy %.2f ATR qua giá đóng tín hiệu (> %.2f), không đuổi",dir*(price-sig_close)/atr,InpMaxChaseAtr)); }
    double stop=anchor-dir*EEA_S07_STOP_BUFFER_ATR*atr;
    double dist=dir*(price-stop);
-   if(dist<=0.0 || dist>EEA_S07_STOP_MAX_ATR*atr) return false;
+   if(dist<=0.0 || dist>EEA_S07_STOP_MAX_ATR*atr) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("stop %.2f ATR ngoài khoảng 0–4 ATR",dist/atr));
    if(dist<EEA_S07_STOP_MIN_ATR*atr) { dist=EEA_S07_STOP_MIN_ATR*atr; stop=price-dir*dist; }
    if(InpSpreadFilter)
      {
       const double spread=SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID);
       const double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
       const double median=MedianSpreadPoints();
-      if(median>0.0 && point>0.0 && spread/point>2.0*median) { g_block_spread++; return false; }
-      if(spread>0.25*dist) { g_block_spread++; return false; }
+      if(median>0.0 && point>0.0 && spread/point>2.0*median) { g_block_spread++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"spread > 2 lần trung vị"); }
+      if(spread>0.25*dist) { g_block_spread++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"spread > 25% khoảng stop"); }
      }
    const double target=price+dir*EEA_S07_TARGET_R*dist;
    double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight)*sent;
    if(sent<1.0) g_sent_reduced++;
    const double vol=VolumeFor(dir,price,stop,weight);
-   if(vol<=0.0 || g_nlegs>=S07T_MAX_LEGS) return false;
+   if(vol<=0.0 || g_nlegs>=S07T_MAX_LEGS) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),vol<=0.0 ? "khối lượng dưới mức tối thiểu" : "hết chỗ lưu lệnh");
    const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
    bool ok=(dir==1 ? g_trade.Buy(vol,_Symbol,0.0,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),setup)
                    : g_trade.Sell(vol,_Symbol,0.0,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),setup));
-   if(!ok || g_trade.ResultRetcode()!=TRADE_RETCODE_DONE) return false;
+   if(!ok || g_trade.ResultRetcode()!=TRADE_RETCODE_DONE) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("broker từ chối (mã %u)",g_trade.ResultRetcode()));
    ulong ticket=0;
    const ulong deal=g_trade.ResultDeal();
    if(deal>0 && HistoryDealSelect(deal)) ticket=(ulong)HistoryDealGetInteger(deal,DEAL_POSITION_ID);
@@ -604,11 +613,11 @@ void NewsBreakEven()
 // ---------------------------------------------------------------------------
 // on-chart analysis panel (Tester/TesterPanel.mqh)
 // ---------------------------------------------------------------------------
-// One frame: compression -> expansion checklist of the S07 rule on its last closed bar, for the side allowed by
-// the H4 EMA200 (want = 0 when the H4 side is unknown).
-void S07PanelFrame(S07TFrame &f,const int want,const string role)
+// One frame: compression -> expansion checklist of the S07 rule on its last closed bar (closed bars only, so it
+// does not move with the forming price), for the side allowed by the H4 EMA200 (want = 0 when unknown).
+void S07PanelFrame(S07TFrame &f,const int want,const string role,const bool default_open)
   {
-   if(f.n<400) { PnlAdd(StringFormat("%-4s %s: chưa đủ 400 nến",f.name,role)); return; }
+   if(f.n<400) { PnlSection("f_"+f.name,StringFormat("%-4s %s: chưa đủ 400 nến",f.name,role),false); return; }
    const int i=f.n-1, w=EEA_S07WindowBars(f.name);
    int k=i-w;
    for(int j=i-w+1;j<i;j++) if(f.adx[j]<f.adx[k]) k=j;
@@ -623,13 +632,15 @@ void S07PanelFrame(S07TFrame &f,const int want,const string role)
    const bool di_ok=(want==1 ? (gap>0.0 && gap>gp) : (want==-1 ? (gap<0.0 && gap<gp) : false));
    const bool px_ok=(want==1 ? c>hi : (want==-1 ? c<lo : false));
    const bool sig=(want!=0 && comp && rise && di_ok && px_ok);
-   PnlAdd(StringFormat("%-4s %s (nến đóng %s, cửa sổ %d nến)",f.name,role,PnlHm(f.r[i].time+PeriodSeconds(f.tf)),w),PnlHeadColor);
-   PnlAdd(StringFormat("     %s Nén     : ADX đáy %.1f (≤20) | lệch DI lúc đó %.1f (≤6)",PnlMark(comp),f.adx[k],MathAbs(gk)));
+   const string summary=StringFormat("%-4s %s | nến đóng %s | nén %s bung %s DI %s giá %s%s",f.name,role,
+                                     PnlHm(f.r[i].time+PeriodSeconds(f.tf)),PnlMark(comp),PnlMark(rise),PnlMark(di_ok),PnlMark(px_ok),
+                                     sig ? "  => TÍN HIỆU "+PnlDir(want) : "");
+   if(!PnlSection("f_"+f.name,summary,default_open,sig ? PnlOkColor : clrNONE)) return;
+   PnlAdd(StringFormat("     %s Nén     : ADX đáy %.1f (≤20) | lệch DI lúc đó %.1f (≤6) | cửa sổ %d nến",PnlMark(comp),f.adx[k],MathAbs(gk),w));
    PnlAdd(StringFormat("     %s ADX bung: %.1f → %.1f, tăng %.1f từ đáy (≤10)",PnlMark(rise),f.adx[i-1],f.adx[i],f.adx[i]-f.adx[k]));
    PnlAdd(StringFormat("     %s DI      : DI+ %.1f  DI- %.1f  (cần %s và đang tách)",PnlMark(di_ok),f.pdi[i],f.mdi[i],
                        want==1 ? "DI+ > DI-" : (want==-1 ? "DI- > DI+" : "—")));
    PnlAdd(StringFormat("     %s Giá     : %s  (đóng %s)",PnlMark(px_ok),where,PnlPx(c)));
-   if(sig) PnlOk(StringFormat("     => TÍN HIỆU %s trên %s",PnlDir(want),f.name));
   }
 
 void S07Panel()
@@ -639,7 +650,6 @@ void S07Panel()
    const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
    PnlHead(StringFormat("S07Tester  %s  %s (giờ server)  | rủi ro %.2f%% %s",_Symbol,PnlTime(TimeCurrent()),
                         InpRiskPercent,InpRiskBase==S07T_RISK_BALANCE ? "lãi kép" : "trên vốn đầu"));
-   // H4 side
    double h4e=0.0;
    const int side=H4Side(TimeCurrent(),h4e);
    int want=side;
@@ -648,34 +658,35 @@ void S07Panel()
    if(side==0)
       PnlWarn("H4 EMA200 : chưa đủ dữ liệu H4 → chưa xét lệnh");
    else
-      PnlAdd(StringFormat("H4 EMA200 : giá %s %s EMA200 H4 %s → chỉ xét %s%s",PnlPx(bid),side==1 ? "TRÊN" : "DƯỚI",PnlPx(h4e),
-                          PnlDir(side),want==0 ? " (chiều này đang TẮT trong Inputs)" : ""),side==1 ? PnlOkColor : PnlWarnColor);
-   if(want==-1 && InpSellLocation && g_m30.n>=400)
      {
-      const int i=g_m30.n-1;
-      const bool l2=EEA_S07SellLocation(g_m30.r,i,EEA_S07WindowBars("M30"),h4e,g_m30.atr[i]);
-      PnlAdd(StringFormat("Vị trí L2 : %s đỉnh vùng nén M30 chạm EMA200 H4 - 0.5 ATR (lệnh bán gốc cần)",PnlMark(l2)));
+      string l2="";
+      if(want==-1 && InpSellLocation && g_m30.n>=400)
+        {
+         const int i=g_m30.n-1;
+         l2=" | vị trí L2 "+PnlMark(EEA_S07SellLocation(g_m30.r,i,EEA_S07WindowBars("M30"),h4e,g_m30.atr[i]));
+        }
+      PnlAdd(StringFormat("H4 EMA200 : giá %s %s EMA200 H4 %s → chỉ xét %s%s%s",PnlPx(bid),side==1 ? "TRÊN" : "DƯỚI",PnlPx(h4e),
+                          PnlDir(side),want==0 ? " (chiều này đang TẮT)" : "",l2),side==1 ? PnlOkColor : PnlWarnColor);
      }
-   PnlAdd("");
-   S07PanelFrame(g_m30,want,"lệnh gốc S07/S07S; vào sớm S07E xét ở mỗi nến "+(InpEntryTf==S07T_ENTRY_M15 ? "M15" : "M5"));
+   S07PanelFrame(g_m30,want,"lệnh gốc",true);
    if(InpAdds)
      {
-      S07PanelFrame(g_m15,want,"bồi");
-      S07PanelFrame(g_h1,want,"bồi");
-      S07PanelFrame(g_h4f,want,"bồi");
+      S07PanelFrame(g_m15,want,"bồi",false);
+      S07PanelFrame(g_h1,want,"bồi",false);
+      S07PanelFrame(g_h4f,want,"bồi",false);
      }
-   PnlAdd("");
    // memory: re-entry window and base cool-down
    for(int s=0;s<2;s++)
      {
       const int d=(s==0 ? 1 : -1);
       if(g_ctx[s].valid && !g_ctx[s].used && !g_ctx[s].target_hit && (long)TimeCurrent()-(long)g_ctx[s].closed<=EEA_S07_REENTRY_SECONDS && InpReentry)
-         PnlAdd(StringFormat("Vào lại %s : còn hiệu lực tới %s (lệnh gốc đóng %s, chưa chạm TP)",PnlDir(d),
-                             PnlHm((datetime)((long)g_ctx[s].closed+EEA_S07_REENTRY_SECONDS)),PnlHm(g_ctx[s].closed)));
+         PnlAdd(StringFormat("Vào lại %s : còn hiệu lực tới %s",PnlDir(d),PnlHm((datetime)((long)g_ctx[s].closed+EEA_S07_REENTRY_SECONDS))));
       if(TimeCurrent()<g_base_free[s])
          PnlAdd(StringFormat("Nghỉ %s   : chưa mở lệnh gốc mới tới %s",PnlDir(d),PnlHm(g_base_free[s])));
      }
-   // open legs
+   // the last signal that did not become a trade, with the reason (the decision is not recomputed afterwards)
+   if(g_skip_time>0)
+      PnlAdd(StringFormat("Bỏ gần nhất: %s lúc %s — %s",g_skip_what,PnlHm(g_skip_time),g_skip_why),PnlWarnColor);
    if(g_nlegs==0) PnlAdd("Lệnh mở    : không có");
    for(int i=0;i<g_nlegs;i++)
      {
@@ -688,16 +699,15 @@ void S07Panel()
       if(L.tfname=="M15" && g_m15.n>0) ema=(wide ? g_m15.e100[g_m15.n-1] : g_m15.e55[g_m15.n-1]);
       if(L.tfname=="H1"  && g_h1.n>0)  ema=(wide ? g_h1.e100[g_h1.n-1] : g_h1.e55[g_h1.n-1]);
       if(L.tfname=="H4"  && g_h4f.n>0) ema=(wide ? g_h4f.e100[g_h4f.n-1] : g_h4f.e55[g_h4f.n-1]);
-      PnlAdd(StringFormat("Lệnh %-5s %s %s: vào %s, stop %s, đang %s (đỉnh %s)%s",L.setup,L.tfname,PnlDir(L.dir),PnlPx(L.entry),
-                          PnlPx(L.stop),PnlR(rnow),PnlR(L.mfe_r),L.base ? StringFormat(", bồi %d/2",L.adds) : ""),
-             rnow>=0.0 ? PnlOkColor : PnlWarnColor);
-      PnlAdd(StringFormat("           thoát khi nến %s đóng %s EMA%s %s%s; TP 8R",L.tfname,L.dir==1 ? "dưới" : "trên",
-                          wide ? "100" : "55",PnlPx(ema),L.base && InpAdxExit ? " hoặc ADX ≥ 50 quay đầu" : ""));
+      if(PnlSection("leg_"+IntegerToString((long)L.ticket),
+                    StringFormat("Lệnh %s %s %s: vào %s, stop %s, đang %s",L.setup,L.tfname,PnlDir(L.dir),PnlPx(L.entry),PnlPx(L.stop),PnlR(rnow)),
+                    L.base,rnow>=0.0 ? PnlOkColor : PnlWarnColor))
+         PnlAdd(StringFormat("     tốt nhất %s%s | thoát khi nến %s đóng %s EMA%s %s%s; TP 8R",PnlR(L.mfe_r),
+                             L.base ? StringFormat(", bồi %d/2",L.adds) : "",L.tfname,L.dir==1 ? "dưới" : "trên",wide ? "100" : "55",
+                             PnlPx(ema),L.base && InpAdxExit ? " hoặc ADX ≥ 50 quay đầu" : ""));
      }
-   PnlAdd("");
-   PnlNewsLines();
-   PnlAdd(StringFormat("Đã chặn    : chiều ngược %d | spread %d | tin %d | sentiment %d | khối lượng < tối thiểu %d",
-                       g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_too_small));
+   PnlNewsSection(StringFormat("chiều ngược %d | spread %d | tin %d | sentiment %d | giá chạy xa %d | khối lượng < tối thiểu %d",
+                               g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_skip_chase,g_too_small));
    PnlFlush();
   }
 
@@ -739,4 +749,9 @@ void OnDeinit(const int reason)
    if(g_too_small>0) PrintFormat("S07Tester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
                g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
+  }
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK && PnlOnClick(sparam) && InpPanel) S07Panel();
   }
