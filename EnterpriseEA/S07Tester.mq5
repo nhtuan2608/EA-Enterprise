@@ -24,7 +24,7 @@ enum S07T_RiskBase { S07T_RISK_INITIAL=0, S07T_RISK_BALANCE=1 };
 input double InpRiskPercent       = 1.5;   // Risk per trade, %
 input S07T_RiskBase InpRiskBase   = S07T_RISK_INITIAL; // INITIAL: % of min(equity, initial deposit) like the live EA (no compounding); BALANCE: % of equity (compounding)
 input bool   InpBlockOpposite     = true;  // Like the live EA: no buy while a sell is open and the reverse
-input bool   InpSpreadFilter      = true;  // Like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
+input bool   InpSpreadFilter      = false;  // Off by default (cent account). On = like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
 input bool   InpBuy               = true;  // Buy family (S07, S07E, S07R, S07A)
 input bool   InpSell              = true;  // Sell family (S07S, S07ES, S07RS, S07AS)
 input bool   InpEarly             = true;  // Early entries (S07E / S07ES)
@@ -46,6 +46,8 @@ input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for 
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // same default as the live EA
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
+input bool   InpSentimentNewsOnly       = true;   // Sentiment acts only within InpSentimentNewsHours of a HIGH calendar event; otherwise entries are open
+input int    InpSentimentNewsHours      = 4;      // Hours before / after a HIGH event in which sentiment acts
 input long   InpMagic             = 707070;
 input bool   InpVerbose           = false;
 input bool   InpPanel             = true;  // On-chart analysis panel (context, checklist, open trades, blocks)
@@ -211,6 +213,8 @@ double g_sent_v[][6];          // a4, a24, ag4_buy, ag24_buy, ag4_sell, ag24_sel
 bool   g_sent_ok[];
 int    g_sent_n=0;
 
+#include "Tester/LiveFeeds.mqh"
+
 void LoadSentiment()
   {
    g_sent_n=0;
@@ -236,6 +240,7 @@ void LoadSentiment()
 double SentimentFactor(const int dir,const long now)
   {
    if(!InpSentiment || g_sent_n==0) return 1.0;
+   if(InpSentimentNewsOnly && !LfNearHighNews(now)) return 1.0;   // away from HIGH news: open
    int lo=0, hi=g_sent_n;
    while(lo<hi) { const int mid=(lo+hi)/2; if(g_sent_t[mid]+3600<=now) lo=mid+1; else hi=mid; }
    const int k=lo-1;
@@ -720,6 +725,7 @@ int OnInit()
    g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    LoadNews();
    LoadSentiment();
+   LfInit();                                   // live chart: MT5 calendar + live sentiment
    g_trade.SetDeviationInPoints(20);
    for(int s=0;s<2;s++) { g_ctx[s].valid=false; g_base_free[s]=0; g_early_bucket[s]=0; }
    g_nlegs=0;
@@ -728,6 +734,7 @@ int OnInit()
 
 void OnTick()
   {
+   LfRefresh();
    const ENUM_TIMEFRAMES etf=(InpEntryTf==S07T_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
    const datetime eb=iTime(_Symbol,etf,1);
    if(eb==0 || eb==g_last_entry_bar) return;

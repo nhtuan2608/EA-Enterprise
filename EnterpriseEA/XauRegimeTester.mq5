@@ -35,7 +35,7 @@ enum XRT_Zone
 input double       InpRiskPercent   = 1.5;   // Risk per trade, % (sized on the broker stop)
 input XRT_RiskBase InpRiskBase      = XRT_RISK_INITIAL; // INITIAL: % of min(equity, initial deposit) like the live EA; BALANCE: % of equity (compounding)
 input bool         InpBlockOpposite = true;  // Like the live EA: no buy while a sell is open and the reverse
-input bool         InpSpreadFilter  = true;  // Like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
+input bool         InpSpreadFilter  = false;  // Off by default (cent account). On = like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
 input XRT_Mode     InpMode          = XRT_LONG_ONLY; // G96: buying only was the best; selling gold had no edge in any period
 input int          InpEmaPeriod     = 50;    // Regime EMA on D1 (G96 cells: 50 / 100 / 200)
 input int          InpSlopeDays     = 10;    // EMA slope over this many D1 bars
@@ -54,6 +54,8 @@ input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for 
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // same default as the live EA
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
+input bool   InpSentimentNewsOnly       = true;   // Sentiment acts only within InpSentimentNewsHours of a HIGH calendar event; otherwise entries are open
+input int    InpSentimentNewsHours      = 4;      // Hours before / after a HIGH event in which sentiment acts
 input long   InpMagic                   = 969696;
 input bool   InpVerbose                 = false;
 input bool   InpPanel                   = true;   // On-chart analysis panel (regime, what it waits for, trade, blocks)
@@ -173,6 +175,8 @@ double g_sent_v[][6];
 bool   g_sent_ok[];
 int    g_sent_n=0;
 
+#include "Tester/LiveFeeds.mqh"
+
 void LoadSentiment()
   {
    g_sent_n=0;
@@ -197,6 +201,7 @@ void LoadSentiment()
 double SentimentFactor(const int dir,const long now)
   {
    if(!InpSentiment || g_sent_n==0) return 1.0;
+   if(InpSentimentNewsOnly && !LfNearHighNews(now)) return 1.0;   // away from HIGH news: open
    int lo=0, hi=g_sent_n;
    while(lo<hi) { const int mid=(lo+hi)/2; if(g_sent_t[mid]+3600<=now) lo=mid+1; else hi=mid; }
    const int k=lo-1;
@@ -544,7 +549,7 @@ void XrtPanel()
    const bool above=(g_day.close>g_day.ema), rising=(g_day.ema>g_day.ema_prev);
    const string st=(g_day.state==1 ? "TĂNG (bật MUA)" : (g_day.state==-1 ? "GIẢM (bật BÁN)" : "TRUNG TÍNH"));
    if(PnlSection("d1",StringFormat("Chế độ D1  : %s | giá %s EMA%d %s, EMA %s",st,above ? "trên" : "dưới",InpEmaPeriod,PnlMark(above),
-                                    rising ? "đi lên ✓" : "đi xuống ✗"),true,
+                                    rising ? "đi lên [v]" : "đi xuống [x]"),true,
                  g_day.state==1 ? PnlOkColor : (g_day.state==-1 ? PnlWarnColor : clrNONE)))
      {
       PnlAdd(StringFormat("     D1 đã đóng giá %s | EMA%d %s | %d ngày trước %s | ATR%d %s",PnlPx(g_day.close),InpEmaPeriod,PnlPx(g_day.ema),
@@ -599,11 +604,13 @@ int OnInit()
    g_plan.ok=false; g_plan.note=""; g_plan.made=0;
    LoadNews();
    LoadSentiment();
+   LfInit();                                   // live chart: MT5 calendar + live sentiment
    return INIT_SUCCEEDED;
   }
 
 void OnTick()
   {
+   LfRefresh();
    const datetime d1=iTime(_Symbol,PERIOD_D1,0);
    if(d1!=0 && d1!=g_last_d1) { g_last_d1=d1; OnNewDay(); }
    const datetime m5=iTime(_Symbol,PERIOD_M5,0);

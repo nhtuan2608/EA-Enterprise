@@ -28,7 +28,7 @@ input bool         InpSell          = true;
 input double       InpRiskPercent   = 1.5;   // Risk per trade, % (sized on the broker stop)
 input CBT_RiskBase InpRiskBase      = CBT_RISK_INITIAL; // INITIAL: % of min(equity, initial deposit) like the live EA; BALANCE: % of equity (compounding)
 input bool         InpBlockOpposite = false; // true = like the live EA (no buy while a sell is open); research books each side apart
-input bool         InpSpreadFilter  = true;  // Like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
+input bool         InpSpreadFilter  = false;  // Off by default (cent account). On = like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
 input int          InpBoxBars       = 8;     // Pause box length (higher TF bars)
 input double       InpBoxMaxAtr     = 2.5;   // Pause box width limit (x ATR of the higher TF)
 input double       InpCloseBufAtr   = 0.25;  // Exit when a higher-TF close passes the level by this much ATR
@@ -42,6 +42,8 @@ input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for 
 input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
 input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // same default as the live EA
 input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
+input bool   InpSentimentNewsOnly       = true;   // Sentiment acts only within InpSentimentNewsHours of a HIGH calendar event; otherwise entries are open
+input int    InpSentimentNewsHours      = 4;      // Hours before / after a HIGH event in which sentiment acts
 input long   InpMagic                   = 106106;
 input bool   InpVerbose                 = false;
 input bool   InpPanel                   = true;   // On-chart analysis panel (context, box, trades, blocks)
@@ -159,6 +161,8 @@ double g_sent_v[][6];
 bool   g_sent_ok[];
 int    g_sent_n=0;
 
+#include "Tester/LiveFeeds.mqh"
+
 void LoadSentiment()
   {
    g_sent_n=0;
@@ -183,6 +187,7 @@ void LoadSentiment()
 double SentimentFactor(const int dir,const long now)
   {
    if(!InpSentiment || g_sent_n==0) return 1.0;
+   if(InpSentimentNewsOnly && !LfNearHighNews(now)) return 1.0;   // away from HIGH news: open
    int lo=0, hi=g_sent_n;
    while(lo<hi) { const int mid=(lo+hi)/2; if(g_sent_t[mid]+3600<=now) lo=mid+1; else hi=mid; }
    const int k=lo-1;
@@ -541,11 +546,13 @@ int OnInit()
    g_cb.ok=false; g_cb.box_ok=false; g_cb.hatr=0.0;
    LoadNews();
    LoadSentiment();
+   LfInit();                                   // live chart: MT5 calendar + live sentiment
    return INIT_SUCCEEDED;
   }
 
 void OnTick()
   {
+   LfRefresh();
    SyncLegs();
    TrackBest();
    const datetime hb=iTime(_Symbol,HigherTf(),1);
