@@ -37,6 +37,7 @@ input double InpAddWeight         = 0.67;  // Adds
 input S07T_EntryTf InpEntryTf     = S07T_ENTRY_M5; // Entry bars of the early / re-entry engines
 input double InpMaxChaseAtr       = 0.5;   // Skip when price ran more than this many ATR past the signal close
 input int    InpBaseCooldownBars  = 4;     // M30 bars without a new base after a base closed
+input int    InpM15WindowBars     = 12;    // Compression window of the M15 add frame (12 = 3 h; research G70 used 16 = 4 h)
 // G91: the live EA's News Guard (SWING profile) and sentiment, from files built by research/long/g91_tester_inputs.py
 input bool   InpNewsGuard               = true;   // News Guard: block new entries around HIGH events, break-even before USD events
 input int    InpNewsSwingBlockBeforeMin = 180;    // News Guard: SWING blocks new entries this long before (live EA input)
@@ -53,6 +54,9 @@ input bool   InpVerbose           = false;
 input bool   InpPanel             = true;  // On-chart analysis panel (context, checklist, open trades, blocks)
 
 #define S07T_HISTORY 1500
+
+// Compression window per frame: the live EA's, except the M15 add frame (InpM15WindowBars).
+int TesterWindowBars(const string tf) { return tf=="M15" ? MathMax(4,InpM15WindowBars) : EEA_S07WindowBars(tf); }
 #define S07T_H4_HISTORY 1200
 #define S07T_MAX_LEGS 16
 
@@ -521,7 +525,7 @@ void AddsOnClose(S07TFrame &f)
   {
    if(!InpAdds || f.n==0) return;
    const int i=f.n-1;
-   const int window=EEA_S07WindowBars(f.name);
+   const int window=TesterWindowBars(f.name);
    double h4e=0.0;
    const int side=H4Side(f.r[i].time,h4e);
    const int d=EEA_S07SignalAt(f.r,i,window,f.e21,f.e55,f.e100,f.e200,f.pdi,f.mdi,f.adx,side);
@@ -623,7 +627,7 @@ void NewsBreakEven()
 void S07PanelFrame(S07TFrame &f,const int want,const string role,const bool default_open)
   {
    if(f.n<400) { PnlSection("f_"+f.name,StringFormat("%-4s %s: chưa đủ 400 nến",f.name,role),false); return; }
-   const int i=f.n-1, w=EEA_S07WindowBars(f.name);
+   const int i=f.n-1, w=TesterWindowBars(f.name);
    int k=i-w;
    for(int j=i-w+1;j<i;j++) if(f.adx[j]<f.adx[k]) k=j;
    const double gk=f.pdi[k]-f.mdi[k];
