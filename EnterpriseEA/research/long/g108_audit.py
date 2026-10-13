@@ -90,7 +90,63 @@ def slow_plan(df, i, d):
     return entry, stop, best, R
 
 
+def audit_features(n_sample=200):
+    """Recompute path / forming-M30 / prior-day / M30 EMA / time features with plain loops."""
+    import g108_features as gf
+    from g108_patterns import dedupe
+    D = pd.read_pickle(g.OUT)
+    D = dedupe(D[D["period"] != "test"]).reset_index(drop=True)
+    df = g.load_m5()
+    S = D.sample(n_sample, random_state=7).reset_index(drop=True)
+    F = gf.features(df, S, gf.long_m30())
+    t = df["time"].to_numpy(np.int64)
+    o, h, l, c = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
+    # own closed-M30 series, EMA and Wilder ATR with loops
+    buckets, closes, highs, lows = [], [], [], []
+    for k in range(len(t)):
+        b = t[k] // 1800
+        if not buckets or buckets[-1] != b:
+            buckets.append(b); closes.append(c[k]); highs.append(h[k]); lows.append(l[k])
+        else:
+            closes[-1] = c[k]; highs[-1] = max(highs[-1], h[k]); lows[-1] = min(lows[-1], l[k])
+    def ema_loop(x, p):
+        e = [x[0]]
+        for v in x[1:]:
+            e.append(e[-1] + 2 / (p + 1) * (v - e[-1]))
+        return e
+    e21, e200 = ema_loop(closes, 21), ema_loop(closes, 200)
+    atr = [highs[0] - lows[0]]
+    for k in range(1, len(closes)):
+        tr = max(highs[k], closes[k - 1]) - min(lows[k], closes[k - 1])
+        atr.append(atr[-1] + (tr - atr[-1]) / 14)
+    bad = 0
+    for r, f in zip(S.itertuples(), F.itertuples()):
+        i, d = int(r.i), int(r.d)
+        k = max(j for j in range(len(buckets)) if (buckets[j] + 1) * 1800 <= t[i] + 300)
+        a = atr[k]
+        first = min(j for j in range(i, -1, -1) if t[j] // 1800 == t[i] // 1800 and (j == 0 or t[j - 1] // 1800 != t[i] // 1800))
+        hi_so_far, lo_so_far = h[first:i + 1].max(), l[first:i + 1].min()
+        day = t[i] // 86400
+        prev = [j for j in range(i) if t[j] // 86400 < day]
+        pday = t[prev[-1]] // 86400
+        pm = [j for j in prev[-400:] if t[j] // 86400 == pday]
+        exp = {"p1": d * (c[i] - c[i - 1]) / a, "p12": d * (c[i] - c[i - 12]) / a, "f_move": d * (c[i] - o[first]) / a,
+               "f_room_up": ((hi_so_far - c[i]) if d == 1 else (c[i] - lo_so_far)) / a,
+               "pdh": d * (c[i] - max(h[j] for j in pm)) / a, "pdl": d * (c[i] - min(l[j] for j in pm)) / a,
+               "e21": d * (c[i] - e21[k]) / a, "e200": d * (c[i] - e200[k]) / a,
+               "hour": (t[i] % 86400) // 3600, "dow": pd.Timestamp(int(t[i]), unit="s").dayofweek}
+        for key, v in exp.items():
+            if abs(getattr(f, key) - v) > 1e-6:
+                bad += 1
+                print("  feature mismatch", pd.to_datetime(r.time, unit="s"), d, key, getattr(f, key), v)
+                break
+    print(f"features: {bad} mismatches of {n_sample}; NaN share in all features: {float(F.isna().mean().mean()):.4f}")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "features":
+        audit_features(int(sys.argv[2]) if len(sys.argv) > 2 else 200)
+        return
     n_sample = int(sys.argv[1]) if len(sys.argv) > 1 else 400
     D = pd.read_pickle(g.OUT)
     df = g.load_m5()

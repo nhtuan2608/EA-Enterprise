@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "research" / "long"))
 import g108_data as g  # noqa: E402
 import g108_patterns as gp  # noqa: E402
+import g108_features as gf  # noqa: E402
+import g108_models as gm  # noqa: E402
 
 
 def synthetic(days=4, seed=7):
@@ -51,22 +53,22 @@ class G108PathTests(unittest.TestCase):
     def test_first_touch_buy(self):
         sp = np.zeros(3)
         h = np.array([101, 103, 104.0]); l = np.array([99.5, 100, 100.0])
-        self.assertEqual(g.first_touch(1, 100, 98, 104, h, l, sp, 100, 0), (2.0, 1))       # target first
+        self.assertEqual(g.first_touch(1, 100, 98, 104, h, l, sp, 100, 0), (2.0, 1, 2))    # target first
         l2 = np.array([99.5, 97.9, 100.0])
-        self.assertEqual(g.first_touch(1, 100, 98, 104, h, l2, sp, 100, 0), (-1.0, -1))    # stop first
+        self.assertEqual(g.first_touch(1, 100, 98, 104, h, l2, sp, 100, 0), (-1.0, -1, 1))  # stop first
         h3 = np.array([101, 104.5, 104.0]); l3 = np.array([99.5, 97.0, 100.0])
-        self.assertEqual(g.first_touch(1, 100, 98, 104, h3, l3, sp, 100, 0), (-1.0, -1))   # same bar: stop
-        R, out = g.first_touch(1, 100, 98, 110, h, l, sp, 101, 0)
-        self.assertEqual((R, out), (0.5, 0))                                                 # day end at the close
+        self.assertEqual(g.first_touch(1, 100, 98, 104, h3, l3, sp, 100, 0), (-1.0, -1, 1))  # same bar: stop
+        R, out, k = g.first_touch(1, 100, 98, 110, h, l, sp, 101, 0)
+        self.assertEqual((R, out, k), (0.5, 0, 2))                                                 # day end at the close
 
     def test_first_touch_sell_uses_ask(self):
         sp = np.full(2, 0.5)
         h = np.array([100.2, 100.0]); l = np.array([96.6, 95.0])
         # sell entry 100 (bid), stop 102, target 96: ask low = 96.6 + 0.5 = 97.1 > 96, then 95.5 <= 96
-        self.assertEqual(g.first_touch(-1, 100, 102, 96, h, l, sp, 99, 0.5), (2.0, 1))
+        self.assertEqual(g.first_touch(-1, 100, 102, 96, h, l, sp, 99, 0.5), (2.0, 1, 1))
         h2 = np.array([101.6, 100.0])                          # ask high 102.1 >= 102 -> stop
-        self.assertEqual(g.first_touch(-1, 100, 102, 96, h2, l, sp, 99, 0.5), (-1.0, -1))
-        R, _ = g.first_touch(-1, 100, 102, 90, np.array([100.0]), np.array([99.0]), np.array([0.5]), 99, 0.5)
+        self.assertEqual(g.first_touch(-1, 100, 102, 96, h2, l, sp, 99, 0.5), (-1.0, -1, 0))
+        R, _, _ = g.first_touch(-1, 100, 102, 90, np.array([100.0]), np.array([99.0]), np.array([0.5]), 99, 0.5)
         self.assertAlmostEqual(R, 0.25)                         # exit at ask 99.5
 
     def test_nearest_target_skips_taken_and_behind(self):
@@ -86,6 +88,7 @@ class G108PathTests(unittest.TestCase):
         win = D[D["outcome"] == 1]
         self.assertTrue(np.allclose(win["R"], win["rr"]))
         self.assertTrue((D.loc[D["outcome"] == -1, "R"] == -1).all())
+        self.assertTrue(((D["exit_i"] > D["i"]) & (D["exit_i"] <= D["i"] + g.HORIZON)).all())
 
     def test_no_look_ahead(self):
         df = synthetic(days=5, seed=11)
@@ -126,6 +129,44 @@ class G108PathTests(unittest.TestCase):
         lo, hi = Y.attrs["slope_cuts"]
         self.assertAlmostEqual(lo, 0.1); self.assertAlmostEqual(hi, 0.1)       # cuts from the train row only
         self.assertEqual(Y["struct"].tolist(), [1, -1])
+
+    def test_features_no_look_ahead_and_direction(self):
+        df = synthetic(days=6, seed=3)
+        full = g.build(df, start=0)
+        F = gf.features(df, full)
+        self.assertEqual(list(F.columns), gf.FEATS)
+        cut = 1300
+        part_df = df.iloc[:cut].reset_index(drop=True)
+        part = g.build(part_df, start=0)
+        Fp = gf.features(part_df, part)
+        merged = full.reset_index(drop=True)
+        keys = pd.MultiIndex.from_frame(part[["i", "d"]])
+        sel = pd.MultiIndex.from_frame(merged[["i", "d"]]).isin(keys)
+        pd.testing.assert_frame_equal(F[sel].reset_index(drop=True), Fp.reset_index(drop=True))
+        # direction: a buy and a sell at the same bar see mirrored path moves
+        both = full.groupby("i").filter(lambda x: len(x) == 2)
+        if len(both):
+            fb = gf.features(df, both).reset_index(drop=True)
+            r = both.reset_index(drop=True)
+            buy, sell = fb[r["d"] == 1].reset_index(drop=True), fb[r["d"] == -1].reset_index(drop=True)
+            self.assertTrue(np.allclose(buy["p1"], -sell["p1"]))
+            self.assertTrue(np.allclose(buy["e200"], -sell["e200"]))
+
+    def test_weekday(self):
+        D = pd.DataFrame({"i": [50], "d": [1], "pos": [1], "sess": [0], "risk": [1.0], "rr": [2.0], "struct": [0], "band": [0]})
+        df = synthetic(days=1)
+        F = gf.features(df, D)
+        self.assertEqual(int(F["dow"].iloc[0]), pd.Timestamp(int(df["time"].iloc[50]), unit="s").dayofweek)
+
+    def test_walk_forward_mask_and_past_threshold(self):
+        X = pd.DataFrame({"time": [100, 200, 300, 400], "exit_time": [150, 450, 350, 500]})
+        self.assertEqual(gm.train_mask(X, 400).tolist(), [True, False, True, False])
+        n = 1200
+        X2 = pd.DataFrame({"month": ["2025-01"] * 600 + ["2025-02"] * 600})
+        evp = np.r_[np.linspace(0, 1, 600), np.full(600, 0.95)]
+        sel = gm.select(X2, evp, "top 10%")
+        self.assertFalse(sel[:600].any())                               # no earlier month -> no threshold
+        self.assertTrue(sel[600:].all())                                # 0.95 >= 90th pct of January (0.9)
 
 
 if __name__ == "__main__":

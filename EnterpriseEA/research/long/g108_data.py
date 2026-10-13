@@ -99,7 +99,7 @@ class RangeExt:
 
 def first_touch(d: int, entry: float, stop: float, target: float, h: np.ndarray, l: np.ndarray, sp: np.ndarray,
                 c_end: float, sp_end: float):
-    """Label of one plan on the forward bars (entry bar first). Returns (R, outcome)."""
+    """Label of one plan on the forward bars (entry bar first). Returns (R, outcome, offset of the exit bar)."""
     risk = d * (entry - stop)
     if d == 1:
         hit_s = np.nonzero(l <= stop)[0]
@@ -111,10 +111,10 @@ def first_touch(d: int, entry: float, stop: float, target: float, h: np.ndarray,
     t = hit_t[0] if len(hit_t) else 10 ** 9
     if s == t == 10 ** 9:
         px = c_end if d == 1 else c_end + sp_end
-        return d * (px - entry) / risk, 0
+        return d * (px - entry) / risk, 0, len(h) - 1
     if s <= t:
-        return -1.0, -1
-    return d * (target - entry) / risk, 1
+        return -1.0, -1, int(s)
+    return d * (target - entry) / risk, 1, int(t)
 
 
 def nearest_target(d: int, entry: float, cands: list[tuple[float, int]], taken) -> float:
@@ -258,11 +258,11 @@ def build(df: pd.DataFrame, start: int = START, end: int | None = None) -> pd.Da
             if rr < MIN_RR:
                 continue
             j = i + HORIZON
-            R, outcome = first_touch(d, entry, stop, target, h[i + 1:j + 1], l[i + 1:j + 1], sp[i + 1:j + 1], c[j], sp[j])
+            R, outcome, k_exit = first_touch(d, entry, stop, target, h[i + 1:j + 1], l[i + 1:j + 1], sp[i + 1:j + 1], c[j], sp[j])
             w = min(n - 1, i + 48)
             mfe = (d * ((hmax.q(i + 1, w) if d == 1 else lmin.q(i + 1, w)) - entry)) / risk
             mae = (d * (entry - (lmin.q(i + 1, w) if d == 1 else hmax.q(i + 1, w)))) / risk
-            rows.append(dict(base, d=d, entry=entry, stop=stop, target=target, risk=risk, rr=rr, R=R, outcome=outcome,
+            rows.append(dict(base, d=d, entry=entry, stop=stop, target=target, risk=risk, rr=rr, R=R, outcome=outcome, exit_i=i + 1 + k_exit,
                              mfe4h=mfe, mae4h=mae))
     return pd.DataFrame(rows)
 
