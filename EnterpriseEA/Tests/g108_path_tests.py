@@ -197,6 +197,13 @@ class G108PathTests(unittest.TestCase):
         finally:
             g.LABEL = old
 
+    def test_raw_utc_files_converted_to_server_time(self):
+        ts = pd.Series(pd.to_datetime(["2025-07-15 12:00", "2025-01-15 12:00"]))
+        srv = g.utc_to_server(ts)
+        self.assertEqual(srv.iloc[0], pd.Timestamp("2025-07-15 15:00"))        # US summer time: +3 h
+        self.assertEqual(srv.iloc[1], pd.Timestamp("2025-01-15 14:00"))        # winter: +2 h
+        self.assertEqual(g.RAW_UTC, {"EURUSD", "GBPUSD"})
+
 
 if __name__ == "__main__":
     unittest.main()

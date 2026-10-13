@@ -54,12 +54,25 @@ DIRS = (1, -1)
 
 
 # --------------------------------------------------------------------------------------------- data
+# Raw exports stamped in UTC (measured against the terminal: +3 h in US summer time, +2 h in winter); the
+# others are already in the trade-server time (New York + 7 h), like the terminal.
+RAW_UTC = {"EURUSD", "GBPUSD"}
+
+
+def utc_to_server(ts: pd.Series) -> pd.Series:
+    """UTC wall time -> trade-server wall time (New York local time + 7 h)."""
+    ny = ts.dt.tz_localize("UTC").dt.tz_convert("America/New_York").dt.tz_localize(None)
+    return ny + pd.Timedelta(hours=7)
+
+
 def read_raw(path: Path) -> pd.DataFrame:
     x = pd.read_csv(path, sep=chr(9))
     x.columns = [c.strip("<>").lower() for c in x.columns]
     ts = pd.to_datetime(x["date"] + " " + x["time"], format="%Y.%m.%d %H:%M:%S")
+    if Path(path).name.split("_")[0] in RAW_UTC:
+        ts = utc_to_server(ts)
     x["time"] = ((ts - pd.Timestamp("1970-01-01")).dt.total_seconds()).astype("int64")
-    return x[["time", "open", "high", "low", "close", "spread"]]
+    return x[["time", "open", "high", "low", "close", "tickvol", "spread"]]
 
 
 def load_m5_raw() -> pd.DataFrame:
