@@ -208,10 +208,10 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, hist: pd.DataFrame
             j = s0 + off                                           # decision bar (second close beyond)
             if j < 40 or j >= e_day or hour[j] >= 23 or hour[j] < 1:
                 continue
-            k30 = np.searchsorted(m30_end, t[j] + 300, side="right") - 1
+            k30 = np.searchsorted(m30_end, t[j] + g8.BAR_SEC, side="right") - 1
             a30 = atr30[max(k30, 0)]
-            k1 = np.searchsorted(h1_end, t[j] + 300, side="right") - 1
-            k4 = np.searchsorted((b4 + 1) * 14400, t[j] + 300, side="right") - 1
+            k1 = np.searchsorted(h1_end, t[j] + g8.BAR_SEC, side="right") - 1
+            k4 = np.searchsorted((b4 + 1) * 14400, t[j] + g8.BAR_SEC, side="right") - 1
             s = side                                               # break direction
             br = slice(j - 1, j + 1)
             ap = slice(j - 7, j - 1)

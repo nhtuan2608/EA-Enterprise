@@ -27,7 +27,7 @@ import g109_zones as gz
 import os
 # G109_NOFILTER=1 (user request 13/10/2026): no cost filter (stop / ATR vs spread); the spread still costs every trade
 NOFILTER = os.environ.get("G109_NOFILTER", "0") == "1"
-SUF = "_nf" if NOFILTER else ""
+SUF = g8.TFSUF + ("_nf" if NOFILTER else "") + ("_nc" if g8.NOCOST else "")
 OUT_T = g8.DATA / f"g109_trades_{gz.SYMBOL}{SUF}.pkl"
 MAX_BARS, SWEEP_ATR, RECLAIM_BARS, BREAK_CLOSES, LIMIT_BARS = 48, 0.5, 3, 2, 12
 MIN_STOP_SPREADS, MIN_ATR5_SPREADS, MIN_RR = (0.0, 0.0, 1.0) if NOFILTER else (8.0, 3.0, 1.0)
@@ -178,7 +178,7 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, seed=109) -> pd.Da
                     continue
                 zl = [(r_.center, r_.w) for r_ in real.itertuples() if r_.from_i <= known]
                 tz = next_zone(d, entry, zl)
-                k1 = np.searchsorted(h1_end, t[known] + 300, side="right") - 1
+                k1 = np.searchsorted(h1_end, t[known] + g8.BAR_SEC, side="right") - 1
                 base = dict(day=int(day), t0=int(z.t0), time=int(t[e]), i=int(e), setup=setup, d=d, fake=bool(z.fake),
                             center=z.center, w=z.w, from_i=s0, known=int(known), a30=a30,
                             map=bool(z.map), kinds=z.kinds, n=int(z.n), zside=int(z.side), entry=entry, stop=stop,

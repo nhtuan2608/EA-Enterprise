@@ -30,9 +30,9 @@ import g108_data as g8
 
 HERE = Path(__file__).resolve().parent
 SYMBOL = g8.SYMBOL
-OUT_Z = g8.DATA / f"g109_zones_{SYMBOL}.pkl"
-OUT_C = g8.DATA / f"g109_candidates_{SYMBOL}.pkl"
-OUT_D = g8.DATA / f"g109_days_{SYMBOL}.pkl"
+OUT_Z = g8.DATA / f"g109_zones_{SYMBOL}{g8.TFSUF}.pkl"
+OUT_C = g8.DATA / f"g109_candidates_{SYMBOL}{g8.TFSUF}.pkl"
+OUT_D = g8.DATA / f"g109_days_{SYMBOL}{g8.TFSUF}.pkl"
 ZONE_ATR, MIN_W_SPREADS, NEAR_D1 = 0.15, 2.0, 3.0
 H1_DAYS, H4_DAYS, FVG_DAYS = 5, 10, 5
 REACT_BARS, BOUNCE_W = 12, 2.0

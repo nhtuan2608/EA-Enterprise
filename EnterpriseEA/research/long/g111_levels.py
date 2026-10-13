@@ -155,10 +155,10 @@ def build(df: pd.DataFrame, Z: pd.DataFrame, D: pd.DataFrame, hist: pd.DataFrame
                 res_z = trade_t(d, entry, stop, tz, h[fwd], l[fwd], c[fwd], sp[fwd])
             # features (bars <= k - 1)
             q = k - 1
-            k30 = np.searchsorted(m30_end, t[q] + 300, side="right") - 1
+            k30 = np.searchsorted(m30_end, t[q] + g8.BAR_SEC, side="right") - 1
             a30 = atr30[max(k30, 0)]
-            k1 = np.searchsorted(h1_end, t[q] + 300, side="right") - 1
-            k4 = np.searchsorted((b4 + 1) * 14400, t[q] + 300, side="right") - 1
+            k1 = np.searchsorted(h1_end, t[q] + g8.BAR_SEC, side="right") - 1
+            k4 = np.searchsorted((b4 + 1) * 14400, t[q] + g8.BAR_SEC, side="right") - 1
             d12 = slice(q - 11, q + 1)
             den = np.nansum(rv[d12])
             delta12 = side * np.nansum(cl[d12] * rv[d12]) / den if den > 0 else np.nan

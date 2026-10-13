@@ -41,6 +41,11 @@ LABEL_DESC = {"liq": "mục tiêu = vùng thanh khoản gần nhất chưa bị 
 # Symbol (G108_SYMBOL): XAUUSD (default) or an FX pair read from the raw MT5 exports (same method, no re-tuning)
 SYMBOL = os.environ.get("G108_SYMBOL", "XAUUSD")
 POINT = {"XAUUSD": 0.01, "EURUSD": 1e-5, "GBPUSD": 1e-5, "USDJPY": 1e-3}
+# G113: bar size (G113_TF minutes, M5 resampled) and zero spread (G109_NOCOST=1)
+TF = int(os.environ.get("G113_TF", "5"))
+BAR_SEC = TF * 60
+TFSUF = "" if TF == 5 else f"_m{TF}"
+NOCOST = os.environ.get("G109_NOCOST", "0") == "1"
 SUFFIX = ("" if SYMBOL == "XAUUSD" else f"_{SYMBOL}") + ("" if SOURCE == "ea" else f"_{SOURCE}") +          ("" if LABEL == "liq" else f"_{LABEL}")
 OUT = DATA / f"g108_decisions{SUFFIX}.pkl"
 RAW = Path("D:/Work/Private/AI APP/Trading-with-AI/input/raw") / SYMBOL
@@ -83,6 +88,22 @@ def load_m5_raw() -> pd.DataFrame:
     df = pd.concat(keep, ignore_index=True)
     df = df.drop_duplicates("time").sort_values("time").reset_index(drop=True)
     df["sp"] = df["spread"] * POINT[SYMBOL]
+    return finish_bars(df)
+
+
+def resample(df: pd.DataFrame, sec: int) -> pd.DataFrame:
+    """M5 rows -> bars of `sec` seconds: open first, high max, low min, close last, tick volume sum, mean spread."""
+    g = df.assign(b=df["time"] // sec * sec).groupby("b")
+    out = g.agg(open=("open", "first"), high=("high", "max"), low=("low", "min"), close=("close", "last"),
+                tickvol=("tickvol", "sum"), spread=("spread", "mean"), sp=("sp", "mean")).reset_index().rename(columns={"b": "time"})
+    return out
+
+
+def finish_bars(df: pd.DataFrame) -> pd.DataFrame:
+    if TF != 5:
+        df = resample(df, BAR_SEC)
+    if NOCOST:
+        df = df.assign(sp=0.0)
     return df
 
 
