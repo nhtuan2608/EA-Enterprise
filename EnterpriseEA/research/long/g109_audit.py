@@ -93,7 +93,80 @@ def slow_label(h, l, c, center, w, side):
     return True, k, 0
 
 
+def audit_trades(n=200):
+    """Recompute random real-zone trades (detection, entry, stop, zone target, exit a) with plain loops."""
+    import g109_setups as gs
+    df = g8.load_m5_raw()
+    T = pd.read_pickle(gs.OUT_T)
+    Z = pd.read_pickle(gz.OUT_Z)
+    t = df["time"].to_numpy(np.int64)
+    o, h, l, c = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
+    sp = df["sp"].to_numpy(float)
+    S = T[~T["fake"]].sample(min(n, int((~T["fake"]).sum())), random_state=3)
+    bad = 0
+    for r in S.itertuples():
+        e_day = int(np.nonzero(t // 86400 == r.day)[0][-1])
+        side = -r.d if r.setup == "S1" else r.d
+        far = r.center + side * r.w
+        known = None
+        if r.setup == "S1":
+            s = None
+            for j in range(r.from_i, e_day + 1):
+                if (side == 1 and h[j] > far) or (side == -1 and l[j] < far):
+                    s = j; break
+            ext = None
+            for j in range(s, min(e_day + 1, s + 3)):
+                seg = h[s:j + 1] if side == 1 else l[s:j + 1]
+                ext = max(seg) if side == 1 else min(seg)
+                if side * (ext - far) > 0.5 * r.a30:
+                    break
+                if side * (c[j] - far) < 0:
+                    known = j; break
+            e = known + 1
+            entry = o[e] + (sp[e] if r.d == 1 else 0.0)
+            stop = ext - sp[known] if r.d == 1 else ext + sp[known]
+        else:
+            for j in range(r.from_i + 1, e_day + 1):
+                if side * (c[j] - far) > 0 and side * (c[j - 1] - far) > 0:
+                    known = j; break
+            e = None
+            for k in range(known + 1, min(e_day, known + 12) + 1):
+                if (r.d == 1 and l[k] + sp[k] <= far) or (r.d == -1 and h[k] >= far):
+                    e = k; break
+            entry = far
+            stop = (r.center - r.w - sp[known]) if r.d == 1 else (r.center + r.w + sp[known])
+        risk = r.d * (entry - stop)
+        if r.target == "zone":
+            best = None
+            for z in Z[(Z["day"] == r.day) & ~Z["fake"] & (Z["from_i"] <= known)].itertuples():
+                edge = z.center - r.d * z.w
+                if r.d * (edge - entry) > 0 and (best is None or r.d * (edge - best) < 0):
+                    best = edge
+            target = best
+        else:
+            target = entry + r.d * 2 * risk
+        R = None
+        for k in range(e, min(len(t), e + 48)):
+            st_hit = l[k] <= stop if r.d == 1 else h[k] + sp[k] >= stop
+            tg_hit = h[k] >= target if r.d == 1 else l[k] + sp[k] <= target
+            if st_hit:
+                R = r.d * (stop - entry) / risk; break
+            if tg_hit:
+                R = r.d * (target - entry) / risk; break
+        if R is None:
+            k = min(len(t), e + 48) - 1
+            R = r.d * ((c[k] if r.d == 1 else c[k] + sp[k]) - entry) / risk
+        ok = e == r.i and abs(entry - r.entry) < 1e-9 and abs(stop - r.stop) < 1e-9 and abs(R - r.Ra) < 1e-9
+        if not ok:
+            bad += 1
+            print("  trade differs", pd.to_datetime(int(r.time), unit="s"), r.setup, r.target, (e, r.i), (entry, r.entry), (stop, r.stop), (R, r.Ra))
+    print(f"trades: {bad} mismatches of {len(S)}")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "trades":
+        audit_trades(int(sys.argv[2]) if len(sys.argv) > 2 else 200)
+        return
     n_days = int(sys.argv[1]) if len(sys.argv) > 1 else 40
     n_zones = int(sys.argv[2]) if len(sys.argv) > 2 else 300
     df = g8.load_m5_raw()
