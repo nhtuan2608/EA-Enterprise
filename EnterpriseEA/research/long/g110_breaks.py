@@ -25,7 +25,7 @@ import g108_features as gf
 import g109_setups as gs
 import g109_zones as gz
 
-OUT_E = g8.DATA / f"g110_events_{gz.SYMBOL}.pkl"
+OUT_E = g8.DATA / f"g110_events_{gz.SYMBOL}{gs.SUF}.pkl"
 HOLD_BARS, LIMIT_BARS, RR, N_RANDOM = 6, 12, 2.0, 5
 
 

@@ -14,10 +14,11 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
+from g109_setups import SUF
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-13-g109-setups.md"
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g109-setups{SUF}.md"
 LOWS = ("PDL", "H1SL", "H4SL", "PWL", "ASIA_L", "LOR_L", "NYOR_L")
 HIGHS = ("PDH", "H1SH", "H4SH", "PWH", "ASIA_H", "LOR_H", "NYOR_H")
 
@@ -48,7 +49,7 @@ def group_of(kinds: str) -> str:
 
 
 def section(sym: str) -> list[str]:
-    T = pd.read_pickle(g8.DATA / f"g109_trades_{sym}.pkl")
+    T = pd.read_pickle(g8.DATA / f"g109_trades_{sym}{SUF}.pkl")
     assert not (T["period"] == "test").any()
     L = [f"## {sym}", ""]
     L += ["### Lệnh không chồng: vùng thật so với vùng giả (Z1) và vào ngẫu nhiên (Z2), cách thoát a", "",

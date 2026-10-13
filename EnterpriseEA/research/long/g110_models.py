@@ -17,10 +17,11 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
+from g109_setups import SUF
 from g108_patterns import boot_lower
 
 HERE = Path(__file__).resolve().parent
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-13-g110-models.md"
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g110-models{SUF}.md"
 CTX = ["s", "isZ", "n", "beyond", "adx_h1", "di_h1", "d1_with", "h4_side", "hour", "sess", "open_dist"]
 VOLF = ["tv_break", "tv_appr", "tv_slope", "effort", "delta6", "delta12", "diverg", "wick", "body"]
 PAF = ["nr7", "expand", "compress", "void_ahead", "void_size", "zone_ahead", "bos_h1", "bos_dist", "struct_m5", "pole",
@@ -89,7 +90,7 @@ def auc(y, p):
 
 
 def section(sym: str) -> list[str]:
-    E = pd.read_pickle(g8.DATA / f"g110_events_{sym}.pkl")
+    E = pd.read_pickle(g8.DATA / f"g110_events_{sym}{SUF}.pkl")
     assert not (E["period"] == "test").any()
     E = E.sort_values("time").reset_index(drop=True)
     E["isZ"] = (E["type"] == "Z").astype(int)

@@ -16,9 +16,10 @@ import numpy as np
 import pandas as pd
 
 import g108_data as g8
+from g109_setups import SUF
 
 HERE = Path(__file__).resolve().parent
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-13-g110-volume.md"
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g110-volume{SUF}.md"
 VOL = ["tv_break", "tv_appr", "tv_slope", "effort", "delta6", "delta12", "wick", "body",
        "compress", "expand", "void_ahead", "zone_ahead", "bos_dist", "pole", "cons_slope", "wedge_conv", "pa_close"]
 FLAGS = [("push", "đẩy láo (giá đi xa, volume thấp)"), ("diverg", "phân kỳ giá / delta 12 nến"), ("nr7", "NR7 trước phá (nén)"),
@@ -67,7 +68,7 @@ def shuffle_p(E: pd.DataFrame, b: pd.Series, n=1000, seed=110):
 
 
 def section(sym: str) -> list[str]:
-    E = pd.read_pickle(g8.DATA / f"g110_events_{sym}.pkl")
+    E = pd.read_pickle(g8.DATA / f"g110_events_{sym}{SUF}.pkl")
     assert not (E["period"] == "test").any()
     L = [f"## {sym}", "", f"Sự kiện phá (train + validate): {len(E)} — vùng thật Z {int((E['type'] == 'Z').sum())}, "
          f"swing M5 G {int((E['type'] == 'G').sum())}, vùng giả F {int((E['type'] == 'F').sum())}.", "",

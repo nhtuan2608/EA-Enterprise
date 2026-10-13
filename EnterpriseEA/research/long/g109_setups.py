@@ -24,9 +24,13 @@ import g108_data as g8
 import g108_features as gf
 import g109_zones as gz
 
-OUT_T = g8.DATA / f"g109_trades_{gz.SYMBOL}.pkl"
+import os
+# G109_NOFILTER=1 (user request 13/10/2026): no cost filter (stop / ATR vs spread); the spread still costs every trade
+NOFILTER = os.environ.get("G109_NOFILTER", "0") == "1"
+SUF = "_nf" if NOFILTER else ""
+OUT_T = g8.DATA / f"g109_trades_{gz.SYMBOL}{SUF}.pkl"
 MAX_BARS, SWEEP_ATR, RECLAIM_BARS, BREAK_CLOSES, LIMIT_BARS = 48, 0.5, 3, 2, 12
-MIN_STOP_SPREADS, MIN_ATR5_SPREADS, MIN_RR = 8.0, 3.0, 1.0
+MIN_STOP_SPREADS, MIN_ATR5_SPREADS, MIN_RR = (0.0, 0.0, 1.0) if NOFILTER else (8.0, 3.0, 1.0)
 N_RANDOM = 5
 
 
