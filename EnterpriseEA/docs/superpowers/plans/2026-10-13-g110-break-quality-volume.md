@@ -73,3 +73,24 @@ Mỗi mức có bề rộng w như G109 (0,15 ATR M30, tối thiểu 2 spread).
   - lệnh theo và lệnh ngược;
   - không nhìn trước (dữ liệu đầy đủ so với dữ liệu cắt ngắn).
 - **Audit độc lập:** tính lại sự kiện, nhãn, lệnh và các đặc trưng volume bằng vòng lặp thô.
+
+## 5. Bổ sung: nhóm price action (đăng ký trước, 13/10/2026, trước khi xem kết quả bước 2)
+
+Theo đề xuất của người dùng: nén rồi bung, vùng thiếu thanh khoản, vùng swing, phá swing, cờ tăng/giảm, nêm tăng/giảm. Mọi đặc trưng tính tại nến quyết định j, chỉ dùng nến ≤ j, đơn vị là ATR M30, theo chiều phá s.
+
+| Nhóm | Đặc trưng |
+|---|---|
+| Nén rồi bung | `compress` (biên 12 nến trước phá), `nr7` (nến trước phá có biên hẹp nhất trong 7 nến), `expand` (biên trung bình 2 nến phá / biên trung bình 12 nến trước) |
+| Vùng thiếu thanh khoản | FVG M5 (3 nến) trong 1 ngày trước, **chưa lấp**, nằm **phía trước** theo chiều phá: `void_ahead` (khoảng cách tới mép gần), `void_size`; `zone_ahead` = khoảng cách tới vùng thật G109 kế tiếp phía trước (lực cản) |
+| Swing và cấu trúc | `bos_h1` = cú phá vượt luôn swing H1 gần nhất đã xác nhận (phá cấu trúc); `bos_dist`; `struct_m5` = HH/HL hay LH/LL của 2 swing M5 gần nhất theo chiều phá; loại mức G (swing M5) đã có |
+| Cờ | `pole` = di chuyển theo chiều phá từ j−36 tới j−12; `cons_slope` = độ dốc giá đóng j−13..j−2 theo chiều phá; `flag_pat` = 1 khi pole ≥ 1,5, biên vùng tích lũy ≤ 1,0 và cons_slope ≤ 0 (cờ, phá theo chiều cột cờ) |
+| Nêm | độ dốc đỉnh và đáy của 24 nến j−25..j−2: `wedge_type` = +1 nêm tăng (cả hai dương, hội tụ), −1 nêm giảm (cả hai âm, hội tụ); `wedge_with` = +1 khi phá đúng chiều kinh điển (nêm tăng phá xuống, nêm giảm phá lên), −1 khi ngược lại |
+| Nến phá | `pa_close` = vị trí giá đóng trung bình của 2 nến phá trong biên nến, theo chiều phá |
+
+**Đánh giá:**
+- **Bước 2:** cùng bảng nhóm 3 phần / cờ và kiểm định xáo trộn như nhóm volume.
+- **Bước 3:** thêm các biến thể mô hình:
+  - **P** = bối cảnh + price action;
+  - **VP** = bối cảnh + volume + price action;
+
+  so với C (chỉ bối cảnh), V (bối cảnh + volume) và R (ngẫu nhiên). Chỉ giữ nhóm nào **hơn C ở cả train lẫn validate**.
