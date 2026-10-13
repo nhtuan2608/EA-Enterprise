@@ -14,12 +14,15 @@ Plan of a direction at the close of M5 bar i (entry at the open of bar i+1, serv
                 HORIZON = 288 M5 bars (24 trading hours): the close there. Buys exit at bid, sells at ask (bid + spread).
                 (First run used the end of the server day: plans made in the New York afternoon had an hour or less,
                 so the horizon is now fixed; changed on train/validate before the test was opened.)
-Features use bars <= i only (closed M30 bars for EMA / ATR). MT5 data only: the research M5 export up to
-2025-05-21, then the running terminal (read-only).
+Features use bars <= i only (closed M30 bars for EMA / ATR). MT5 data only. Sources (G108_SOURCE):
+  ea   (default) the research M5 export up to 2025-05-21, then the running terminal (read-only)
+  raw  the user's MT5 exports in Trading-with-AI/input/raw/XAUUSD: the 2024-05 file up to the start of the
+       2025-05 file, then that file (outputs get a _raw suffix)
 """
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +30,11 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
-OUT = DATA / "g108_decisions.pkl"
+SOURCE = os.environ.get("G108_SOURCE", "ea")
+SUFFIX = "" if SOURCE == "ea" else f"_{SOURCE}"
+OUT = DATA / f"g108_decisions{SUFFIX}.pkl"
+RAW = Path("D:/Work/Private/AI APP/Trading-with-AI/input/raw/XAUUSD")
+RAW_FILES = ("XAUUSD_M5_202405141015_202510082355.csv", "XAUUSD_M5_202505141945_202610131840.csv")
 SPLIT_TERMINAL = int(pd.Timestamp("2025-05-22").timestamp())
 START = int(pd.Timestamp("2024-07-01").timestamp())          # after ~1100 M30 bars of EMA warm-up
 TRAIN_END = int(pd.Timestamp("2025-04-01").timestamp())
@@ -37,7 +44,25 @@ DIRS = (1, -1)
 
 
 # --------------------------------------------------------------------------------------------- data
+def read_raw(path: Path) -> pd.DataFrame:
+    x = pd.read_csv(path, sep=chr(9))
+    x.columns = [c.strip("<>").lower() for c in x.columns]
+    ts = pd.to_datetime(x["date"] + " " + x["time"], format="%Y.%m.%d %H:%M:%S")
+    x["time"] = ((ts - pd.Timestamp("1970-01-01")).dt.total_seconds()).astype("int64")
+    return x[["time", "open", "high", "low", "close", "spread"]]
+
+
+def load_m5_raw() -> pd.DataFrame:
+    old, new = (read_raw(RAW / f) for f in RAW_FILES)
+    df = pd.concat([old[old["time"] < new["time"].iloc[0]], new], ignore_index=True)
+    df = df.drop_duplicates("time").sort_values("time").reset_index(drop=True)
+    df["sp"] = df["spread"] * 0.01
+    return df
+
+
 def load_m5(terminal: pd.DataFrame | None = None) -> pd.DataFrame:
+    if SOURCE == "raw" and terminal is None:
+        return load_m5_raw()
     f = pd.read_csv(DATA / "bars_XAUUSD_M5.csv")
     f = f[f["time"] < SPLIT_TERMINAL]
     if terminal is None:

@@ -26,7 +26,7 @@ import g108_features as gf
 from g108_patterns import boot_lower, dedupe
 
 HERE = Path(__file__).resolve().parent
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-13-g108-step3-models.md"
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g108-step3-models{g.SUFFIX}.md"
 FIRST_MONTH, LAST_MONTH = "2024-12-01", "2025-12-01"
 K_NN, SHRINK = 150, 20
 LGB = dict(n_estimators=300, learning_rate=0.03, num_leaves=15, min_child_samples=100, subsample=0.8,

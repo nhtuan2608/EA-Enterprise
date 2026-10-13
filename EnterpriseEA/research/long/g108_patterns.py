@@ -25,7 +25,7 @@ import pandas as pd
 import g108_data as g
 
 HERE = Path(__file__).resolve().parent
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / "2026-10-13-g108-patterns.md"
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / f"2026-10-13-g108-patterns{g.SUFFIX}.md"
 K_SHRINK, MIN_TR, MIN_VA, N_PERM, N_BOOT = 30, 30, 15, 200, 1000
 KEY = ["d", "sess", "struct", "slope_b", "band", "m30"]
 NAMES = {
