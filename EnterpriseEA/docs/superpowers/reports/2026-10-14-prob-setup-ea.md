@@ -95,13 +95,27 @@ Bấm [+]/[−] để mở hoặc đóng từng mục, giống 4 bot hiện có.
    - bảng MQL = file JSON đóng băng;
    - công thức quyết định trong Python = các hàm G114.
 4. **Trên luồng giá thật của terminal** (`Tests/prob_setup_terminal_tests.py`, đọc nến bằng MetaTrader5 python, chỉ đọc): oracle của EA chạy trên nến M15/H1/H4/D1 của terminal cho **đúng 428/428 tín hiệu** như nghiên cứu (09–12/2025), cùng giá vào, stop, R và các yếu tố. Kỳ 2026 không được so, vẫn niêm phong.
-5. **Biên dịch MetaEditor:** `ProbSetupEA.mq5` và `Tests/ProbSetupSelfTest.mq5` đều 0 lỗi, 0 cảnh báo.
+5. **MQL so với Python trên nến thật (đã chạy 14/10/2026):** EA chạy trên terminal ghi `ProbSetupEA_shadow.csv` với 364 tín hiệu (cửa sổ 6000 nến M15 tới 15:30 server). Lệnh `python Tests/prob_setup_parity.py --shadow` dựng lại đúng cửa sổ đó và tính lại bằng oracle Python. Kết quả **0 sai lệch** ở mọi mặt:
+   - giá vào, stop, rủi ro;
+   - 8 yếu tố;
+   - điểm, p, n, p_lo, EV_lo, Kelly;
+   - 364 kết quả R;
+   - 108 lệnh được chọn mỗi-lúc-một-lệnh.
+6. **Biên dịch MetaEditor:** `ProbSetupEA.mq5` và `Tests/ProbSetupSelfTest.mq5` đều 0 lỗi, 0 cảnh báo.
 
 ## 6. Còn cần bạn làm (chạm vào MT5)
 
-1. **So khớp MQL và Python trên dữ liệu terminal:**
+1. **So khớp MQL và Python trên dữ liệu terminal:** đã làm bằng sổ lệnh bóng của EA (mục 5.5). Script tự kiểm vẫn dùng được để kiểm lại bất cứ lúc nào:
    - chép `Tests/ProbSetupSelfTest.ex5` vào `MQL5\Scripts` của terminal;
    - kéo script lên chart XAUUSD (khung nào cũng được); script không đặt lệnh, chỉ ghi `MQL5\Files\ProbSetupSelfTest.csv`;
    - rồi chạy `python Tests/prob_setup_parity.py`. Kết quả mong đợi: "0 mismatches, MQL unit failures 0".
 2. **Strategy Tester** (tùy chọn): chạy ProbSetupEA trên XAUUSD M15, chế độ bóng, để xem panel và CSV.
 3. **Chỉ bật `InpTradeEnabled`** sau khi đã có bằng chứng bóng đủ dài và đã quyết định vấn đề chiều lệnh ở mục 1.
+
+## 7. Sửa sau khi chạy thật
+
+**Lỗi đua lệnh khi gắn nhiều chart:** EA từng được gắn cùng lúc lên các chart M30, H1 và H4. Mọi bản đều tính cùng tín hiệu M15, nên khi nến mới mở, nhiều bản có thể cùng thấy "chưa có lệnh" và mỗi bản đặt một lệnh.
+
+Đã sửa (commit 75ef843): mỗi nến vào chỉ một bản EA được giành quyền vào lệnh, nhờ `GlobalVariableSetOnCondition` (thao tác nguyên tử); vị trí được kiểm lại sau khi giành.
+
+Các bản EA đang chạy chỉ nhận bản sửa khi **gắn lại**. Nên chỉ gắn **một** chart cho mỗi symbol.
