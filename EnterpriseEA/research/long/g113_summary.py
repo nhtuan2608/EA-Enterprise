@@ -71,7 +71,7 @@ def family_rows(sym: str, tf: int, nocost: int):
         for per in ("train", "validate"):
             x = sel[sel["period"] == per]
             rec[per] = gp.stats(x)
-            if len(x) >= 30 and not nocost:
+            if len(x) >= 30:
                 dc = drift_control(x, df, gs)
                 rec[per]["rand"] = float(np.nanmean(dc))
                 rec[per]["p"] = float(np.mean(dc >= rec[per]["R"]))
@@ -91,7 +91,7 @@ def cell(s: dict) -> str:
 def main(symbols):
     L = ["# G113 tổng hợp: bảng số theo khung và chi phí", "",
          "Mỗi ô: lệnh · R/lệnh (cận dưới 90% bootstrap theo ngày). Luật = mọi lệnh của loại setup, không chồng lệnh trong cùng "
-         "loại. Với bản có spread: \"ngẫu nhiên\" = cùng lệnh (chiều, khoảng stop, mục tiêu 2R, vào lệnh thị trường) đặt ở nến "
+         "loại. \"Ngẫu nhiên\" (cả bản spread 0) = cùng lệnh (chiều, khoảng stop, mục tiêu 2R, vào lệnh thị trường) đặt ở nến "
          f"ngẫu nhiên của ngày khác trong cùng tháng ({N_DRAW} lần), p = tỉ lệ lần ngẫu nhiên ≥ thật. Test 2026 niêm phong.", ""]
     for sym in symbols:
         L += [f"## {sym}", "", "| Loại | Bản | Train | Validate |", "|---|---|---|---|"]
