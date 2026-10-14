@@ -23,9 +23,11 @@ EA chưa được chép lên MT5 hay VPS.
 | Mọi lệnh C1/C2, không chồng | 393 lệnh, +0,03R | 358 lệnh, +0,12R |
 | Lệnh ngẫu nhiên ngày khác, cùng số lệnh | | trung bình +0,09R; ngẫu nhiên ≥ chiến lược 6,5% |
 
-- **Lưu ý về chiều lệnh:** ở validate, cổng xác suất giữ **221/227 lệnh MUA**, gần như thành bot chỉ mua. Nguyên nhân là kỳ train vàng tăng, nên yếu tố "chiều" và "D1 cùng chiều" đẩy xác suất của lệnh mua lên. Điều này trái với nguyên tắc giữ cả hai chiều. Nếu sau này muốn bật lệnh thật, cần quyết định trước:
-  - hiệu chỉnh riêng từng chiều, hoặc
-  - bỏ yếu tố "chiều" khỏi bảng.
+- **Lưu ý về chiều lệnh:** ở validate, cổng xác suất giữ **221/227 lệnh MUA**. Tôi đã kiểm tra xem có phải do yếu tố "chiều" hay không:
+  - học lại cuốn chiếu **không có yếu tố "chiều"**: validate 216 lệnh, +0,15R (cận dưới +0,05), vẫn **203 MUA / 13 BÁN**;
+  - các lệnh bán được chọn đều lỗ: −0,26R/lệnh.
+
+  Vậy thiên lệch không do một yếu tố gán cứng, mà do dữ liệu: trong 2024–2025, lệnh đuổi bán của vàng có EV ước tính âm. Cổng vẫn đối xứng: không có luật nào loại lệnh bán, lệnh bán sẽ được chọn khi xác suất của nó cho EV_lo > 0. EA giữ cả hai chiều (`InpBuy` / `InpSell` đều bật).
 
 ## 2. EA làm gì
 
@@ -92,7 +94,8 @@ Bấm [+]/[−] để mở hoặc đóng từng mục, giống 4 bot hiện có.
    - hằng số giống nghiên cứu;
    - bảng MQL = file JSON đóng băng;
    - công thức quyết định trong Python = các hàm G114.
-4. **Biên dịch MetaEditor:** `ProbSetupEA.mq5` và `Tests/ProbSetupSelfTest.mq5` đều 0 lỗi, 0 cảnh báo.
+4. **Trên luồng giá thật của terminal** (`Tests/prob_setup_terminal_tests.py`, đọc nến bằng MetaTrader5 python, chỉ đọc): oracle của EA chạy trên nến M15/H1/H4/D1 của terminal cho **đúng 428/428 tín hiệu** như nghiên cứu (09–12/2025), cùng giá vào, stop, R và các yếu tố. Kỳ 2026 không được so, vẫn niêm phong.
+5. **Biên dịch MetaEditor:** `ProbSetupEA.mq5` và `Tests/ProbSetupSelfTest.mq5` đều 0 lỗi, 0 cảnh báo.
 
 ## 6. Còn cần bạn làm (chạm vào MT5)
 
