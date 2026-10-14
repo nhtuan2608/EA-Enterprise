@@ -50,6 +50,15 @@ class ProbSetupEATests(unittest.TestCase):
         self.assertIn("HasPosition(tk)) return;", tt)                        # one position at a time
         self.assertIn("InpMaxLateSec", tt)                                   # no late entry after a restart
 
+    def test_one_order_per_bar_across_chart_copies(self):
+        tt = body(EA, "void TryTrade")
+        claim = tt.index("ClaimBar(rt[n-1].time)")
+        self.assertLess(claim, tt.index("g_trade.Buy("))
+        self.assertIn("HasPosition(tk)) return;", tt[claim:])                # re-checked after the claim
+        cb = body(EA, "bool ClaimBar")
+        self.assertIn("GlobalVariableSetOnCondition(gv,(double)bar,cur)", cb)
+        self.assertIn("if(cur>=(double)bar) return false;", cb)
+
     def test_restart_safe_no_trade_state(self):
         mp = body(EA, "void ManagePosition")
         self.assertIn("POSITION_TIME", mp)

@@ -121,6 +121,18 @@ bool NewsBlocked(const datetime now)
 
 void Note(const string s) { g_last_note=s; g_last_note_time=TimeCurrent(); if(InpVerbose) Print("ProbSetupEA: ",s); }
 
+// Terminal-wide claim of one entry bar: every copy of the EA on any chart of the symbol computes the same M15
+// signals, so without it several copies could pass HasPosition() at the same moment and each send an order.
+// GlobalVariableSetOnCondition is atomic: only the first copy moves the stored bar time forward.
+bool ClaimBar(const datetime bar)
+  {
+   const string gv=StringFormat("ProbSetupEA_%I64d_%s",InpMagic,_Symbol);
+   if(!GlobalVariableCheck(gv)) GlobalVariableSet(gv,0.0);
+   const double cur=GlobalVariableGet(gv);
+   if(cur>=(double)bar) return false;
+   return GlobalVariableSetOnCondition(gv,(double)bar,cur);
+  }
+
 // one trade at a time over the shadow rows (research g114_prob.select): earliest entry, ties by the higher EV_lo;
 // a trade blocks entries until its exit bar (a running trade blocks until the end)
 void SelectShadow(const int n)
@@ -181,6 +193,8 @@ void TryTrade(const MqlRates &rt[],const int n)
    if(best<0) return;
    const PsRow r=g_rows[best];
    if(NewsBlocked(TimeCurrent())) { Note("bỏ: gần tin HIGH USD"); return; }
+   if(!ClaimBar(rt[n-1].time)) { Note("bỏ: một bản EA khác đã xử lý nến này"); return; }
+   if(HasPosition(tk)) return;                                     // re-check after the claim
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol,tick)) return;
    const double px=(r.s.d==1 ? tick.ask : tick.bid);
