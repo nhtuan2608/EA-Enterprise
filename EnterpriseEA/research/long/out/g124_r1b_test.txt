@@ -1,0 +1,11 @@
+test K24 E1 G1: 130 trades  R -0.282  low90 -0.436  win 23%  +1 pip -0.294  with swap -0.298
+  buy 81/-0.314  sell 49/-0.230
+  random same direction: median -0.227  p 0.650
+  G0 (no direction filter): 224 trades  R -0.028
+  2023..2025-10-09: 88 trades  R -0.309
+  2025-10-10..: 42 trades  R -0.226
+  @0.5%/trade: -5.0%/yr  DD 19.1%
+  @1.0%/trade: -9.9%/yr  DD 38.2%
+  PF 0.63  avg win +2.08  avg loss -0.99  losing streak 14
+  by year: 2023:35/-15.0R 2024:31/-5.1R 2025:33/-4.5R 2026:31/-12.1R
+  by pair: AUDUSD:21/+0.03 EURUSD:18/-0.64 GBPUSD:22/-0.73 NZDUSD:28/-0.40 USDCAD:21/+0.37 USDJPY:20/-0.33
