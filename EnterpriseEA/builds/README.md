@@ -16,7 +16,13 @@ Build bằng MetaEditor ngày 15/10/2026 từ mã nguồn tại commit `bed12ba`
 
 Chép các file vào `MQL5\Experts\EnterpriseEA\` của terminal, rồi bấm Refresh trong Navigator. Trên VPS, chép vào `/opt/qtl/data/mt5/terminal/MQL5/Experts/EnterpriseEA/`.
 
-File .set nằm trong `MQL5\Presets` và `MQL5\Profiles\Tester` của terminal, không có trong repo.
+Phần lớn file .set nằm trong `MQL5\Presets` và `MQL5\Profiles\Tester` của terminal, không có trong repo.
+
+Riêng các set cho VHedge G119 (bỏ BIGV, 0,75% mỗi chân, INITIAL) có trong `builds/sets/`:
+- `VHedgeTester_G119_shadow.set`: chỉ lệnh ảo.
+- `VHedgeTester_G119_live.set`: lệnh thật, chỉ dùng cho tài khoản hedging.
+
+Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 
 ## Lưu ý
 
