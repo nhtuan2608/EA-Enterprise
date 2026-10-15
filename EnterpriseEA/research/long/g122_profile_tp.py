@@ -1,6 +1,7 @@
 """G122: multi-day volume profile levels as take-profit for S07 and VHedge (plan docs/superpowers/plans/2026-10-15-g122-profile-tp.md).
 
   python g122_profile_tp.py            -> train / validate with fake-level controls (test periods sealed)
+  python g122_profile_tp.py test       -> S07 2025-2026 for the two strongest cells (opened once, 15/10/2026)
 
 Profiles: M30 tick volume spread evenly over each bar's low..high, bins of ATR14(D1)/20, smoothed over 3 bins, over the
 5 (P5) or 20 (P20) closed server days before the entry day. Levels: POC, VAH/VAL (70%), HVN (local peaks >= 0.6 POC).
@@ -11,6 +12,7 @@ Fake levels: all levels of the trade shifted by one random offset of +-(0.5..2) 
 from __future__ import annotations
 
 import itertools
+import sys
 import time
 
 import numpy as np
@@ -129,10 +131,10 @@ def tick_check(P):
 
 
 # --------------------------------------------------------------------------------------------- S07
-def s07_book(P):
+def s07_book(P, end="2025-01-01"):
     import g107_portfolio as p
     L = pd.DataFrame(p.s07_legs())
-    L = L[(L.t_in >= "2018-03-01") & (L.t_in < "2025-01-01")].reset_index(drop=True)   # 2025+ sealed
+    L = L[(L.t_in >= "2018-03-01") & (L.t_in < end)].reset_index(drop=True)   # 2025+ sealed unless test
     b = pd.read_csv(HERE / "data" / "m30v" / "XAUUSD.csv")
     t = pd.to_datetime(b["time"], unit="s").to_numpy()
     h, l, sp = b["high"].to_numpy(), b["low"].to_numpy(), b["spread"].to_numpy() * 0.01
@@ -292,5 +294,36 @@ def main():
     print(W.round(3).to_string())
 
 
+def open_test():
+    """Opened once (user agreed 15/10/2026): S07 2025-2026 for P5 HVN 2R and P20 VA 3R; fixed 1.5% x weight on 10k."""
+    P = Profiles()
+    L = s07_book(P, end="2027-01-01")
+    L = L[L.t_in >= "2025-01-01"].reset_index(drop=True)
+    rng = np.random.default_rng(1220)
+    base, d = L["r"].to_numpy(), L["d"].to_numpy()
+    money = L["money"].to_numpy()
+    order = np.argsort(L["t_out"].to_numpy())
+
+    def curve(r):
+        eq = np.cumsum((r * money)[order])
+        return eq[-1], float((np.maximum.accumulate(np.maximum(eq, 0) + 10_000) - (eq + 10_000)).max())
+
+    b_usd, b_dd = curve(base)
+    print(f"S07 test legs {len(L)}  base R/leg {base.mean():+.3f}  base {b_usd:,.0f} USD  DD {b_dd:,.0f} USD")
+    for win, st, minr in ((5, "HVN", 2.0), (20, "VA", 3.0)):
+        full = s07_eval(L, P, win, st, minr)
+        fk = np.array([np.nanmean(s07_eval(L, P, win, st, minr, rng) - base) for _ in range(REPS)])
+        for mode in MODES:
+            r = full if mode == "FULL" else 0.5 * full + 0.5 * base
+            dl = r - base
+            usd, dd = curve(r)
+            fm = fk if mode == "FULL" else 0.5 * fk
+            print(f"P{win} {st} {minr:g}R {mode}: changed {(np.abs(dl) > 1e-9).sum()}  dR {dl.mean():+.4f} "
+                  f"(buy {dl[d == 1].mean():+.4f} sell {dl[d == -1].mean():+.4f})  fake {np.median(fm):+.4f} "
+                  f"p {np.mean(fm >= dl.mean()):.3f}  {usd:,.0f} USD ({usd - b_usd:+,.0f})  DD {dd:,.0f} USD")
+        for i in np.flatnonzero(np.abs(full - base) > 1e-9):
+            print(f"   {L.t_in[i]:%Y-%m-%d %H:%M} d {d[i]:+d}  base {base[i]:+.2f}R -> {full[i]:+.2f}R")
+
+
 if __name__ == "__main__":
-    main()
+    open_test() if len(sys.argv) > 1 and sys.argv[1] == "test" else main()
