@@ -136,7 +136,8 @@ def s07_book(P, end="2025-01-01"):
     L = pd.DataFrame(p.s07_legs())
     L = L[(L.t_in >= "2018-03-01") & (L.t_in < end)].reset_index(drop=True)   # 2025+ sealed unless test
     b = pd.read_csv(HERE / "data" / "m30v" / "XAUUSD.csv")
-    t = pd.to_datetime(b["time"], unit="s").to_numpy()
+    from g125_s07_mini import srv_to_utc
+    t = pd.to_datetime(srv_to_utc(b["time"].to_numpy()), unit="s").to_numpy()        # S07 legs carry UTC times
     h, l, sp = b["high"].to_numpy(), b["low"].to_numpy(), b["spread"].to_numpy() * 0.01
     hmax, lmin, lv = [], [], {}
     for r in L.itertuples():
@@ -145,7 +146,9 @@ def s07_book(P, end="2025-01-01"):
         hmax.append(h[a:z].max() if z > a else -np.inf)
         lmin.append((l[a:z] + sp[a:z]).min() if z > a else np.inf)
     L["hmax"], L["lmin"] = hmax, lmin
-    L["day"] = ((L["t_in"] - pd.Timestamp(0)).dt.total_seconds() // 86400).astype(int)
+    import g67_dmi_ema as g67
+    utc = (L["t_in"] - pd.Timestamp(0)).dt.total_seconds().astype(int)
+    L["day"] = [(u + (10800 if g67.us_dst(u) else 7200)) // 86400 for u in utc]      # server day of the entry
     return L
 
 

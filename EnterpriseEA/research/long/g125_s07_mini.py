@@ -38,9 +38,18 @@ def load_tf(tf):
     return m[["time", "open", "high", "low", "close", "sp"]].reset_index(drop=True)
 
 
+def srv_to_utc(t):
+    """Server time -> UTC, as the S07 port does (g67: UTC+2, UTC+3 during US DST). S07 legs carry UTC times."""
+    import g67_dmi_ema as g67
+    t = np.asarray(t, dtype=np.int64)
+    return np.array([x - (10800 if g67.us_dst(int(x) - 7200) else 7200) for x in t], dtype=np.int64)
+
+
 def s07_open_counts(close_t):
+    """Open S07 legs per direction at each bar close (close_t in server time; legs are compared in UTC)."""
     import g107_portfolio as p
     L = pd.DataFrame(p.s07_legs())
+    close_t = srv_to_utc(close_t)
     out = {}
     for d in (1, -1):
         x = L[L.d == d]
@@ -73,8 +82,6 @@ class TF:
         self.ts = pd.to_datetime(self.t, unit="s")
         self.hour = self.ts.hour.to_numpy()
         close_t = self.t + TFSEC[tf]
-        if "counts" not in legs_cache:
-            legs_cache["counts_fn"] = s07_open_counts
         self.s07, self.legs = s07_open_counts(close_t)
         self.rib = m30_ribbon(close_t)
         hh = pd.Series(self.h).rolling(K).max().shift(1).to_numpy()

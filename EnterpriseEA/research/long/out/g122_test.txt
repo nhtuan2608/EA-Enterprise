@@ -1,10 +1,10 @@
 S07 test legs 337  base R/leg +0.464  base 18,917 USD  DD 1,659 USD
-P5 HVN 2R FULL: changed 1  dR +0.0122 (buy +0.0000 sell +0.0792)  fake -0.0252 p 0.065  19,535 USD (+618)  DD 1,659 USD
-P5 HVN 2R HALF: changed 1  dR +0.0061 (buy +0.0000 sell +0.0396)  fake -0.0126 p 0.065  19,226 USD (+309)  DD 1,659 USD
-   2026-04-13 01:15 d -1  base -1.02R -> +3.10R
-P20 VA 3R FULL: changed 4  dR -0.0089 (buy -0.0119 sell +0.0076)  fake +0.0025 p 0.705  18,443 USD (-474)  DD 1,689 USD
-P20 VA 3R HALF: changed 4  dR -0.0044 (buy -0.0059 sell +0.0038)  fake +0.0012 p 0.705  18,680 USD (-237)  DD 1,659 USD
+P5 HVN 2R FULL: changed 0  dR +0.0000 (buy +0.0000 sell +0.0000)  fake -0.0279 p 0.140  18,917 USD (+0)  DD 1,659 USD
+P5 HVN 2R HALF: changed 0  dR +0.0000 (buy +0.0000 sell +0.0000)  fake -0.0139 p 0.140  18,917 USD (+0)  DD 1,659 USD
+P20 VA 3R FULL: changed 5  dR -0.0010 (buy -0.0116 sell +0.0573)  fake +0.0025 p 0.580  18,843 USD (-75)  DD 1,400 USD
+P20 VA 3R HALF: changed 5  dR -0.0005 (buy -0.0058 sell +0.0286)  fake +0.0013 p 0.580  18,880 USD (-37)  DD 1,465 USD
    2025-06-01 22:15 d +1  base +6.24R -> +4.77R
    2025-11-10 01:00 d +1  base +3.58R -> +5.56R
-   2026-02-19 23:15 d +1  base +7.99R -> +4.09R
+   2026-02-19 23:15 d +1  base +7.99R -> +4.17R
+   2025-08-14 12:45 d -1  base +0.83R -> +3.41R
    2026-09-14 02:45 d -1  base +2.66R -> +3.05R
