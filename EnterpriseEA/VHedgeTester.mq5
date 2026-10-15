@@ -22,6 +22,7 @@
 #include "Tester/TesterPanel.mqh"
 
 enum VHT_Mode { VHT_SHADOW=0, VHT_LIVE=1 };
+enum VHT_RiskBase { VHT_RISK_INITIAL=0, VHT_RISK_BALANCE=1 };
 
 input VHT_Mode InpMode          = VHT_SHADOW; // SHADOW: virtual trades only (log + panel) | LIVE: real orders (hedging account)
 input bool     InpProfG119      = true;  // Profile G119: bundled EMAs + volume, stop 1.5 ATR
@@ -39,7 +40,8 @@ input bool     InpBreakEven     = true;  // Stops to entry at +1R
 input bool     InpPartial2R     = false; // Close 50% of every leg at +2R (G120: smoother, ~1/3 less profit)
 input bool     InpSwingTrail    = false; // From +2R, stops follow the last confirmed M5 swing (G120: worse)
 input bool     InpTimeExit      = false; // Close after 24 bars (2 h) from the resolution without +1R (G120: no effect)
-input double   InpRiskPercent   = 0.5;   // LIVE: risk per leg, % of balance (no protection limits: minimum volume if smaller)
+input double   InpRiskPercent   = 0.5;   // LIVE: risk per leg, % (S07Tester uses 1.5 per trade; no protection limits: minimum volume if smaller)
+input VHT_RiskBase InpRiskBase  = VHT_RISK_INITIAL; // as S07Tester: INITIAL = % of min(equity, initial deposit) | BALANCE = % of equity (compounding)
 input int      InpMaxGroups     = 10;    // Open groups at once
 input int      InpHistoryBars   = 3000;  // M5 bars for EMA / ATR
 input bool     InpLogCsv        = true;  // Write groups to MQL5\Files\VHedge_<symbol>_<magic>.csv
@@ -81,6 +83,7 @@ struct VGroup
   };
 
 CTrade   g_trade;
+double   g_initial_capital=0.0;
 VGroup   g_g[VHT_MAX];
 int      g_next_id=1;
 datetime g_last_bar=0;
@@ -138,7 +141,9 @@ double LotsFor(const double dist)
    double loss=0.0;
    const double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
    if(!OrderCalcProfit(ORDER_TYPE_BUY,_Symbol,1.0,ask,ask-dist,loss) || loss>=0.0) return 0.0;
-   const double money=AccountInfoDouble(ACCOUNT_BALANCE)*InpRiskPercent/100.0;
+   const double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   const double basis=(InpRiskBase==VHT_RISK_BALANCE ? equity : MathMin(equity,g_initial_capital));
+   const double money=basis*InpRiskPercent/100.0;
    const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP), vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
    const double vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
    double v=MathFloor(money/(-loss)/step+1e-9)*step;
@@ -522,6 +527,7 @@ int OnInit()
       Print("VHedgeTester: LIVE needs a hedging account (buy and sell at once). Use SHADOW on this account.");
       return INIT_PARAMETERS_INCORRECT;
      }
+   g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetDeviationInPoints(30);
    g_trade.SetTypeFillingBySymbol(_Symbol);
