@@ -294,8 +294,8 @@ class RuntimeWiringTests(unittest.TestCase):
                       "p.minimum_net_rr=swing ? 2.0 : 1.5", "EEA_CommissionPerLotPerSide", "EEA_SwapMoneyPerLotPerNight",
                       "EEA_RiskLimitsForPolicy(policy.committed_policy,limits,reason)",
                       "p.base_risk_fraction=limits.per_trade_fraction*htf",
-                      "p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital",
-                      "p.currency_cap_money=limits.currency_exposure_fraction*ledger.initial_capital",
+                      "p.portfolio_cap_money=limits.total_open_fraction*capital",
+                      "p.currency_cap_money=limits.currency_exposure_fraction*capital",
                       '"LIVE_DAILY_RESET_SNAPSHOT_STALE"', '"LIVE_INITIAL_CAPITAL_UNKNOWN"'):
             self.assertIn(token, plan)
         for manual in ("config.stop_buffer_ticks", "config.target_r_multiple", "config.max_spread_points",
@@ -316,7 +316,7 @@ class RuntimeWiringTests(unittest.TestCase):
 
     def test_shell_defaults_to_v1_and_panel_shows_zone_detail(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        self.assertIn("input bool   InpS02UsePrototype        = false;", shell)
+        self.assertIn("EEA_HIDDEN bool InpS02UsePrototype        = false;", shell)
         self.assertIn("EEA_StrategyCandidateRuntimeInitV1(g_strategy_runtime,canonical,count,InpStrategyRuntimeEnabled,(int)InpS04Mode,", shell)
         self.assertIn("view.setup_detail[row]", shell)
         panel = (ROOT / "Runtime/SymbolSelectionPanel.mqh").read_text(encoding="utf-8")

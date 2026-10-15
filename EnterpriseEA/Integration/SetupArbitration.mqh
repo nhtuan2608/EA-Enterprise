@@ -9,6 +9,7 @@ int EEA_SetupPriorityRank(const string setup,const string profile)
   {
    const int setup_rank=(setup=="S06" || setup=="S06B" ? 0 : setup=="S04" ? 1 : 2);
    if(profile=="POSITION") return 6;          // G38 T2: shadow only, after every SWING and SCALP engine
+   if(profile=="TREND") return EEA_S07IsBaseSetup(setup) ? 0 : 1;   // G72/G87: base setups first, then adds
    return (profile=="SWING" ? 0 : 3)+setup_rank;
   }
 

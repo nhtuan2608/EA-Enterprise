@@ -35,6 +35,7 @@ import setups
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "long"))
 sys.path.insert(0, str(HERE.parents[1] / "Tests"))
+import s07_oracle  # noqa: E402
 import t2_oracle  # noqa: E402
 
 START = {"S04": int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp()),        # G18 candidate ledger
@@ -42,6 +43,12 @@ START = {"S04": int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp()),    
          "T2": int(datetime(2026, 10, 6, 16, 36, tzinfo=timezone.utc).timestamp())}  # G44 momentum filter
 PROFILE = {"S04": "SWING", "S06B": "SWING", "T2": "POSITION"}
 TF_SECONDS = {"SWING": 3600, "POSITION": 14400}
+# G72 S07: one key per engine slot, "<setup>:<timeframe>" (S07A runs on three timeframes). A slot is compared
+# from the UTC time it went live on the EA (set at deploy); a slot without a start is reported as not deployed.
+S07_SLOTS = ("S07:M30", "S07A:M15", "S07A:H1", "S07A:H4", "S07S:H1")
+S07_START: dict[str, int] = {}
+S07_SYMBOLS = ("XAUUSD",)
+S07_TF_SECONDS = {"M15": 900, "M30": 1800, "H1": 3600, "H4": 14400}
 S06B = {"box": 24, "max_box_atr": 3.0, "contraction": 0.85, "mode": "immediate", "sl": "far"}   # filters.S06B
 OFFLINE_GAP = 600
 HEARTBEAT_DAYS = 30        # research signals this far before the window prove the generators still run
@@ -87,6 +94,19 @@ def research_keys(symbol: str, setup: str, start: int) -> tuple[set, dict, int]:
     keys, close = set(), {}
     m = context.meta()
     now_offset = int(m["server_offset_now"])
+    if setup in S07_SLOTS:
+        name, tf = setup.split(":")
+        bars = context.load_bars(symbol, tf)
+        h4 = bars if tf == "H4" else context.load_bars(symbol, "H4")
+        if len(bars) < 400 or len(h4) < 400:
+            return keys, close, 0
+        first = next((i for i, b in enumerate(bars) if b["time"] - now_offset >= start), len(bars))
+        for i, d in s07_oracle.run(bars, h4, name, tf, first=max(first, 300)):
+            b = bars[i]
+            k = (setup, symbol, d, b["time"])
+            keys.add(k)
+            close[k] = b["time"] - now_offset + S07_TF_SECONDS[tf]
+        return keys, close, bars[-1]["time"]
     if setup == "T2":
         h4 = context.load_bars(symbol, "H4")
         h1 = context.load_bars(symbol, "H1")
@@ -158,6 +178,7 @@ def run(since: int | None = None, root: Path | None = None) -> dict:
     first = min(START.values()) if since is None else since
     refreshes = refresh_times(root / "logs" / "audit.jsonl", first - 86400)
     result = {}
+    s07(result, rows, refreshes, since)
     for setup in ("S04", "S06B", "T2"):
         start = START[setup] if since is None else max(since, START[setup])
         research, close, last_bar = set(), {}, {}
@@ -191,6 +212,35 @@ def run(since: int | None = None, root: Path | None = None) -> dict:
     return result
 
 
+def s07(result: dict, rows: list[dict], refreshes: list[int], since: int | None) -> None:
+    """G72: S07 slots on S07_SYMBOLS; EA rows are keyed by setup and timeframe (candidate ledger, profile TREND)."""
+    for slot in S07_SLOTS:
+        if slot not in S07_START:
+            result.setdefault("not_deployed", []).append(slot)
+            continue
+        start = S07_START[slot] if since is None else max(since, S07_START[slot])
+        research, close, last_bar, before = set(), {}, {}, []
+        for s in S07_SYMBOLS:
+            try:
+                k, c, lb = research_keys(s, slot, start - HEARTBEAT_DAYS * 86400)
+            except Exception as exc:
+                result.setdefault("errors", []).append(f"{slot} {s}: {exc}")
+                continue
+            before += [x for x in k if c[x] < start]
+            k = {x for x in k if c[x] >= start}
+            research |= k
+            close.update({x: c[x] for x in k})
+            last_bar[s] = lb
+        ea = {(f"{r['setup']}:{r.get('timeframe', '')}", r["symbol"], int(r["direction"]), int(r["bar_time"]))
+              for r in rows
+              if f"{r['setup']}:{r.get('timeframe', '')}" == slot and r.get("profile") == "TREND" and r.get("bar_time")
+              and int(r["bar_time"]) <= last_bar.get(r["symbol"], 0) and int(r.get("closed_utc", 0)) >= start - 86400}
+        cmp = compare(research, ea, close, refreshes)
+        result[slot] = {k: [list(x) for x in v] for k, v in cmp.items()}
+        result[slot]["start_utc"] = start
+        result[slot]["heartbeat"] = list(max(before, key=lambda x: x[3])) if before else None
+
+
 def replay_parity(root: Path | None = None) -> dict:
     """The EA's own historical replay (logs/setup_replay.jsonl, Runtime/SetupReplay.mqh: the MQL engines over past
     bars) against replay.candidates on the exported bars, per setup and profile, inside the replayed range."""
@@ -217,7 +267,7 @@ def replay_parity(root: Path | None = None) -> dict:
 
 
 def live_bars(root: Path, symbols: list[str], folder: Path) -> list[str]:
-    """H1 (12,000), H4 (3,000) and D1 (1,000) closed bars of each symbol from the running terminal, in the export format."""
+    """M15/M30 (6,000, G72 S07), H1 (12,000), H4 (3,000) and D1 (1,000) closed bars of each symbol from the running terminal, in the export format."""
     import shutil
     import MetaTrader5 as mt5
     folder.mkdir(parents=True, exist_ok=True)
@@ -232,7 +282,8 @@ def live_bars(root: Path, symbols: list[str], folder: Path) -> list[str]:
             name = broker.get(s)
             if not name:
                 continue
-            for tf, code, n in (("H1", mt5.TIMEFRAME_H1, 12000), ("H4", mt5.TIMEFRAME_H4, 3000), ("D1", mt5.TIMEFRAME_D1, 1000)):
+            for tf, code, n in (("M15", mt5.TIMEFRAME_M15, 6000), ("M30", mt5.TIMEFRAME_M30, 6000),
+                                ("H1", mt5.TIMEFRAME_H1, 12000), ("H4", mt5.TIMEFRAME_H4, 3000), ("D1", mt5.TIMEFRAME_D1, 1000)):
                 rates = mt5.copy_rates_from_pos(name, code, 1, n)          # closed bars only
                 if rates is None or len(rates) == 0:
                     continue
@@ -249,7 +300,7 @@ def live_bars(root: Path, symbols: list[str], folder: Path) -> list[str]:
 def text(result: dict) -> str:
     source = "nến lấy trực tiếp từ MT5" if result.get("live") else "nến EA xuất"
     lines = [f"Khớp tín hiệu EA ↔ nghiên cứu (trên {source}):"]
-    for setup in ("S04", "S06B", "T2"):
+    for setup in ("S04", "S06B", "T2") + S07_SLOTS:
         r = result.get(setup)
         if not r:
             continue
@@ -270,6 +321,8 @@ def text(result: dict) -> str:
                      f"(EA {r['ea']}, nghiên cứu {r['research']})")
     if result.get("not_followed"):
         lines.append("T2 chưa có mốc theo dõi (chưa so): " + ", ".join(sorted(set(result["not_followed"]))))
+    if result.get("not_deployed"):
+        lines.append("S07 chưa có mốc deploy (chưa so): " + ", ".join(result["not_deployed"]))
     for e in result.get("errors", []):
         lines.append(f"lỗi: {e}")
     return "\n".join(lines)

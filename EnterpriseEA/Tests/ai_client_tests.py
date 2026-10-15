@@ -47,9 +47,9 @@ class AiClientTests(unittest.TestCase):
         self.assertIn('/ai/reports/"+type+".json"', poll)
 
     def test_schedule_and_inputs(self):
-        self.assertIn('input string InpAiNewsReviewLocal       = "07:00";', self.shell)
-        self.assertIn('input string InpAiDiagnosticsLocal      = "06:30";', self.shell)
-        self.assertIn("input int    InpAiMaxCallsPerDay        = 30;", self.shell)
+        self.assertIn('EEA_HIDDEN string InpAiNewsReviewLocal       = "07:00";', self.shell)
+        self.assertIn('EEA_HIDDEN string InpAiDiagnosticsLocal      = "06:30";', self.shell)
+        self.assertIn("EEA_HIDDEN int InpAiMaxCallsPerDay        = 30;", self.shell)
         timer = section(self.shell, "void EEA_AiTimer")
         self.assertIn('EEA_AiEnqueueReport("NEWS_DATA_REVIEW",reason);', timer)
         self.assertIn('EEA_AiEnqueueReport("EA_DIAGNOSTICS",reason);', timer)
@@ -58,7 +58,7 @@ class AiClientTests(unittest.TestCase):
         self.assertIn('EEA_AiEnqueue(g_ai,g_audit,type,"codex"', enqueue)       # diagnostics go to codex
 
     def test_pre_news_brief_rule(self):  # REQ-007
-        self.assertIn("input int    InpAiPreNewsMinutes        = 45;", self.shell)
+        self.assertIn("EEA_HIDDEN int InpAiPreNewsMinutes        = 45;", self.shell)
         self.assertIn('if(i==4) return "NEWS_PRE_BRIEF";', self.client)
         self.assertIn("#define EEA_AI_TYPES 5", self.client)
         due = section(self.shell, "long EEA_AiPreBriefDue")

@@ -1,0 +1,768 @@
+﻿#property strict
+#property version   "1.000"
+#property description "S07 family backtest EA for the MT5 Strategy Tester: the S07 rules of EnterpriseEA on one symbol, no files, sessions or registry."
+
+// G89: EnterpriseEA is built for live operation (symbol registry, state files, signed sessions,
+// controller) and does not run in the Strategy Tester. This EA reuses the same S07 functions
+// (Setups/DmiEmaCompression.mqh) on the chart symbol so the family can be tested in MT5:
+//   base     S07 (buy) / S07S (sell, with the L2 location) on the M30 close
+//   early    S07E / S07ES: the M30 rule on the forming M30 bar at every closed entry bar (M5)
+//   re-entry S07R / S07RS: within 2 h after a base closed (not at target), price back beyond the four EMAs
+//   adds     S07A / S07AS: the S07 rule on M15 / H1 / H4 while the base is in profit (max 2 adds, 3 legs)
+// Exits: close beyond EMA55 (EMA100 once the leg ran 3R), ADX >= 50 turning down (base legs),
+// time stop per timeframe, stop and 8R target at the broker.
+
+#property tester_file "S07Tester_news.csv"
+#property tester_file "S07Tester_sentiment.csv"
+
+#include <Trade/Trade.mqh>
+#include "Setups/DmiEmaCompression.mqh"
+
+enum S07T_EntryTf { S07T_ENTRY_M5=5, S07T_ENTRY_M15=15 };
+
+enum S07T_RiskBase { S07T_RISK_INITIAL=0, S07T_RISK_BALANCE=1 };
+input double InpRiskPercent       = 1.5;   // Risk per trade, %
+input S07T_RiskBase InpRiskBase   = S07T_RISK_INITIAL; // INITIAL: % of min(equity, initial deposit) like the live EA (no compounding); BALANCE: % of equity (compounding)
+input bool   InpBlockOpposite     = true;  // Like the live EA: no buy while a sell is open and the reverse
+input bool   InpSpreadFilter      = false;  // Off by default (cent account). On = like the live EA: skip when spread > 2x the 288-bar M5 median or > 25% of the stop
+input bool   InpBuy               = true;  // Buy family (S07, S07E, S07R, S07A)
+input bool   InpSell              = true;  // Sell family (S07S, S07ES, S07RS, S07AS)
+input bool   InpEarly             = true;  // Early entries (S07E / S07ES)
+input bool   InpReentry           = true;  // Re-entries (S07R / S07RS)
+input bool   InpAdds              = true;  // Adds (S07A / S07AS)
+input bool   InpSellLocation      = true;  // Sell bases need the L2 location (window high near the H4 EMA200)
+input bool   InpAdxExit           = true;  // Base legs exit on ADX >= 50 turning down
+input double InpUnorderedWeight   = 0.67;  // Base without EMA21>EMA55>EMA100 (mirrored for sells)
+input double InpAddWeight         = 0.67;  // Adds
+input S07T_EntryTf InpEntryTf     = S07T_ENTRY_M5; // Entry bars of the early / re-entry engines
+input double InpMaxChaseAtr       = 0.5;   // Skip when price ran more than this many ATR past the signal close
+input int    InpBaseCooldownBars  = 4;     // M30 bars without a new base after a base closed
+input int    InpM15WindowBars     = 12;    // Compression window of the M15 add frame (12 = 3 h; research G70 used 16 = 4 h)
+// G91: the live EA's News Guard (SWING profile) and sentiment, from files built by research/long/g91_tester_inputs.py
+input bool   InpNewsGuard               = true;   // News Guard: block new entries around HIGH events, break-even before USD events
+input int    InpNewsSwingBlockBeforeMin = 180;    // News Guard: SWING blocks new entries this long before (live EA input)
+input int    InpNewsPostMin             = 15;     // News Guard: POST_NEWS ends
+input int    InpNewsMaxNormalizeMin     = 60;     // News Guard: longest wait for a stable market
+input int    InpNewsBreakEvenBeforeMin  = 15;     // News Guard: break-even for profitable trades this long before
+input double InpNewsBreakEvenMinR       = 0.3;    // News Guard: minimum profit (R) for that break-even
+input string InpNewsIgnoreKeywords      = "Initial Jobless Claims,EIA Crude Oil,Lagarde Speech,CB Consumer Confidence,Durable Goods,Home Sales,S&P Global Services PMI,Note Auction,Money Stock"; // same default as the live EA
+input bool   InpSentiment               = true;   // Sentiment: risk x0.5 when the flow is against the trade, no entry when strongly against
+input bool   InpSentimentNewsOnly       = true;   // Sentiment acts only within InpSentimentNewsHours of a HIGH calendar event; otherwise entries are open
+input int    InpSentimentNewsHours      = 4;      // Hours before / after a HIGH event in which sentiment acts
+input long   InpMagic             = 707070;
+input bool   InpVerbose           = false;
+input bool   InpPanel             = true;  // On-chart analysis panel (context, checklist, open trades, blocks)
+
+#define S07T_HISTORY 1500
+
+// Compression window per frame: the live EA's, except the M15 add frame (InpM15WindowBars).
+int TesterWindowBars(const string tf) { return tf=="M15" ? MathMax(4,InpM15WindowBars) : EEA_S07WindowBars(tf); }
+#define S07T_H4_HISTORY 1200
+#define S07T_MAX_LEGS 16
+
+struct S07TFrame
+  {
+   ENUM_TIMEFRAMES tf;
+   string          name;
+   datetime        last_time;
+   int             n;
+   MqlRates        r[];
+   double          e21[],e55[],e100[],e200[],pdi[],mdi[],adx[],atr[];
+  };
+
+struct S07TLeg
+  {
+   ulong    ticket;
+   string   setup;
+   string   tfname;
+   int      dir;
+   bool     base;
+   double   entry;
+   double   risk;
+   double   mfe_r;
+   int      bars;
+   datetime last_bar;
+   datetime opened;
+   int      adds;
+   datetime last_leg;
+   double   stop;
+   bool     be_done;
+  };
+
+struct S07TContext
+  {
+   bool     valid;
+   datetime closed;
+   double   stop_ref;
+   bool     target_hit;
+   bool     used;
+  };
+
+CTrade     g_trade;
+int        g_too_small=0;               // entries skipped: the risk budget is below the minimum volume
+int        g_skip_chase=0;              // signals not taken: price ran > InpMaxChaseAtr past the signal close
+datetime   g_skip_time=0;               // last signal that did not become a trade (panel)
+string     g_skip_what="", g_skip_why="";
+double     g_initial_capital=0.0;
+int        g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
+
+// --- G91 News Guard (Market/News*.mqh rules for a SWING trade on XAUUSD: currencies "USD") --------------
+long   g_news_t[];
+string g_news_cur[];
+int    g_news_sec[];
+int    g_news_n=0;
+bool   g_news_loaded=false;
+
+bool NewsIgnored(const string name)
+  {
+   if(InpNewsIgnoreKeywords=="") return false;
+   string lowered=name; StringToLower(lowered);
+   string parts[];
+   const int n=StringSplit(InpNewsIgnoreKeywords,',',parts);
+   for(int i=0;i<n;i++)
+     {
+      string key=parts[i]; StringTrimLeft(key); StringTrimRight(key); StringToLower(key);
+      if(key!="" && StringFind(lowered,key)>=0) return true;
+     }
+   return false;
+  }
+
+void LoadNews()
+  {
+   g_news_n=0; g_news_loaded=false;
+   const int h=FileOpen("S07Tester_news.csv",FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) { Print("S07Tester: S07Tester_news.csv missing, News Guard off"); return; }
+   bool header=true;
+   while(!FileIsEnding(h))
+     {
+      string line=FileReadString(h);
+      if(header) { header=false; continue; }
+      string f[];
+      if(StringSplit(line,';',f)<4 || NewsIgnored(f[3])) continue;
+      ArrayResize(g_news_t,g_news_n+1,4096); ArrayResize(g_news_cur,g_news_n+1,4096); ArrayResize(g_news_sec,g_news_n+1,4096);
+      g_news_t[g_news_n]=StringToInteger(f[0]); g_news_cur[g_news_n]=f[1]; g_news_sec[g_news_n]=(int)StringToInteger(f[2]);
+      g_news_n++;
+     }
+   FileClose(h);
+   g_news_loaded=(g_news_n>0);
+   PrintFormat("S07Tester: %d HIGH news events loaded",g_news_n);
+  }
+
+int NewsFirstFrom(const long t)
+  {
+   int lo=0, hi=g_news_n;
+   while(lo<hi) { const int mid=(lo+hi)/2; if(g_news_t[mid]<t) lo=mid+1; else hi=mid; }
+   return lo;
+  }
+
+bool StrengthSector(const int sector)
+  {
+   return sector==(int)CALENDAR_SECTOR_MONEY || sector==(int)CALENDAR_SECTOR_PRICES ||
+          sector==(int)CALENDAR_SECTOR_JOBS || sector==(int)CALENDAR_SECTOR_GDP;
+  }
+
+// EEA_NewsMarketStable: spread <= 1.5x the M5 median and the last M5 range <= 2 ATR.
+bool MarketStable()
+  {
+   MqlRates r[];
+   ArraySetAsSeries(r,false);
+   const int n=CopyRates(_Symbol,PERIOD_M5,1,288,r);
+   if(n<20) return false;
+   double sp[];
+   ArrayResize(sp,n);
+   for(int i=0;i<n;i++) sp[i]=(double)r[i].spread;
+   ArraySort(sp);
+   const double median=sp[n/2];
+   const double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+   const double spread=(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/point;
+   double tr=0.0;
+   for(int i=n-14;i<n;i++) tr+=MathMax(r[i].high,r[i-1].close)-MathMin(r[i].low,r[i-1].close);
+   const double atr=tr/14.0;
+   return median>0.0 && spread<=1.5*median && atr>0.0 && (r[n-1].high-r[n-1].low)<=2.0*atr;
+  }
+
+// SWING entry block: direct (USD) PRE_NEWS .. POST_NEWS and NORMALIZING until stable; indirect (other major
+// currency, strength sector) from T-swing_block to T+post.
+bool NewsBlocked(const long now)
+  {
+   if(!InpNewsGuard || !g_news_loaded) return false;
+   const long from=now-(long)InpNewsMaxNormalizeMin*60;
+   bool normalizing=false;
+   for(int i=NewsFirstFrom(from);i<g_news_n && g_news_t[i]<=now+(long)InpNewsSwingBlockBeforeMin*60;i++)
+     {
+      const long t=g_news_t[i];
+      const bool in_window=(now>=t-(long)InpNewsSwingBlockBeforeMin*60 && now<t+(long)InpNewsPostMin*60);
+      if(g_news_cur[i]=="USD")
+        {
+         if(in_window) return true;
+         if(now>=t+(long)InpNewsPostMin*60 && now<t+(long)InpNewsMaxNormalizeMin*60) normalizing=true;
+        }
+      else if(in_window && StrengthSector(g_news_sec[i])) return true;
+     }
+   return normalizing && !MarketStable();
+  }
+
+bool NewsBreakEvenDue(const long now)
+  {
+   if(!InpNewsGuard || !g_news_loaded) return false;
+   for(int i=NewsFirstFrom(now-(long)InpNewsPostMin*60);i<g_news_n && g_news_t[i]<=now+(long)InpNewsBreakEvenBeforeMin*60;i++)
+      if(g_news_cur[i]=="USD" && now>=g_news_t[i]-(long)InpNewsBreakEvenBeforeMin*60 && now<g_news_t[i]+(long)InpNewsPostMin*60)
+         return true;
+   return false;
+  }
+
+// --- G91 sentiment (Market/Sentiment.mqh for gold, SWING) ---------------------------------------------------
+long   g_sent_t[];
+double g_sent_v[][6];          // a4, a24, ag4_buy, ag24_buy, ag4_sell, ag24_sell
+bool   g_sent_ok[];
+int    g_sent_n=0;
+
+#include "Tester/LiveFeeds.mqh"
+
+void LoadSentiment()
+  {
+   g_sent_n=0;
+   const int h=FileOpen("S07Tester_sentiment.csv",FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) { Print("S07Tester: S07Tester_sentiment.csv missing, sentiment off"); return; }
+   bool header=true;
+   while(!FileIsEnding(h))
+     {
+      string line=FileReadString(h);
+      if(header) { header=false; continue; }
+      string f[];
+      if(StringSplit(line,';',f)<8) continue;
+      ArrayResize(g_sent_t,g_sent_n+1,4096); ArrayResize(g_sent_v,g_sent_n+1,4096); ArrayResize(g_sent_ok,g_sent_n+1,4096);
+      g_sent_t[g_sent_n]=StringToInteger(f[0]); g_sent_ok[g_sent_n]=(f[1]=="1");
+      for(int k=0;k<6;k++) g_sent_v[g_sent_n][k]=StringToDouble(f[k+2]);
+      g_sent_n++;
+     }
+   FileClose(h);
+   PrintFormat("S07Tester: %d sentiment H1 bars loaded",g_sent_n);
+  }
+
+// Risk factor (1.0, 0.5) or 0 when a SWING entry is blocked (strongly against). Missing data is neutral.
+double SentimentFactor(const int dir,const long now)
+  {
+   if(!InpSentiment || g_sent_n==0) return 1.0;
+   if(InpSentimentNewsOnly && !LfNearHighNews(now)) return 1.0;   // away from HIGH news: open
+   int lo=0, hi=g_sent_n;
+   while(lo<hi) { const int mid=(lo+hi)/2; if(g_sent_t[mid]+3600<=now) lo=mid+1; else hi=mid; }
+   const int k=lo-1;
+   if(k<0 || !g_sent_ok[k] || now-g_sent_t[k]>6*3600) return 1.0;
+   const double a4=dir*g_sent_v[k][0], a24=dir*g_sent_v[k][1];
+   const double ag4=(dir==1 ? g_sent_v[k][2] : g_sent_v[k][4]), ag24=(dir==1 ? g_sent_v[k][3] : g_sent_v[k][5]);
+   if(a4<=-0.8 && a24<=-0.8 && ag4>=0.7 && ag24>=0.7) return 0.0;
+   if(a4<=-0.3 && a24<=-0.3) return 0.5;
+   return 1.0;
+  }
+
+// Median spread of the last 288 closed M5 bars in points (EEA_MedianSpreadPoints of the live EA).
+double MedianSpreadPoints()
+  {
+   MqlRates r[];
+   const int n=CopyRates(_Symbol,PERIOD_M5,1,288,r);
+   if(n<=0) return 0.0;
+   double v[];
+   ArrayResize(v,n);
+   int used=0;
+   for(int i=0;i<n;i++) if(r[i].spread>0) v[used++]=(double)r[i].spread;
+   if(used==0) return 0.0;
+   ArrayResize(v,used);
+   ArraySort(v);
+   return (used%2==1) ? v[used/2] : 0.5*(v[used/2-1]+v[used/2]);
+  }
+#define PNL_NEWS
+#include "Tester/TesterPanel.mqh"
+S07TFrame  g_m30, g_m15, g_h1, g_h4f, g_h4;   // g_h4: H4 EMA200 side only; g_h4f: H4 adds
+double     g_h4_ema[];
+S07TLeg    g_legs[S07T_MAX_LEGS];
+int        g_nlegs=0;
+S07TContext g_ctx[2];                  // [0] buy, [1] sell
+datetime   g_base_free[2];             // earliest time a new base may open per side
+datetime   g_early_bucket[2];          // M30 bucket of the last early entry per side
+datetime   g_last_entry_bar=0;
+
+int Side(const int dir) { return dir==1 ? 0 : 1; }
+
+void FrameInit(S07TFrame &f,const ENUM_TIMEFRAMES tf,const string name)
+  { f.tf=tf; f.name=name; f.last_time=0; f.n=0; }
+
+// Closed bars of a timeframe with the S07 indicators; true when a new bar closed since the last call.
+bool FrameRefresh(S07TFrame &f)
+  {
+   datetime t=iTime(_Symbol,f.tf,1);
+   if(t==0 || t==f.last_time) return false;
+   ArraySetAsSeries(f.r,false);
+   f.n=CopyRates(_Symbol,f.tf,1,S07T_HISTORY,f.r);
+   if(f.n<400) { f.n=0; return false; }
+   f.last_time=f.r[f.n-1].time;
+   EEA_S07Ema(f.r,f.n,21,f.e21); EEA_S07Ema(f.r,f.n,55,f.e55);
+   EEA_S07Ema(f.r,f.n,100,f.e100); EEA_S07Ema(f.r,f.n,200,f.e200);
+   EEA_S07Dmi(f.r,f.n,f.pdi,f.mdi,f.adx,f.atr);
+   return true;
+  }
+
+// Last completed H4 bar before the H4 bucket of `t` (server time): side of the H4 EMA200 and its value.
+int H4Side(const datetime t,double &ema)
+  {
+   ema=0.0;
+   if(g_h4.n<2*EEA_S07_H4_EMA) return 0;
+   const long bucket=(long)t-(long)t%14400;
+   int h=g_h4.n-1;
+   while(h>=0 && (long)g_h4.r[h].time>=bucket) h--;
+   if(h<EEA_S07_H4_EMA) return 0;
+   ema=g_h4_ema[h];
+   return g_h4.r[h].close>ema ? 1 : (g_h4.r[h].close<ema ? -1 : 0);
+  }
+
+bool RefreshH4()
+  {
+   datetime t=iTime(_Symbol,PERIOD_H4,1);
+   if(t==0 || t==g_h4.last_time) return false;
+   ArraySetAsSeries(g_h4.r,false);
+   g_h4.n=CopyRates(_Symbol,PERIOD_H4,1,S07T_H4_HISTORY,g_h4.r);
+   if(g_h4.n<2*EEA_S07_H4_EMA) { g_h4.n=0; return false; }
+   g_h4.last_time=g_h4.r[g_h4.n-1].time;
+   EEA_S07Ema(g_h4.r,g_h4.n,EEA_S07_H4_EMA,g_h4_ema);
+   return true;
+  }
+
+bool Ordered(const int dir,const double c,const double x21,const double x55,const double x100)
+  { return dir==1 ? (x21>x55 && x55>x100 && c>x21) : (x21<x55 && x55<x100 && c<x21); }
+
+// ---------------------------------------------------------------------------
+// legs
+// ---------------------------------------------------------------------------
+int BaseIndex(const int dir)
+  {
+   for(int i=0;i<g_nlegs;i++) if(g_legs[i].base && g_legs[i].dir==dir) return i;
+   return -1;
+  }
+
+int LegsOpen(const int dir)
+  {
+   int n=0;
+   for(int i=0;i<g_nlegs;i++) if(g_legs[i].dir==dir) n++;
+   return n;
+  }
+
+void RemoveLeg(const int k)
+  {
+   for(int i=k;i<g_nlegs-1;i++) g_legs[i]=g_legs[i+1];
+   g_nlegs--;
+  }
+
+void OnLegClosed(const int k)
+  {
+   const S07TLeg L=g_legs[k];
+   if(L.base)
+     {
+      const int s=Side(L.dir);
+      g_ctx[s].valid=true; g_ctx[s].closed=TimeCurrent(); g_ctx[s].stop_ref=L.stop;
+      g_ctx[s].target_hit=(L.mfe_r>=EEA_S07_TARGET_R-0.05); g_ctx[s].used=false;
+      g_base_free[s]=TimeCurrent()+InpBaseCooldownBars*PeriodSeconds(PERIOD_M30);
+     }
+   RemoveLeg(k);
+  }
+
+// Drop legs whose position is gone (stop or target at the broker).
+void SyncLegs()
+  {
+   for(int i=g_nlegs-1;i>=0;i--)
+      if(!PositionSelectByTicket(g_legs[i].ticket)) OnLegClosed(i);
+  }
+
+double VolumeFor(const int dir,const double entry,const double stop,const double weight)
+  {
+   const double equity=AccountInfoDouble(ACCOUNT_EQUITY);
+   const double basis=(InpRiskBase==S07T_RISK_BALANCE ? equity : MathMin(equity,g_initial_capital));
+   const double money=basis*InpRiskPercent/100.0*MathMax(0.0,MathMin(1.0,weight));
+   double loss=0.0;
+   if(!OrderCalcProfit(dir==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,_Symbol,1.0,entry,stop,loss) || loss>=0.0) return 0.0;
+   const double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   const double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN), vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   double v=MathFloor(money/(-loss)/step+1e-9)*step;
+   if(v<vmin)
+     {
+      // the risk budget buys less than the minimum volume (small or cent deposit, wide stop, or the tester's
+      // "profit in pips" mode, where OrderCalcProfit returns points instead of money)
+      g_too_small++;
+      if(g_too_small==1)
+         PrintFormat("%s: risk %.2f buys %.4f lots < minimum %.2f (stop %.2f away, loss per lot %.2f). "
+                     "Use a larger deposit, a higher risk %% or money profit (not pips) in the tester.",
+                     "S07Tester",money,money/(-loss),vmin,MathAbs(entry-stop),-loss);
+      return 0.0;
+     }
+   return MathMin(v,vmax);
+  }
+
+// One entry through the S07 gates. anchor = window extreme (no buffer); atr = signal ATR; sig_close = signal close.
+bool Skip(const string what,const string why)
+  {
+   g_skip_time=TimeCurrent(); g_skip_what=what; g_skip_why=why;
+   return false;
+  }
+
+bool TryEnter(const string setup,const string tfname,const int dir,const bool base,const double anchor,const double atr,
+              const double sig_close,const bool ordered)
+  {
+   if(atr<=0.0 || anchor<=0.0) return false;
+   const int s=Side(dir);
+   if(InpBlockOpposite && LegsOpen(-dir)>0) { g_block_opposite++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đang có lệnh chiều ngược"); }
+   if(NewsBlocked((long)TimeCurrent())) { g_block_news++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"News Guard đang chặn"); }
+   const double sent=SentimentFactor(dir,(long)TimeCurrent());
+   if(sent<=0.0) { g_block_sent++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"sentiment ngược mạnh"); }
+   if(LegsOpen(dir)>=EEA_S07_MAX_OPEN_LEGS) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đã đủ 3 lệnh cùng chiều");
+   const int b=BaseIndex(dir);
+   if(base)
+     {
+      if(b>=0) return false;                     // the base slot is taken: not a missed signal
+      if(setup!="S07R" && setup!="S07RS" && TimeCurrent()<g_base_free[s]) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"đang nghỉ sau lệnh gốc tới "+TimeToString(g_base_free[s],TIME_MINUTES));
+     }
+   else
+     {
+      if(b<0) return false;
+      if(g_legs[b].adds>=EEA_S07_MAX_ADDS) return false;
+      if((long)(TimeCurrent()-g_legs[b].last_leg)<EEA_S07_ADD_SPACING_SECONDS) return false;
+      const double now=(dir==1 ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
+      if(dir*(now-g_legs[b].entry)<=0.0) return false;
+     }
+   const double price=(dir==1 ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) : SymbolInfoDouble(_Symbol,SYMBOL_BID));
+   if(dir*(price-sig_close)>InpMaxChaseAtr*atr) { g_skip_chase++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("giá đã chạy %.2f ATR qua giá đóng tín hiệu (> %.2f), không đuổi",dir*(price-sig_close)/atr,InpMaxChaseAtr)); }
+   double stop=anchor-dir*EEA_S07_STOP_BUFFER_ATR*atr;
+   double dist=dir*(price-stop);
+   if(dist<=0.0 || dist>EEA_S07_STOP_MAX_ATR*atr) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("stop %.2f ATR ngoài khoảng 0–4 ATR",dist/atr));
+   if(dist<EEA_S07_STOP_MIN_ATR*atr) { dist=EEA_S07_STOP_MIN_ATR*atr; stop=price-dir*dist; }
+   if(InpSpreadFilter)
+     {
+      const double spread=SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      const double point=SymbolInfoDouble(_Symbol,SYMBOL_POINT);
+      const double median=MedianSpreadPoints();
+      if(median>0.0 && point>0.0 && spread/point>2.0*median) { g_block_spread++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"spread > 2 lần trung vị"); }
+      if(spread>0.25*dist) { g_block_spread++; return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),"spread > 25% khoảng stop"); }
+     }
+   const double target=price+dir*EEA_S07_TARGET_R*dist;
+   double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight)*sent;
+   if(sent<1.0) g_sent_reduced++;
+   const double vol=VolumeFor(dir,price,stop,weight);
+   if(vol<=0.0 || g_nlegs>=S07T_MAX_LEGS) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),vol<=0.0 ? "khối lượng dưới mức tối thiểu" : "hết chỗ lưu lệnh");
+   const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   bool ok=(dir==1 ? g_trade.Buy(vol,_Symbol,0.0,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),setup)
+                   : g_trade.Sell(vol,_Symbol,0.0,NormalizeDouble(stop,digits),NormalizeDouble(target,digits),setup));
+   if(!ok || g_trade.ResultRetcode()!=TRADE_RETCODE_DONE) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),StringFormat("broker từ chối (mã %u)",g_trade.ResultRetcode()));
+   ulong ticket=0;
+   const ulong deal=g_trade.ResultDeal();
+   if(deal>0 && HistoryDealSelect(deal)) ticket=(ulong)HistoryDealGetInteger(deal,DEAL_POSITION_ID);
+   if(ticket==0) ticket=g_trade.ResultOrder();
+   S07TLeg L;
+   L.ticket=ticket; L.setup=setup; L.tfname=tfname; L.dir=dir; L.base=base; L.entry=g_trade.ResultPrice();
+   if(L.entry<=0.0) L.entry=price;
+   L.risk=MathAbs(L.entry-stop); L.mfe_r=0.0; L.bars=0; L.last_bar=0; L.opened=TimeCurrent();
+   L.adds=0; L.last_leg=TimeCurrent(); L.stop=stop; L.be_done=false;
+   g_legs[g_nlegs++]=L;
+   if(!base) { g_legs[b].adds++; g_legs[b].last_leg=TimeCurrent(); }
+   if(base && (setup=="S07E" || setup=="S07ES")) g_early_bucket[s]=(datetime)((long)TimeCurrent()-(long)TimeCurrent()%1800);
+   if(InpVerbose) PrintFormat("%s %s %s vol %.2f entry %.2f stop %.2f target %.2f%s",setup,tfname,dir==1 ? "BUY" : "SELL",
+                              vol,L.entry,stop,target,ordered ? " RB3" : "");
+   return true;
+  }
+
+// ---------------------------------------------------------------------------
+// exits on the closed bars of each leg's timeframe
+// ---------------------------------------------------------------------------
+void ManageLegs(S07TFrame &f)
+  {
+   if(f.n==0) return;
+   for(int i=g_nlegs-1;i>=0;i--)
+     {
+      if(g_legs[i].tfname!=f.name) continue;
+      if(!PositionSelectByTicket(g_legs[i].ticket)) { OnLegClosed(i); continue; }
+      string reason="";
+      for(int b=1;b<f.n;b++)
+        {
+         if(f.r[b].time<=g_legs[i].last_bar) continue;
+         if((long)f.r[b].time+PeriodSeconds(f.tf)<=(long)g_legs[i].opened) continue;
+         g_legs[i].last_bar=f.r[b].time;
+         g_legs[i].bars++;
+         const int d=g_legs[i].dir;
+         const double fav=(d==1 ? f.r[b].high-g_legs[i].entry : g_legs[i].entry-f.r[b].low);
+         if(g_legs[i].risk>0.0) g_legs[i].mfe_r=MathMax(g_legs[i].mfe_r,fav/g_legs[i].risk);
+         const bool wide=(g_legs[i].mfe_r>=EEA_S07_TRAIL_SWITCH_R);
+         const double ema=(wide ? f.e100[b] : f.e55[b]);
+         if(reason=="" && d*(f.r[b].close-ema)<0.0) reason=(wide ? "EMA100" : "EMA55");
+         if(reason=="" && InpAdxExit && g_legs[i].base && f.adx[b-1]>=EEA_S07_ADX_EXHAUSTION && f.adx[b]<f.adx[b-1]) reason="ADX";
+         if(reason=="" && g_legs[i].bars>=EEA_S07HoldBars(f.name)) reason="TIME";
+        }
+      if(reason!="")
+        {
+         if(InpVerbose) PrintFormat("exit %s %s: %s",g_legs[i].setup,f.name,reason);
+         if(g_trade.PositionClose(g_legs[i].ticket)) OnLegClosed(i);
+        }
+     }
+  }
+
+// ---------------------------------------------------------------------------
+// signals
+// ---------------------------------------------------------------------------
+void BaseOnClose()
+  {
+   const int i=g_m30.n-1;
+   const int window=EEA_S07WindowBars("M30");
+   double h4e=0.0;
+   const int side=H4Side(g_m30.r[i].time,h4e);
+   const int d=EEA_S07SignalAt(g_m30.r,i,window,g_m30.e21,g_m30.e55,g_m30.e100,g_m30.e200,g_m30.pdi,g_m30.mdi,g_m30.adx,side);
+   if(d==0) return;
+   const long bucket=(long)g_m30.r[i].time;
+   if(g_early_bucket[Side(d)]==(datetime)bucket) return;          // the early engine already entered this bar
+   const bool ord=Ordered(d,g_m30.r[i].close,g_m30.e21[i],g_m30.e55[i],g_m30.e100[i]);
+   const double anchor=EEA_S07StopAnchor(g_m30.r,i,window,d);
+   if(d==1 && InpBuy) TryEnter("S07","M30",1,true,anchor,g_m30.atr[i],g_m30.r[i].close,ord);
+   if(d==-1 && InpSell && (!InpSellLocation || EEA_S07SellLocation(g_m30.r,i,window,h4e,g_m30.atr[i])))
+      TryEnter("S07S","M30",-1,true,anchor,g_m30.atr[i],g_m30.r[i].close,ord);
+  }
+
+void AddsOnClose(S07TFrame &f)
+  {
+   if(!InpAdds || f.n==0) return;
+   const int i=f.n-1;
+   const int window=TesterWindowBars(f.name);
+   double h4e=0.0;
+   const int side=H4Side(f.r[i].time,h4e);
+   const int d=EEA_S07SignalAt(f.r,i,window,f.e21,f.e55,f.e100,f.e200,f.pdi,f.mdi,f.adx,side);
+   if(d==1 && InpBuy) TryEnter("S07A",f.name,1,false,EEA_S07StopAnchor(f.r,i,window,1),f.atr[i],f.r[i].close,false);
+   if(d==-1 && InpSell) TryEnter("S07AS",f.name,-1,false,EEA_S07StopAnchor(f.r,i,window,-1),f.atr[i],f.r[i].close,false);
+  }
+
+// Early and re-entry engines on the closed entry bar inside the forming M30 bar.
+void EntryBarEngines()
+  {
+   if(g_m30.n<400) return;
+   const ENUM_TIMEFRAMES etf=(InpEntryTf==S07T_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
+   const long esec=PeriodSeconds(etf);
+   MqlRates sub[];
+   ArraySetAsSeries(sub,false);
+   const int ns=CopyRates(_Symbol,etf,1,(int)(1800/esec)+1,sub);
+   if(ns<1) return;
+   const int s=ns-1;
+   const long t=(long)sub[s].time;
+   const long bucket=t-t%1800;
+   if(t+esec>=bucket+1800) return;                       // the M30 bar closed: the base engine handles it
+   const int q=g_m30.n-1;
+   if((long)g_m30.r[q].time>=bucket || q<=EEA_S07WindowBars("M30")) return;
+   int u=s;
+   while(u>0 && (long)sub[u-1].time>=bucket) u--;
+   double fh=sub[u].high, fl=sub[u].low;
+   for(int k=u+1;k<=s;k++) { fh=MathMax(fh,sub[k].high); fl=MathMin(fl,sub[k].low); }
+   const double fc=sub[s].close;
+   double h4e=0.0;
+   const int side=H4Side((datetime)bucket,h4e);
+   const int window=EEA_S07WindowBars("M30");
+   double pp,mm,ts,x21,x55,x100,x200;
+   const bool state=EEA_S07ProvisionalState(g_m30.r,q,g_m30.e21,g_m30.e55,g_m30.e100,g_m30.e200,g_m30.pdi,g_m30.mdi,g_m30.atr,
+                                            fh,fl,fc,pp,mm,ts,x21,x55,x100,x200);
+   // early
+   if(InpEarly)
+     {
+      double atr_p=0.0, anchor=0.0;
+      const int d=EEA_S07ProvisionalSignal(g_m30.r,q,window,g_m30.e21,g_m30.e55,g_m30.e100,g_m30.e200,g_m30.pdi,g_m30.mdi,
+                                           g_m30.adx,g_m30.atr,bucket,sub[u].open,fh,fl,fc,side,atr_p,anchor);
+      if(d!=0 && g_early_bucket[Side(d)]!=(datetime)bucket)
+        {
+         bool loc=true;
+         if(d==-1 && InpSellLocation)
+           {
+            double top=fh;
+            for(int k=q-window+1;k<=q;k++) top=MathMax(top,g_m30.r[k].high);
+            loc=(h4e>0.0 && top>=h4e-EEA_S07_L2_ATR*atr_p);
+           }
+         const bool ord=state && Ordered(d,fc,x21,x55,x100);
+         if(d==1 && InpBuy) TryEnter("S07E","M30",1,true,anchor,atr_p,fc,ord);
+         if(d==-1 && InpSell && loc) TryEnter("S07ES","M30",-1,true,anchor,atr_p,fc,ord);
+        }
+     }
+   // re-entry
+   if(InpReentry && state)
+      for(int sd=0;sd<2;sd++)
+        {
+         const int dir=(sd==0 ? 1 : -1);
+         if((dir==1 && !InpBuy) || (dir==-1 && !InpSell)) continue;
+         S07TContext c=g_ctx[sd];
+         if(!c.valid || c.used || c.target_hit) continue;
+         if((long)TimeCurrent()-(long)c.closed>EEA_S07_REENTRY_SECONDS) continue;
+         const double hi=MathMax(MathMax(x21,x55),MathMax(x100,x200)), lo=MathMin(MathMin(x21,x55),MathMin(x100,x200));
+         const bool in_setup=(dir==1 ? (fc>hi && pp>mm) : (fc<lo && mm>pp)) && side==dir;
+         if(!in_setup) continue;
+         double ext=c.stop_ref;
+         for(int k=0;k<=s;k++) ext=(dir==1 ? MathMin(ext,sub[k].low) : MathMax(ext,sub[k].high));
+         if(TryEnter(dir==1 ? "S07R" : "S07RS","M30",dir,true,ext,ts,fc,Ordered(dir,fc,x21,x55,x100)))
+            g_ctx[sd].used=true;
+        }
+  }
+
+// News Guard D2: a leg in profit by >= InpNewsBreakEvenMinR moves its stop to break-even before a USD event.
+void NewsBreakEven()
+  {
+   if(!NewsBreakEvenDue((long)TimeCurrent())) return;
+   const double spread=SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   const int digits=(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS);
+   for(int i=0;i<g_nlegs;i++)
+     {
+      if(g_legs[i].be_done || g_legs[i].risk<=0.0 || !PositionSelectByTicket(g_legs[i].ticket)) continue;
+      const int d=g_legs[i].dir;
+      const double now=(d==1 ? SymbolInfoDouble(_Symbol,SYMBOL_BID) : SymbolInfoDouble(_Symbol,SYMBOL_ASK));
+      if(d*(now-g_legs[i].entry)/g_legs[i].risk<InpNewsBreakEvenMinR) continue;
+      const double be=NormalizeDouble(g_legs[i].entry+d*spread,digits);
+      const double sl=PositionGetDouble(POSITION_SL), tp=PositionGetDouble(POSITION_TP);
+      if(d*(be-sl)<=0.0) { g_legs[i].be_done=true; continue; }
+      if(g_trade.PositionModify(g_legs[i].ticket,be,tp)) { g_legs[i].be_done=true; g_news_be++; }
+     }
+  }
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// on-chart analysis panel (Tester/TesterPanel.mqh)
+// ---------------------------------------------------------------------------
+// One frame: compression -> expansion checklist of the S07 rule on its last closed bar (closed bars only, so it
+// does not move with the forming price), for the side allowed by the H4 EMA200 (want = 0 when unknown).
+void S07PanelFrame(S07TFrame &f,const int want,const string role,const bool default_open)
+  {
+   if(f.n<400) { PnlSection("f_"+f.name,StringFormat("%-4s %s: chưa đủ 400 nến",f.name,role),false); return; }
+   const int i=f.n-1, w=TesterWindowBars(f.name);
+   int k=i-w;
+   for(int j=i-w+1;j<i;j++) if(f.adx[j]<f.adx[k]) k=j;
+   const double gk=f.pdi[k]-f.mdi[k];
+   const bool comp=(f.adx[k]<=EEA_S07_ADX_LOW && MathAbs(gk)<=EEA_S07_DI_GAP);
+   const bool rise=(f.adx[i]>f.adx[i-1] && f.adx[i]-f.adx[k]<=EEA_S07_ADX_RISE);
+   const double gap=f.pdi[i]-f.mdi[i], gp=f.pdi[i-1]-f.mdi[i-1];
+   const double hi=MathMax(MathMax(f.e21[i],f.e55[i]),MathMax(f.e100[i],f.e200[i]));
+   const double lo=MathMin(MathMin(f.e21[i],f.e55[i]),MathMin(f.e100[i],f.e200[i]));
+   const double c=f.r[i].close;
+   const string where=(c>hi ? "TRÊN cả 4 EMA" : (c<lo ? "DƯỚI cả 4 EMA" : "trong dải EMA "+PnlPx(lo)+"–"+PnlPx(hi)));
+   const bool di_ok=(want==1 ? (gap>0.0 && gap>gp) : (want==-1 ? (gap<0.0 && gap<gp) : false));
+   const bool px_ok=(want==1 ? c>hi : (want==-1 ? c<lo : false));
+   const bool sig=(want!=0 && comp && rise && di_ok && px_ok);
+   const string summary=StringFormat("%-4s %s | nến đóng %s | nén %s bung %s DI %s giá %s%s",f.name,role,
+                                     PnlHm(f.r[i].time+PeriodSeconds(f.tf)),PnlMark(comp),PnlMark(rise),PnlMark(di_ok),PnlMark(px_ok),
+                                     sig ? "  => TÍN HIỆU "+PnlDir(want) : "");
+   if(!PnlSection("f_"+f.name,summary,default_open,sig ? PnlOkColor : clrNONE)) return;
+   PnlAdd(StringFormat("     %s Nén     : ADX đáy %.1f (≤20) | lệch DI lúc đó %.1f (≤6) | cửa sổ %d nến",PnlMark(comp),f.adx[k],MathAbs(gk),w));
+   PnlAdd(StringFormat("     %s ADX bung: %.1f → %.1f, tăng %.1f từ đáy (≤10)",PnlMark(rise),f.adx[i-1],f.adx[i],f.adx[i]-f.adx[k]));
+   PnlAdd(StringFormat("     %s DI      : DI+ %.1f  DI- %.1f  (cần %s và đang tách)",PnlMark(di_ok),f.pdi[i],f.mdi[i],
+                       want==1 ? "DI+ > DI-" : (want==-1 ? "DI- > DI+" : "—")));
+   PnlAdd(StringFormat("     %s Giá     : %s  (đóng %s)",PnlMark(px_ok),where,PnlPx(c)));
+  }
+
+void S07Panel()
+  {
+   if(!PnlActive()) return;
+   PnlBegin();
+   const double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   PnlHead(StringFormat("S07Tester  %s  %s (giờ server)  | rủi ro %.2f%% %s",_Symbol,PnlTime(TimeCurrent()),
+                        InpRiskPercent,InpRiskBase==S07T_RISK_BALANCE ? "lãi kép" : "trên vốn đầu"));
+   double h4e=0.0;
+   const int side=H4Side(TimeCurrent(),h4e);
+   int want=side;
+   if(side==1 && !InpBuy) want=0;
+   if(side==-1 && !InpSell) want=0;
+   if(side==0)
+      PnlWarn("H4 EMA200 : chưa đủ dữ liệu H4 → chưa xét lệnh");
+   else
+     {
+      string l2="";
+      if(want==-1 && InpSellLocation && g_m30.n>=400)
+        {
+         const int i=g_m30.n-1;
+         l2=" | vị trí L2 "+PnlMark(EEA_S07SellLocation(g_m30.r,i,EEA_S07WindowBars("M30"),h4e,g_m30.atr[i]));
+        }
+      PnlAdd(StringFormat("H4 EMA200 : giá %s %s EMA200 H4 %s → chỉ xét %s%s%s",PnlPx(bid),side==1 ? "TRÊN" : "DƯỚI",PnlPx(h4e),
+                          PnlDir(side),want==0 ? " (chiều này đang TẮT)" : "",l2),side==1 ? PnlOkColor : PnlWarnColor);
+     }
+   S07PanelFrame(g_m30,want,"lệnh gốc",true);
+   if(InpAdds)
+     {
+      S07PanelFrame(g_m15,want,"bồi",false);
+      S07PanelFrame(g_h1,want,"bồi",false);
+      S07PanelFrame(g_h4f,want,"bồi",false);
+     }
+   // memory: re-entry window and base cool-down
+   for(int s=0;s<2;s++)
+     {
+      const int d=(s==0 ? 1 : -1);
+      if(g_ctx[s].valid && !g_ctx[s].used && !g_ctx[s].target_hit && (long)TimeCurrent()-(long)g_ctx[s].closed<=EEA_S07_REENTRY_SECONDS && InpReentry)
+         PnlAdd(StringFormat("Vào lại %s : còn hiệu lực tới %s",PnlDir(d),PnlHm((datetime)((long)g_ctx[s].closed+EEA_S07_REENTRY_SECONDS))));
+      if(TimeCurrent()<g_base_free[s])
+         PnlAdd(StringFormat("Nghỉ %s   : chưa mở lệnh gốc mới tới %s",PnlDir(d),PnlHm(g_base_free[s])));
+     }
+   // the last signal that did not become a trade, with the reason (the decision is not recomputed afterwards)
+   if(g_skip_time>0)
+      PnlAdd(StringFormat("Bỏ gần nhất: %s lúc %s — %s",g_skip_what,PnlHm(g_skip_time),g_skip_why),PnlWarnColor);
+   if(g_nlegs==0) PnlAdd("Lệnh mở    : không có");
+   for(int i=0;i<g_nlegs;i++)
+     {
+      const S07TLeg L=g_legs[i];
+      const double px=(L.dir==1 ? bid : ask);
+      const double rnow=(L.risk>0.0 ? L.dir*(px-L.entry)/L.risk : 0.0);
+      const bool wide=(L.mfe_r>=EEA_S07_TRAIL_SWITCH_R);
+      double ema=0.0;
+      if(L.tfname=="M30" && g_m30.n>0) ema=(wide ? g_m30.e100[g_m30.n-1] : g_m30.e55[g_m30.n-1]);
+      if(L.tfname=="M15" && g_m15.n>0) ema=(wide ? g_m15.e100[g_m15.n-1] : g_m15.e55[g_m15.n-1]);
+      if(L.tfname=="H1"  && g_h1.n>0)  ema=(wide ? g_h1.e100[g_h1.n-1] : g_h1.e55[g_h1.n-1]);
+      if(L.tfname=="H4"  && g_h4f.n>0) ema=(wide ? g_h4f.e100[g_h4f.n-1] : g_h4f.e55[g_h4f.n-1]);
+      if(PnlSection("leg_"+IntegerToString((long)L.ticket),
+                    StringFormat("Lệnh %s %s %s: vào %s, stop %s, đang %s",L.setup,L.tfname,PnlDir(L.dir),PnlPx(L.entry),PnlPx(L.stop),PnlR(rnow)),
+                    L.base,rnow>=0.0 ? PnlOkColor : PnlWarnColor))
+         PnlAdd(StringFormat("     tốt nhất %s%s | thoát khi nến %s đóng %s EMA%s %s%s; TP 8R",PnlR(L.mfe_r),
+                             L.base ? StringFormat(", bồi %d/2",L.adds) : "",L.tfname,L.dir==1 ? "dưới" : "trên",wide ? "100" : "55",
+                             PnlPx(ema),L.base && InpAdxExit ? " hoặc ADX ≥ 50 quay đầu" : ""));
+     }
+   PnlNewsSection(StringFormat("chiều ngược %d | spread %d | tin %d | sentiment %d | giá chạy xa %d | khối lượng < tối thiểu %d",
+                               g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_skip_chase,g_too_small));
+   PnlFlush();
+  }
+
+int OnInit()
+  {
+   FrameInit(g_m30,PERIOD_M30,"M30"); FrameInit(g_m15,PERIOD_M15,"M15");
+   FrameInit(g_h1,PERIOD_H1,"H1"); FrameInit(g_h4f,PERIOD_H4,"H4"); FrameInit(g_h4,PERIOD_H4,"H4");
+   g_trade.SetExpertMagicNumber(InpMagic);
+   g_trade.SetTypeFillingBySymbol(_Symbol);    // FOK / IOC / RETURN as the broker allows (cent accounts often refuse FOK)
+   g_initial_capital=AccountInfoDouble(ACCOUNT_BALANCE);
+   LoadNews();
+   LoadSentiment();
+   LfInit();                                   // live chart: MT5 calendar + live sentiment
+   g_trade.SetDeviationInPoints(20);
+   for(int s=0;s<2;s++) { g_ctx[s].valid=false; g_base_free[s]=0; g_early_bucket[s]=0; }
+   g_nlegs=0;
+   return INIT_SUCCEEDED;
+  }
+
+void OnTick()
+  {
+   LfRefresh();
+   const ENUM_TIMEFRAMES etf=(InpEntryTf==S07T_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
+   const datetime eb=iTime(_Symbol,etf,1);
+   if(eb==0 || eb==g_last_entry_bar) return;
+   g_last_entry_bar=eb;
+   SyncLegs();
+   NewsBreakEven();
+   RefreshH4();
+   if(FrameRefresh(g_m30)) { ManageLegs(g_m30); BaseOnClose(); }
+   if(FrameRefresh(g_m15)) { ManageLegs(g_m15); AddsOnClose(g_m15); }
+   if(FrameRefresh(g_h1))  { ManageLegs(g_h1);  AddsOnClose(g_h1); }
+   if(FrameRefresh(g_h4f)) { ManageLegs(g_h4f); AddsOnClose(g_h4f); }
+   EntryBarEngines();
+   if(InpPanel) S07Panel();
+  }
+
+void OnDeinit(const int reason)
+  {
+   PnlClear();
+   if(g_too_small>0) PrintFormat("S07Tester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
+   PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
+               g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
+  }
+
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK && PnlOnClick(sparam) && InpPanel) S07Panel();
+  }

@@ -14,11 +14,11 @@ class ShellTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_inputs_default_off(self):
-        self.assertIn("input bool   InpDrillEntry              = false;", self.shell)
-        self.assertIn('input string InpDrillNonce              = "";', self.shell)
-        self.assertIn('input string InpDrillSymbol             = "EURUSD";', self.shell)
+        self.assertIn("EEA_HIDDEN bool InpDrillEntry              = false;", self.shell)
+        self.assertIn('EEA_HIDDEN string InpDrillNonce              = "";', self.shell)
+        self.assertIn('EEA_HIDDEN string InpDrillSymbol             = "EURUSD";', self.shell)
         self.assertIn("enum EEA_DrillDirectionInput { DRILL_BUY=0, DRILL_SELL=1 };", self.shell)
-        self.assertIn("input EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY;", self.shell)
+        self.assertIn("EEA_HIDDEN EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY;", self.shell)
         self.assertIn("g_drill_enabled=InpDrillEntry;", self.shell)
         self.assertIn("g_drill_nonce=InpDrillNonce;", self.shell)
         self.assertIn('#include "Integration/DrillRuntime.mqh"', self.shell)

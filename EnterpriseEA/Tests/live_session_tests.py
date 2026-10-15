@@ -94,7 +94,11 @@ class LiveSessionIntegrationTests(unittest.TestCase):
 
     def test_panel_requires_two_clicks_to_sign_and_one_to_revoke(self):
         panel = read("Runtime/SymbolSelectionPanel.mqh")
-        self.assertIn("GetTickCount()-g_panel_state.session_confirm_tick<10000", panel)
+        self.assertIn("GetTickCount()-g_panel_state.session_confirm_tick<60000", panel)
+        # Accept signs only a duration chosen first (one click to choose, one to accept).
+        accept = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_SessionAccept"', 1)[1].split("Btn_SessionRevoke", 1)[0]
+        self.assertIn('if(chosen!="") { g_panel_state.session_request=chosen;', accept)
+        self.assertIn('"Choose 24h or 7 days first"', accept)
         handler = panel.split('sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Session24h" ||', 1)[1].split("Btn_Apply", 1)[0]
         self.assertIn("if(EEA_SymbolPanelSessionConfirming(action))", handler)
         self.assertIn('g_panel_state.session_request="REVOKE"', handler)
@@ -112,7 +116,7 @@ class InternalLossLimitTests(unittest.TestCase):
             self.assertIn(token, room)
         plan = section(live, "bool EEA_ControlledLiveResolveV1Plan")
         self.assertIn("EEA_ControlledLiveInternalLossRoom(observer,ledger,policy.committed_policy,limits,loss_room,reason)", plan)
-        self.assertIn("MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room)", plan)   # G44 weight <= 1
+        self.assertIn("MathMin(limits.per_trade_fraction*weight*capital,loss_room)", plan)   # G44 weight <= 1
 
     def test_open_stop_risk_is_subtracted_in_both_rooms_and_add_path_shares_it(self):
         live = read("Integration/ControlledLiveRuntime.mqh")

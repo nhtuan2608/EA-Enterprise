@@ -105,7 +105,7 @@ class SourceTests(unittest.TestCase):
         self.assertIn('#include "../Setups/FailedBreak.mqh"', self.rt)
         self.assertIn("EEA_S04ProcessClosedBarZone(engine,bar", self.rt)
         self.assertIn('"_s04"', self.rt)                    # own checkpoint (TC-S04-08)
-        self.assertIn("#define EEA_STRATEGY_RUNTIME_MAX_ENGINES 128", self.rt)
+        self.assertIn("#define EEA_STRATEGY_RUNTIME_MAX_ENGINES 256", self.rt)
 
     def test_tc_s04_07_opposite_setup_blocks(self):
         self.assertIn('"OPPOSITE_SETUP_ACTIVE"', self.cl)

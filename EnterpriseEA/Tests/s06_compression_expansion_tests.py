@@ -148,7 +148,7 @@ class SourceTests(unittest.TestCase):
         self.assertIn('setup=="S06" ? "/logs/s06_shadow.jsonl"', self.live)
 
     def test_input_and_dry_run_gate(self):
-        self.assertIn("input EEA_S06ModeInput InpS06Mode       = S06_SHADOW;", self.shell)
+        self.assertIn("EEA_HIDDEN EEA_S06ModeInput InpS06Mode       = EEA_ED(S06_SHADOW,S06_OFF);", self.shell)
         self.assertIn("(int)InpS02Mode,(int)InpS06Mode,(int)InpS06BMode,(int)InpScalpMode,", self.shell)
         gate = (ROOT / "Integration/DryRunCandidateGate.mqh").read_text(encoding="utf-8")
         self.assertIn('i.candidate.setup_id!="S06"', gate)

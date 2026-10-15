@@ -118,7 +118,7 @@ class UsdFlowSourceTests(unittest.TestCase):
         self.assertIn('+e.usd_json+', ledger)
 
     def test_shell(self):
-        self.assertIn("input bool InpS06BRequireUsdFlow        = true;", self.shell)
+        self.assertIn("EEA_HIDDEN bool InpS06BRequireUsdFlow        = true;", self.shell)
         self.assertIn("g_s06b_require_usd_flow=InpS06BRequireUsdFlow;", self.shell)
         upd = self.shell.index("EEA_UsdFlowUpdateFromObserver(g_usd_flow,g_runtime);")
         self.assertLess(upd, self.shell.index("EEA_S04ShadowOnTimer(g_live_runtime,"))

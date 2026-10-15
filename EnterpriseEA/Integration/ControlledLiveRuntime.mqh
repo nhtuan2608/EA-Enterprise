@@ -296,12 +296,20 @@ void EEA_ControlledLivePlanDefaults(EEA_ControlledLiveTradePlan &p)
 #define EEA_S02_ENTRY_STOP_ABOVE_TRIGGER 2
 
 // G40: a POSITION engine (T2) follows the SWING rules for news, sentiment, session quota and costs.
-string EEA_RiskProfileOf(const string profile) { return profile=="POSITION" ? "SWING" : profile; }
+// G72: a TREND engine (S07) follows them too.
+string EEA_RiskProfileOf(const string profile) { return (profile=="POSITION" || profile=="TREND") ? "SWING" : profile; }
+
+// Bar timeframe of an engine or a managed trade (M5, M15, M30, H1, H4).
+ENUM_TIMEFRAMES EEA_ControlledLivePeriod(const string timeframe)
+  {
+   return timeframe=="H1" ? PERIOD_H1 : timeframe=="H4" ? PERIOD_H4 : timeframe=="M15" ? PERIOD_M15 :
+          timeframe=="M30" ? PERIOD_M30 : PERIOD_M5;
+  }
 
 bool EEA_ControlledLiveTriggerBar(const string broker_symbol,const string timeframe,const datetime bar_time,
                                   MqlRates &bar)
   {
-   ENUM_TIMEFRAMES tf=(timeframe=="H1" ? PERIOD_H1 : timeframe=="H4" ? PERIOD_H4 : PERIOD_M5);
+   ENUM_TIMEFRAMES tf=EEA_ControlledLivePeriod(timeframe);
    int shift=iBarShift(broker_symbol,tf,bar_time,true);
    if(shift<0) return false;
    MqlRates rates[];
@@ -349,7 +357,10 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
      }
    if(engine.state!=EEA_S02_TRIGGERED) { reason="ENTRY_AUTO_NOT_READY"; return -1; }
    MqlRates trigger;
-   if(!EEA_ControlledLiveTriggerBar(broker_symbol,engine.timeframe,engine.candidate.triggered_at_utc,trigger))
+   // G87: S07E / S07R trigger on a closed M15 bar inside the forming M30 bar.
+   const string trigger_tf=(EEA_S07IsEarlySetup(strategy.setup[index]) || EEA_S07IsReentrySetup(strategy.setup[index])) ?
+                           EEA_S07EntryTfName() : engine.timeframe;
+   if(!EEA_ControlledLiveTriggerBar(broker_symbol,trigger_tf,engine.candidate.triggered_at_utc,trigger))
      { reason="ENTRY_AUTO_TRIGGER_BAR_UNAVAILABLE"; return -1; }
    // S06 enters at market after the confirmation close (research), only while price is
    // still outside the box and has not run more than the chase limit past that close.
@@ -359,6 +370,13 @@ int EEA_S02SelectEntryMode(const EEA_StrategyCandidateRuntime &strategy,const in
       if(direction*(price-engine.key_level)<=0.0) { reason="ENTRY_AUTO_T2_BACK_INSIDE_CHANNEL"; return -1; }
       if(direction*(price-trigger.close)>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
       reason="ENTRY_AUTO_MARKET_T2_BREAKOUT";
+      return EEA_S02_ENTRY_MARKET;
+     }
+   // G72 S07: market at the next open after the signal close (research), within the chase limit.
+   if(EEA_StrategyRuntimeIsS07(strategy.setup[index]))
+     {
+      if(direction*(price-trigger.close)>EEA_S02_AUTO_MAX_CHASE_ATR*atr) { reason="ENTRY_AUTO_CHASE_TOO_FAR"; return -1; }
+      reason="ENTRY_AUTO_MARKET_S07";
       return EEA_S02_ENTRY_MARKET;
      }
    if(strategy.setup[index]=="S06" || strategy.setup[index]=="S06B")
@@ -496,7 +514,7 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    double entry=(direction==1 ? tick.ask : tick.bid);
    double spread_price=tick.ask-tick.bid;
    EEA_S02Config profile_config=strategy.profile_config[index];
-   long tf_seconds=PeriodSeconds(engine.timeframe=="H1" ? PERIOD_H1 : PERIOD_M5);
+   long tf_seconds=PeriodSeconds(EEA_ControlledLivePeriod(engine.timeframe));
    double invalidation=engine.candidate.retest_extreme>0.0 ? engine.candidate.retest_extreme : engine.retest_extreme;
    if(limit_mode)
      {
@@ -525,13 +543,26 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    if(limit_mode || stop_mode) p.entry_price=entry;
    if(invalidation<=0.0 || (direction==1 && invalidation>=entry) || (direction==-1 && invalidation<=entry))
      { reason="LIVE_STRUCTURE_INVALIDATION_INVALID"; return false; }
-   double buffer=MathMax(0.10*engine.signal_atr,1.5*spread_price);
+   const bool s07=EEA_StrategyRuntimeIsS07(strategy.setup[index]);
+   // G72 S07: the research stop is the window extreme minus 0.1 ATR (the entry already pays the spread).
+   double buffer=s07 ? EEA_S07_STOP_BUFFER_ATR*engine.signal_atr : MathMax(0.10*engine.signal_atr,1.5*spread_price);
    if(buffer<=0.0) { reason="LIVE_STOP_BUFFER_INVALID"; return false; }
    // G38 T2: the stop is EEA_T2_STOP_ATR x ATR from the signal close (research), so the buffer is
    // taken inside the invalidation and the stop lands on the anchor.
    if(strategy.setup[index]=="T2") invalidation+=direction*buffer;
    double stop=(direction==1 ? invalidation-buffer : invalidation+buffer);
    double risk_distance=MathAbs(entry-stop);
+   if(s07)
+     {
+      // Research: a stop further than 4 ATR skips the signal; one closer than 1 ATR is widened to 1 ATR.
+      if(risk_distance>EEA_S07_STOP_MAX_ATR*engine.signal_atr) { reason="S07_STOP_TOO_WIDE"; return false; }
+      if(risk_distance<EEA_S07_STOP_MIN_ATR*engine.signal_atr)
+        {
+         stop=entry-direction*EEA_S07_STOP_MIN_ATR*engine.signal_atr;
+         invalidation=stop+direction*buffer;
+         risk_distance=MathAbs(entry-stop);
+        }
+     }
 
    double target=0.0;
    const bool s06=(strategy.setup[index]=="S06" || strategy.setup[index]=="S06B");
@@ -550,6 +581,11 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
          if(usd==0) { reason="S06B_USD_FLOW_UNKNOWN"; return false; }
         }
       target=entry+direction*EEA_S06_TARGET_R*risk_distance;
+     }
+   else if(s07)
+     {
+      // G72 S07: far 8R target at the broker; the Trade Manager exits on the EMA55 / EMA100 close.
+      target=entry+direction*EEA_S07_TARGET_R*risk_distance;
      }
    else if(strategy.setup[index]=="T2")
      {
@@ -596,10 +632,14 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.equity_at_daily_reset=EEA_LedgerDailyReference(ledger,policy.committed_policy);
    p.daily_reset_at_utc=(datetime)ledger.last_reset_utc;
    p.prior_overall_high_water_balance=MathMax(ledger.high_water_balance,ledger.initial_capital);
-   const double weight=EEA_SetupRiskWeight(strategy.setup[index]);
+   double weight=EEA_SetupRiskWeight(strategy.setup[index]);
+   // G87: an S07-family base without the ordered-ribbon label ("_RB3") takes the reduced weight.
+   if(EEA_S07IsBaseSetup(strategy.setup[index]) && StringFind(engine.candidate.reason_code,"_RB3")<0)
+      weight*=MathMax(0.0,MathMin(1.0,g_s07_unordered_weight));
    p.base_risk_fraction=limits.per_trade_fraction*htf*weight;
-   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*ledger.initial_capital,loss_room);
-   p.portfolio_cap_money=limits.total_open_fraction*ledger.initial_capital;
+   const double capital=EEA_RiskCapitalBasis(ledger.initial_capital,observer.account.equity);   // G91
+   p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*capital,loss_room);
+   p.portfolio_cap_money=limits.total_open_fraction*capital;
    p.portfolio_cap_includes_existing=true;
    p.invalidation_price=invalidation;
    p.target_price=target;
@@ -609,8 +649,14 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    p.minimum_net_rr=swing ? 2.0 : 1.5;
    p.cost_per_lot_money=cost;
    p.cost_estimated=!learned;
-   p.currency_cap_money=limits.currency_exposure_fraction*ledger.initial_capital;
+   p.currency_cap_money=limits.currency_exposure_fraction*capital;
    p.max_correlated_trades=limits.max_correlated_trades;
+   if(s07)
+     {
+      // G72 D3: up to EEA_S07_MAX_OPEN_LEGS S07 trades on one symbol (base + adds) at the full risk each.
+      p.currency_cap_money=MathMax(p.currency_cap_money,EEA_S07_MAX_OPEN_LEGS*limits.per_trade_fraction*weight*capital);
+      p.max_correlated_trades=MathMax(p.max_correlated_trades,EEA_S07_MAX_OPEN_LEGS);
+     }
    p.min_margin_level_percent=limits.min_margin_level_percent;
    p.htf_risk_modifier=htf;
    if(p.base_risk_fraction<=0.0) { reason="LIVE_RISK_REDUCED_TO_ZERO"; return false; }
@@ -998,6 +1044,73 @@ bool EEA_ControlledLiveSameSideActive(const EEA_TradeManagerRuntime &trades,cons
    return false;
   }
 
+// G72 S07: open S07 legs (base and adds) of a symbol and side, and the active base trade.
+int EEA_S07OpenLegs(const EEA_TradeManagerRuntime &trades,const string canonical,const int direction)
+  {
+   int n=0;
+   for(int i=0;i<trades.count;i++)
+      if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical && trades.items[i].direction==direction &&
+         (EEA_S07IsBaseSetup(trades.items[i].intent.setup_id) || EEA_S07IsAddSetup(trades.items[i].intent.setup_id))) n++;
+   return n;
+  }
+
+int EEA_S07BaseIndex(const EEA_TradeManagerRuntime &trades,const string canonical,const int direction)
+  {
+   for(int i=0;i<trades.count;i++)
+      if(trades.items[i].active && trades.items[i].intent.canonical_symbol==canonical &&
+         trades.items[i].direction==direction && EEA_S07IsBaseSetup(trades.items[i].intent.setup_id)) return i;
+   return -1;
+  }
+
+// The add counter of a base trade, kept in ManagedTrade.add_candidate as "S07A:<count>:<last entry utc>".
+void EEA_S07AddState(const EEA_ManagedTrade &base,int &count,long &last_utc)
+  {
+   count=0; last_utc=base.opened_at_utc>0 ? base.opened_at_utc : base.registered_at_utc;
+   string parts[];
+   if(StringSplit(base.add_candidate,':',parts)==3 && parts[0]=="S07A")
+     { count=(int)StringToInteger(parts[1]); last_utc=MathMax(last_utc,StringToInteger(parts[2])); }
+  }
+
+// G72 S07 entry gates (research G70, option B):
+//   base S07: no other S07 base open on the symbol and side, fewer than EEA_S07_MAX_OPEN_LEGS legs open;
+//   add S07A: an open S07 base in profit now, fewer than EEA_S07_MAX_ADDS adds for that base, at least
+//   EEA_S07_ADD_SPACING_SECONDS after the previous leg, fewer than EEA_S07_MAX_OPEN_LEGS legs open.
+bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setup,const string canonical,
+                         const string broker_symbol,const int direction,string &reason)
+  {
+   if(EEA_S07OpenLegs(trades,canonical,direction)>=EEA_S07_MAX_OPEN_LEGS) { reason="S07_MAX_OPEN_LEGS"; return false; }
+   const int b=EEA_S07BaseIndex(trades,canonical,direction);
+   if(EEA_S07IsBaseSetup(setup))       // G87: S07, S07E and S07R share the base slot; the first trigger enters
+     {
+      if(b>=0) { reason="S07_BASE_ALREADY_OPEN"; return false; }
+      reason="S07_BASE_ALLOWED";
+      return true;
+     }
+   if(b<0 || trades.items[b].position_id=="") { reason="S07A_NO_OPEN_BASE"; return false; }
+   const EEA_ManagedTrade base=trades.items[b];
+   if(base.exit_request!="") { reason="S07A_BASE_EXITING"; return false; }
+   int count=0; long last=0;
+   EEA_S07AddState(base,count,last);
+   if(count>=EEA_S07_MAX_ADDS) { reason="S07A_MAX_ADDS"; return false; }
+   if((long)TimeGMT()-last<EEA_S07_ADD_SPACING_SECONDS) { reason="S07A_TOO_CLOSE_TO_PREVIOUS_LEG"; return false; }
+   MqlTick tick; ZeroMemory(tick);
+   if(!SymbolInfoTick(broker_symbol,tick) || tick.bid<=0.0 || tick.ask<=0.0) { reason="S07A_QUOTE_UNAVAILABLE"; return false; }
+   const double now=(direction==1 ? tick.bid : tick.ask);
+   if(direction*(now-base.entry_price)<=0.0) { reason="S07A_BASE_NOT_IN_PROFIT"; return false; }
+   reason="S07A_ADD_ALLOWED";
+   return true;
+  }
+
+void EEA_S07RecordAdd(EEA_TradeManagerRuntime &trades,const string root,const string canonical,const int direction)
+  {
+   const int b=EEA_S07BaseIndex(trades,canonical,direction);
+   if(b<0) return;
+   int count=0; long last=0;
+   EEA_S07AddState(trades.items[b],count,last);
+   trades.items[b].add_candidate="S07A:"+IntegerToString(count+1)+":"+IntegerToString((long)TimeGMT());
+   EEA_TradeManagerWrite(root,trades.items[b]);
+  }
+
 // G18 A4: a SCALP entry stacked on a same-side SWING of the same symbol takes reduced risk.
 bool EEA_ControlledLiveApplyStackRisk(const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,
                                       const EEA_StrategyCandidateRuntime &strategy,const int index,
@@ -1087,6 +1200,14 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
       event.details_json=details;
       audit.Append(event,"EA_"+setup+"_SHADOW");
       EEA_WriteAtomicAppendText(observer.root+(setup=="T2" ? "/logs/t2_shadow.jsonl" :
+                                               setup=="S07" ? "/logs/s07_shadow.jsonl" :
+                                               setup=="S07A" ? "/logs/s07a_shadow.jsonl" :
+                                               setup=="S07S" ? "/logs/s07s_shadow.jsonl" :
+                                               setup=="S07E" ? "/logs/s07e_shadow.jsonl" :
+                                               setup=="S07R" ? "/logs/s07r_shadow.jsonl" :
+                                               setup=="S07ES" ? "/logs/s07es_shadow.jsonl" :
+                                               setup=="S07RS" ? "/logs/s07rs_shadow.jsonl" :
+                                               setup=="S07AS" ? "/logs/s07as_shadow.jsonl" :
                                                setup=="S04" ? "/logs/s04_shadow.jsonl" :
                                                setup=="S06" ? "/logs/s06_shadow.jsonl" :
                                                setup=="S06B" ? "/logs/s06b_shadow.jsonl" : "/logs/s02_shadow.jsonl"),
@@ -1155,7 +1276,15 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(strategy.zone_mode &&
          EEA_ControlledLiveOppositeActive(trades,pending,strategy.engines[i].canonical_symbol,strategy.engines[i].direction))
         { state.last_reason="OPPOSITE_SETUP_ACTIVE"; continue; }
-      if(strategy.zone_mode &&
+      if(EEA_StrategyRuntimeIsS07(strategy.setup[i]))
+        {
+         // G72: S07 legs stack by their own rule (one base, up to two adds, three legs open).
+         string gate;
+         if(!EEA_S07EntryAllowed(trades,strategy.setup[i],strategy.engines[i].canonical_symbol,observer.broker_symbols[row],
+                                 strategy.engines[i].direction,gate))
+           { state.last_reason=gate; continue; }
+        }
+      else if(strategy.zone_mode &&
          EEA_ControlledLiveSameSideActive(trades,pending,strategy.engines[i].canonical_symbol,
                                           strategy.engines[i].direction,strategy.profile[i]))
         { state.last_reason="DUPLICATE_SAME_SIDE"; continue; }
@@ -1346,6 +1475,8 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                                      strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_low,     // G40: T2 has no
                                      strategy.setup[i]=="T2" ? 0.0 : strategy.engines[i].zone_high,    // structure exit
                                      authorization_path,manage_reason);
+         if(EEA_S07IsAddSetup(strategy.setup[i]))
+            EEA_S07RecordAdd(trades,observer.root,strategy.engines[i].canonical_symbol,strategy.engines[i].direction);
          if(session_mode && !EEA_LiveSessionRecordEntry(session,observer.root,day_reset,entry_profile))
             session.reason="LIVE_SESSION_USAGE_PERSISTENCE_FAILED";
          state.recovery_result=result;

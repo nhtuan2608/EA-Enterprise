@@ -48,7 +48,7 @@ class LivePathTests(unittest.TestCase):
         self.timer = section(self.live, "bool EEA_ControlledLiveOnTimer(")
 
     def test_position_follows_swing_rules(self):
-        self.assertIn('string EEA_RiskProfileOf(const string profile) { return profile=="POSITION" ? "SWING" : profile; }', self.live)
+        self.assertIn('string EEA_RiskProfileOf(const string profile) { return (profile=="POSITION" || profile=="TREND") ? "SWING" : profile; }', self.live)
         self.assertIn('news_profile=(strategy.zone_mode ? EEA_RiskProfileOf(strategy.profile[i]) : "SCALP");', self.timer)
         self.assertIn('entry_profile=(strategy.zone_mode ? EEA_RiskProfileOf(strategy.profile[i]) : "SCALP");', self.timer)
         sent = section(self.live, "bool EEA_ControlledLiveApplySentiment(")
@@ -83,8 +83,8 @@ class LiveSymbolsTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_default_list_and_wiring(self):
-        self.assertIn('input string InpT2LiveSymbols           = "XAUUSD,BTCUSD";', self.shell)
-        init = self.shell.index("(int)InpT2Mode,InpT2OnlySymbols);")
+        self.assertIn('EEA_HIDDEN string InpT2LiveSymbols           = EEA_ED("XAUUSD,BTCUSD","");', self.shell)
+        init = self.shell.index("(int)InpT2Mode,InpT2OnlySymbols,")
         self.assertLess(init, self.shell.index("g_strategy_runtime.t2_live_symbols=InpT2LiveSymbols;"))
 
     def test_engine_mode_caps_unlisted_symbols(self):

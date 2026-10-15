@@ -73,7 +73,7 @@ class PureTests(unittest.TestCase):
 
     def test_t2_only_symbols_match_the_ea_default_and_run_t2_alone(self):
         shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
-        line = shell.split("input string InpT2OnlySymbols", 1)[1].split(";", 1)[0]
+        line = shell.split("EEA_HIDDEN string InpT2OnlySymbols", 1)[1].split(";", 1)[0]
         self.assertEqual(tuple(line.split('"')[1].split(",")), sp.T2_ONLY)
         calls = []
         orig = sp.research_keys, sp.ce.load, sp.refresh_times, sp.ea_symbols, dict(sp.SYMBOL_START)

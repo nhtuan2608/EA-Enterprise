@@ -15,6 +15,7 @@
 #include "PendingOrderRuntime.mqh"
 #include "../News/NewsCalendar.mqh"
 #include "../Storage/DailyFloatingStore.mqh"
+#include "../Setups/DmiEmaCompression.mqh"
 
 #define EEA_TM_MAX 32
 #define EEA_TM_DOCUMENT "managed-trade-v1.0.0"
@@ -51,6 +52,16 @@ void EEA_TradeProfileFor(const string profile,EEA_TradeProfile &p)
       p.be_at_r=1.0e9; p.partial_at_r=1.0e9; p.partial_fraction=0.0; p.trail_start_r=0.0;
       p.trail_mode=EEA_TM_TRAIL_ATR; p.trail_atr_mult=3.0; p.structure_bars=0;
       p.underperform_bars=1000000; p.underperform_mfe_r=0.0; p.timeout_bars=180;   // H4: 30 days
+      return;
+     }
+   if(profile=="TREND")
+     {
+      // G72 S07 (research g67/g68): no break-even, no partial, no stop trail; the exit is a close beyond
+      // the EMA55 (EMA100 once the trade has run 3R) on the trade's own bars, see
+      // EEA_TradeManagerObserveTrendBars; the time stop depends on the timeframe (EEA_S07HoldBars).
+      p.be_at_r=1.0e9; p.partial_at_r=1.0e9; p.partial_fraction=0.0; p.trail_start_r=1.0e9;
+      p.trail_mode=EEA_TM_TRAIL_ATR; p.trail_atr_mult=0.0; p.structure_bars=0;
+      p.underperform_bars=1000000; p.underperform_mfe_r=0.0; p.timeout_bars=240;
       return;
      }
    p.be_at_r=1.0; p.partial_at_r=1.0; p.partial_fraction=0.5; p.trail_start_r=1.5;
@@ -512,10 +523,61 @@ double EEA_TradeManagerAtr(const EEA_ManagedTrade &t,MqlRates &last_closed)
    return EEA_StrategyRuntimeAtrFromRates(rates,copied-1,EEA_STRATEGY_RUNTIME_ATR_PERIOD);
   }
 
+// G72 S07 (TREND profile): every newly closed bar of the trade timeframe updates the excursions; a close
+// below the EMA55 (long; above for a short) ends the trade, the EMA100 once the best excursion reached
+// EEA_S07_TRAIL_SWITCH_R; the time stop is EEA_S07HoldBars bars. The EMAs run over EEA_TM_TREND_BARS bars
+// (research: the whole history; EMA100 settles well within that).
+#define EEA_TM_TREND_BARS 700
+string EEA_TradeManagerObserveTrendBars(EEA_ManagedTrade &t,CAuditLog &audit)
+  {
+   const double r=MathAbs(t.entry_price-t.initial_sl);
+   if(r<=0.0) return "";
+   MqlRates rates[];
+   ArraySetAsSeries(rates,false);
+   const int copied=CopyRates(t.intent.broker_symbol,EEA_PendingTimeframe(t.timeframe),1,EEA_TM_TREND_BARS,rates);
+   if(copied<200) return "";
+   double e55[],e100[],pdi[],mdi[],adx[],atr[];
+   EEA_S07Ema(rates,copied,55,e55);
+   EEA_S07Ema(rates,copied,100,e100);
+   EEA_S07Dmi(rates,copied,pdi,mdi,adx,atr);
+   const bool adx_exit=(g_s07_adx_exit && EEA_S07IsBaseSetup(t.intent.setup_id));
+   const long offset=EEA_PendingServerOffset();
+   const long tf_seconds=PeriodSeconds(EEA_PendingTimeframe(t.timeframe));
+   string exit_reason="";
+   for(int b=0;b<copied;b++)
+     {
+      const long bar_time=(long)rates[b].time;
+      if(bar_time<=t.last_bar_time) continue;
+      if(bar_time-offset+tf_seconds<=t.opened_at_utc) continue;      // bar closed before the fill
+      t.last_bar_time=bar_time;
+      t.bars++;
+      const double favorable=t.direction==1 ? rates[b].high-t.entry_price : t.entry_price-rates[b].low;
+      const double adverse=t.direction==1 ? t.entry_price-rates[b].low : rates[b].high-t.entry_price;
+      t.mfe_r=MathMax(t.mfe_r,favorable/r);
+      t.mae_r=MathMax(t.mae_r,adverse/r);
+      if(t.bar_05r<0 && t.mfe_r>=0.5) t.bar_05r=t.bars;
+      if(t.bar_1r<0 && t.mfe_r>=1.0) t.bar_1r=t.bars;
+      if(t.bar_2r<0 && t.mfe_r>=2.0) t.bar_2r=t.bars;
+      const string before=t.state;
+      if(t.state=="ENTERED") t.state="PROVING";
+      if(t.state=="PROVING" && t.mfe_r>=0.5) t.state="WORKING";
+      if(t.state=="WORKING" && t.mfe_r>=1.0) t.state="MATURE";
+      if(before!=t.state) EEA_TradeManagerAudit(audit,t,"TRADE_STATE_CHANGED",before+"->"+t.state);
+      const bool wide=(t.mfe_r>=EEA_S07_TRAIL_SWITCH_R);
+      const double ema=(wide ? e100[b] : e55[b]);
+      if(exit_reason=="" && t.direction*(rates[b].close-ema)<0.0) exit_reason=(wide ? "S07_EMA100_EXIT" : "S07_EMA55_EXIT");
+      if(exit_reason=="" && adx_exit && b>0 && adx[b-1]>=EEA_S07_ADX_EXHAUSTION && adx[b]<adx[b-1])
+         exit_reason="S07_ADX_EXHAUSTION_EXIT";
+      if(exit_reason=="" && t.bars>=EEA_S07HoldBars(t.timeframe)) exit_reason="TIME_STOP";
+     }
+   return exit_reason;
+  }
+
 // Feeds newly closed bars of the trade timeframe: excursions, milestones and lifecycle.
 // Returns the exit reason when a closed bar invalidates the structure or the time stop hits.
 string EEA_TradeManagerObserveBars(EEA_ManagedTrade &t,const EEA_TradeProfile &p,CAuditLog &audit)
   {
+   if(t.profile=="TREND") return EEA_TradeManagerObserveTrendBars(t,audit);
    const double r=MathAbs(t.entry_price-t.initial_sl);
    if(r<=0.0) return "";
    MqlRates rates[];
@@ -598,6 +660,10 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
             const string cause=t.exit_request!="" ? t.exit_request : t.last_reason;
             t.active=false; t.state="EXITED"; t.last_reason="POSITION_CLOSED"; t.exited_at_utc=(long)TimeGMT();
             EEA_TradeManagerRecordExit(audit,root,t,observer.reconciliation,cause);
+            // G87: the closed S07-family base becomes the context of the re-entry engine (S07R).
+            if(EEA_S07IsBaseSetup(t.intent.setup_id))
+               EEA_S07ContextRecordClose(t.intent.canonical_symbol,t.direction,t.opened_at_utc,t.exited_at_utc,cause,
+                                         t.initial_sl,t.mfe_r>=EEA_S07_TARGET_R-0.05);
            }
          else
            {

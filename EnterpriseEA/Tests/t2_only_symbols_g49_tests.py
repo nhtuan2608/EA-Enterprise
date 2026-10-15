@@ -26,9 +26,9 @@ class ShellTests(unittest.TestCase):
         self.shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
 
     def test_inputs(self):
-        self.assertIn('input string InpT2OnlySymbols           = "XAGUSD,ETHUSD,USOUSD";', self.shell)
-        self.assertIn('input string InpT2LiveSymbols', self.shell)
-        live = self.shell.split("input string InpT2LiveSymbols", 1)[1].split(";", 1)[0]
+        self.assertIn('EEA_HIDDEN string InpT2OnlySymbols           = EEA_ED("XAGUSD,ETHUSD,USOUSD","");', self.shell)
+        self.assertIn('EEA_HIDDEN string InpT2LiveSymbols', self.shell)
+        live = self.shell.split("EEA_HIDDEN string InpT2LiveSymbols", 1)[1].split(";", 1)[0]
         self.assertNotIn("XAG", live)                  # the new assets are SHADOW until their own review
 
     def test_universe_appends_t2_only_symbols_while_t2_runs(self):
@@ -37,7 +37,7 @@ class ShellTests(unittest.TestCase):
         self.assertIn("if(known || n>=EEA_RUNTIME_MAX_SYMBOLS) continue;", body)
         self.assertIn("int count = EEA_UniverseSymbols(canonical);", self.shell)      # OnInit
         self.assertIn("int count=EEA_UniverseSymbols(universe);", self.shell)          # panel choices
-        self.assertIn("(int)InpT2Mode,InpT2OnlySymbols);", self.shell)
+        self.assertIn("(int)InpT2Mode,InpT2OnlySymbols,(int)InpS07Mode", self.shell)
 
 
 class RuntimeTests(unittest.TestCase):
