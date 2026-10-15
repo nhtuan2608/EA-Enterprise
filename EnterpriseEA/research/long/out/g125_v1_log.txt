@@ -1,0 +1,27 @@
+M5 2.0 G0 tra 1493/-0.072 val 617/-0.091
+M5 2.0 GS tra 460/+0.101 val 225/+0.246
+M5 2.0 GR tra 681/-0.030 val 291/+0.107
+M5 3.0 G0 tra 1455/-0.063 val 597/-0.119
+M5 3.0 GS tra 453/+0.157 val 214/+0.315
+M5 3.0 GR tra 668/-0.016 val 279/+0.093
+M15 2.0 G0 tra 1663/-0.058 val 219/+0.033
+M15 2.0 GS tra 432/+0.227 val 88/+0.344
+M15 2.0 GR tra 782/-0.028 val 105/+0.202
+M15 3.0 G0 tra 1591/-0.077 val 209/+0.078
+M15 3.0 GS tra 415/+0.266 val 83/+0.636
+M15 3.0 GR tra 762/+0.001 val 102/+0.356
+ tf  tp gate    role  tra_n  tra_wk  tra_R  tra_buy  tra_sell  tra_stress  val_n  val_wk  val_R  val_buy  val_sell  val_stress  tv_low90  val_ctl  val_p    c1   c2    c3    c4
+ M5 2.0   G0 control   1493  21.460 -0.072    0.004    -0.165      -0.121    617  23.473 -0.091   -0.064    -0.125      -0.122    -0.112      NaN    NaN   NaN  NaN   NaN   NaN
+ M5 2.0   GS variant    460   6.612  0.101    0.096     0.286       0.049    225   8.560  0.246    0.254     0.163       0.215     0.087    0.236  0.440  True True False  True
+ M5 2.0   GR variant    681   9.789 -0.030    0.019    -0.125      -0.080    291  11.071  0.107    0.155    -0.028       0.076    -0.042    0.083  0.335 False True False False
+ M5 3.0   G0 control   1455  20.914 -0.063    0.005    -0.146      -0.113    597  22.712 -0.119   -0.059    -0.194      -0.149    -0.119      NaN    NaN   NaN  NaN   NaN   NaN
+ M5 3.0   GS variant    453   6.511  0.157    0.151     0.363       0.105    214   8.141  0.315    0.326     0.198       0.284     0.133    0.280  0.435  True True False  True
+ M5 3.0   GR variant    668   9.602 -0.016    0.034    -0.113      -0.066    279  10.614  0.093    0.194    -0.178       0.061    -0.043    0.089  0.485 False True False False
+M15 2.0   G0 control   1663   8.141 -0.058    0.015    -0.142      -0.100    219   8.332  0.033    0.091    -0.038       0.015    -0.086      NaN    NaN   NaN  NaN   NaN   NaN
+M15 2.0   GS variant    432   2.115  0.227    0.283    -0.190       0.186     88   3.348  0.344    0.384    -0.053       0.326     0.169    0.312  0.415  True True False False
+M15 2.0   GR variant    782   3.828 -0.028    0.025    -0.106      -0.070    105   3.995  0.202    0.349    -0.204       0.184    -0.060    0.173  0.415 False True False False
+M15 3.0   G0 control   1591   7.788 -0.077    0.020    -0.184      -0.120    209   7.951  0.078    0.139     0.002       0.060    -0.103      NaN    NaN   NaN  NaN   NaN   NaN
+M15 3.0   GS variant    415   2.031  0.266    0.341    -0.282       0.225     83   3.158  0.636    0.661     0.368       0.619     0.231    0.420  0.140  True True False False
+M15 3.0   GR variant    762   3.730  0.001    0.062    -0.086      -0.041    102   3.880  0.356    0.556    -0.174       0.338    -0.026    0.194  0.120 False True False False
+
+No variant passes -> 2026 stays sealed.
