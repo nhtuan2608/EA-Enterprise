@@ -5,8 +5,9 @@
 Per M5 bar (server time, bid-change ticks only, tick rule on the bid):
   n      bid changes        up / down  upticks / downticks      delta = up - down
   top / bot  ticks printed in the top / bottom 20% of the bar's bid range
+  open / hi / lo / close  bid OHLC      sp  median ask - bid in price
 Per server day: tick counts per $0.50 bid bin (profile), stored as (day, lo_bin_price, counts[]).
-Out: data/ticks/m5flow_YYYY-MM.parquet and data/ticks/profile_YYYY-MM.npz
+Out: data/ticks/m5flow_YYYY-MM.pkl and data/ticks/profile_YYYY-MM.npz
 """
 from __future__ import annotations
 
@@ -37,14 +38,14 @@ def bars_from_ticks(tk) -> pd.DataFrame:
     bid = tk["bid"].astype(float)
     step = np.diff(bid, prepend=bid[0])
     bar = (t // 300) * 300
-    df = pd.DataFrame({"bar": bar, "bid": bid, "up": step > 0, "down": step < 0})
+    df = pd.DataFrame({"bar": bar, "bid": bid, "sp": tk["ask"].astype(float) - bid, "up": step > 0, "down": step < 0})
     g = df.groupby("bar")
     hi, lo = g["bid"].transform("max"), g["bid"].transform("min")
     rng = (hi - lo).replace(0, np.nan)
     df["top"] = (df["bid"] >= hi - 0.2 * rng)
     df["bot"] = (df["bid"] <= lo + 0.2 * rng)
     out = g.agg(n=("bid", "size"), up=("up", "sum"), down=("down", "sum"), top=("top", "sum"), bot=("bot", "sum"),
-                hi=("bid", "max"), lo=("bid", "min"))
+                hi=("bid", "max"), lo=("bid", "min"), open=("bid", "first"), close=("bid", "last"), sp=("sp", "median"))
     out["delta"] = out["up"] - out["down"]
     return out.reset_index().rename(columns={"bar": "time"})
 
@@ -68,7 +69,7 @@ def main():
         while month < end:
             nxt = (month + timedelta(days=32)).replace(day=1)
             tag = f"{month:%Y-%m}"
-            fbar, fprof = OUT / f"m5flow_{tag}.parquet", OUT / f"profile_{tag}.npz"
+            fbar, fprof = OUT / f"m5flow_{tag}.pkl", OUT / f"profile_{tag}.npz"
             last_month = nxt >= end
             if fbar.exists() and fprof.exists() and not last_month:
                 month = nxt
@@ -83,7 +84,7 @@ def main():
                     days.append(int(d.timestamp())); los.append(lo); cnts.append(c)
                 d += timedelta(days=1)
             if bars:
-                pd.concat(bars, ignore_index=True).to_parquet(fbar)
+                pd.concat(bars, ignore_index=True).to_pickle(fbar)
                 np.savez_compressed(fprof, days=np.array(days), lo=np.array(los),
                                     counts=np.array(cnts, dtype=object), allow_pickle=True)
                 print(tag, "bars", sum(len(b) for b in bars), "days", len(days), flush=True)
