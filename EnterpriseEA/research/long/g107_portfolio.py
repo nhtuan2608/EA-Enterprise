@@ -183,8 +183,22 @@ def stats(days, eq):
                 worst=s.min())
 
 
+def s07_to_server(rows):
+    """S07 legs carry UTC times (g89 port); the other bots use broker server time (UTC+2, UTC+3 in US DST)."""
+    import g67_dmi_ema as g67
+
+    def shift(ts):
+        u = int((ts - pd.Timestamp(0)).total_seconds())
+        return ts + pd.Timedelta(seconds=10800 if g67.us_dst(u) else 7200)
+
+    for L in rows:
+        L["t_in"], L["t_out"] = shift(L["t_in"]), shift(L["t_out"])
+        L["U"] = pd.DatetimeIndex([shift(t) for t in L["U"]])
+    return rows
+
+
 def main():
-    legs = s07_legs() + xrt_legs() + ctx_legs() + box_legs("M30")
+    legs = s07_to_server(s07_legs()) + xrt_legs() + ctx_legs() + box_legs("M30")
     legs = [L for L in legs if START <= L["t_in"] < END]
     days, balance, equity, per = curves(legs)
     import matplotlib

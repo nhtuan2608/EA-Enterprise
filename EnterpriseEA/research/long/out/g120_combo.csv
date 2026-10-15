@@ -1,0 +1,25 @@
+leg_pct,s07_clock,combo,profit,dd_pct,ratio
+0.75,UTC (before),S07,28588,6.5,44.0
+0.75,UTC (before),G119,24306,9.8,24.8
+0.75,UTC (before),BIGV,15058,15.5,9.7
+0.75,UTC (before),G119+BIGV,39364,9.9,39.9
+0.75,UTC (before),S07+G119,52894,9.4,56.1
+0.75,UTC (before),S07+G119+BIGV,67952,13.2,51.4
+0.75,server (fixed),S07,28588,6.5,44.0
+0.75,server (fixed),G119,24306,9.8,24.8
+0.75,server (fixed),BIGV,15058,15.5,9.7
+0.75,server (fixed),G119+BIGV,39364,9.9,39.9
+0.75,server (fixed),S07+G119,52894,10.2,51.7
+0.75,server (fixed),S07+G119+BIGV,67952,13.9,48.7
+1.5,UTC (before),S07,28588,6.5,44.0
+1.5,UTC (before),G119,48613,13.8,35.2
+1.5,UTC (before),BIGV,30116,26.1,11.5
+1.5,UTC (before),G119+BIGV,78729,16.6,47.5
+1.5,UTC (before),S07+G119,77200,13.5,57.3
+1.5,UTC (before),S07+G119+BIGV,107316,19.5,55.0
+1.5,server (fixed),S07,28588,6.5,44.0
+1.5,server (fixed),G119,48613,13.8,35.2
+1.5,server (fixed),BIGV,30116,26.1,11.5
+1.5,server (fixed),G119+BIGV,78729,16.6,47.5
+1.5,server (fixed),S07+G119,77200,14.1,54.6
+1.5,server (fixed),S07+G119+BIGV,107316,20.1,53.4

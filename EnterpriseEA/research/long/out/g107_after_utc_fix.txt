@@ -1,0 +1,8 @@
+Vàng XAUUSD 47678
+CTX threshold +0.383, trades 414
+combined: {'final': np.float64(72501.855), 'cagr': np.float64(0.34), 'maxdd': np.float64(0.554), 'worst': np.float64(9397.191)}
+S07Tester: trades 1055, R/trade +0.379, profit +48,719 USD, own maxDD 19.4%
+XauRegimeTester: trades 36, R/trade +0.425, profit +2,297 USD, own maxDD 3.5%
+CtxLimitTester: trades 414, R/trade +0.129, profit +2,566 USD, own maxDD 10.6%
+CtxBoxTester M30: trades 308, R/trade +0.193, profit +8,919 USD, own maxDD 56.9%
+by year (equity end, % of start): {2020: (14281, '+43%'), 2021: (11107, '-22%'), 2022: (21698, '+95%'), 2023: (29972, '+38%'), 2024: (45996, '+53%'), 2025: (63870, '+39%'), 2026: (72502, '+14%')}
