@@ -320,10 +320,11 @@ class MiniPanelTests(unittest.TestCase):
         src = read("Runtime/SymbolSelectionPanel.mqh")
         self.assertTrue((ROOT / "Runtime/SymbolSelectionPanel.mqh").read_bytes().startswith(b"\xef\xbb\xbf"))
         mini = body(src, "void EEA_SymbolPanelRenderMiniBots(const long chart_id)")
-        self.assertIn("b.near_score>g_panel_bots[best].near_score", mini)
-        self.assertIn("Gần khớp nhất", mini)
+        self.assertIn("near_score>g_panel_bots[best].near_score", body(src, "int EEA_SymbolPanelMiniBest()"))
+        self.assertIn("Gần khớp nhất", body(src, "string EEA_SymbolPanelMiniBestText()"))
         self.assertIn("EEA_SymbolPanelRenderMiniBots(chart_id);", body(src, "void EEA_SymbolPanelRenderMainView("))
-        self.assertIn("g_panel_bot_count*EEA_PANEL_MINI_ROW", body(src, "int EEA_SymbolPanelHeight()"))
+        self.assertIn("EEA_SymbolPanelMiniLineCount()*EEA_PANEL_MINI_LINE", body(src, "int EEA_SymbolPanelHeight()"))
+        self.assertIn("OBJPROP_TOOLTIP", mini)
 
     def test_closeness_sources(self):
         host = read("Bots/BotHost.mqh")

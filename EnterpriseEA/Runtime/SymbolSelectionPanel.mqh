@@ -208,7 +208,7 @@ EEA_PanelBotRow g_panel_bots[4];
 int    g_panel_bot_count=0;
 string g_panel_bots_guard="";      // one line: armed / pause / open risk / daily loss / news
 bool   g_panel_bots_enabled=false;
-#define EEA_PANEL_MINI_ROW 19
+#define EEA_PANEL_MINI_LINE 16
 
 // Read-only engine facts published by the EA shell before each refresh. The panel
 // renders them; it never derives execution or strategy state on its own.
@@ -869,12 +869,84 @@ void EEA_SymbolPanelCloseOverlay(const long chart_id)
    EEA_SymbolPanelClearOverlay(chart_id);
   }
 
+#define EEA_PANEL_MINI_FIRST 44    // characters on a bot's first line (next to its name)
+#define EEA_PANEL_MINI_NEXT  64    // characters on its continuation lines (under the name)
+#define EEA_PANEL_MINI_BEST  84    // characters per line of the "closest" summary
+#define EEA_PANEL_MINI_MAX   4     // lines per bot at most
+
+// Splits text into lines of at most first / next characters, at " | " first, then at spaces.
+int EEA_SymbolPanelWrap(const string text,const int first,const int next,const int max_lines,string &out[])
+  {
+   ArrayResize(out,0);
+   string segs[];
+   int ns=StringSplit(text,'|',segs);
+   if(ns<=0) { ns=1; ArrayResize(segs,1); segs[0]=text; }
+   int n=0;
+   string cur="";
+   for(int i=0;i<ns;i++)
+     {
+      string seg=segs[i];
+      StringTrimLeft(seg); StringTrimRight(seg);
+      if(seg=="") continue;
+      const int limit=(n==0 ? first : next);
+      const string candidate=(cur=="" ? seg : cur+" | "+seg);
+      if(StringLen(candidate)<=limit) { cur=candidate; continue; }
+      if(cur!="") { ArrayResize(out,n+1); out[n++]=cur; cur=""; if(n>=max_lines) break; }
+      // a segment longer than a line: cut it at spaces
+      while(StringLen(seg)>(n==0 ? first : next) && n<max_lines)
+        {
+         const int lim=(n==0 ? first : next);
+         int cut=lim;
+         for(int k=lim;k>lim/2;k--) if(StringGetCharacter(seg,k)==' ') { cut=k; break; }
+         ArrayResize(out,n+1); out[n++]=StringSubstr(seg,0,cut);
+         seg=StringSubstr(seg,cut); StringTrimLeft(seg);
+        }
+      if(n>=max_lines) break;
+      cur=seg;
+     }
+   if(cur!="" && n<max_lines) { ArrayResize(out,n+1); out[n++]=cur; }
+   if(n==0) { ArrayResize(out,1); out[0]=""; n=1; }
+   return n;
+  }
+
+string EEA_SymbolPanelMiniText(const int i)
+  {
+   return g_panel_bots[i].near_text!="" ? g_panel_bots[i].near_text : g_panel_bots[i].status;
+  }
+
+int EEA_SymbolPanelMiniBest()
+  {
+   int best=-1;
+   for(int i=0;i<g_panel_bot_count && i<4;i++)
+      if(g_panel_bots[i].active && g_panel_bots[i].mode!="OFF" &&
+         (best<0 || g_panel_bots[i].near_score>g_panel_bots[best].near_score)) best=i;
+   return best;
+  }
+
+string EEA_SymbolPanelMiniBestText()
+  {
+   const int best=EEA_SymbolPanelMiniBest();
+   if(best<0) return "Gần khớp nhất: không có bot nào đang bật";
+   return "Gần khớp nhất: "+g_panel_bots[best].title+" "+IntegerToString((int)MathRound(100.0*g_panel_bots[best].near_score))+
+          "%  "+EEA_SymbolPanelGlyph(0x2192)+"  "+g_panel_bots[best].near_text;
+  }
+
+int EEA_SymbolPanelMiniLineCount()
+  {
+   string tmp[];
+   int lines=0;
+   for(int i=0;i<g_panel_bot_count && i<4;i++)
+      lines+=EEA_SymbolPanelWrap(EEA_SymbolPanelMiniText(i),EEA_PANEL_MINI_FIRST,EEA_PANEL_MINI_NEXT,EEA_PANEL_MINI_MAX,tmp);
+   lines+=EEA_SymbolPanelWrap(EEA_SymbolPanelMiniBestText(),EEA_PANEL_MINI_BEST,EEA_PANEL_MINI_BEST,3,tmp);
+   return lines;
+  }
+
 int EEA_SymbolPanelHeight()
   {
    if(!g_panel_state.collapsed) return EEA_PANEL_MAIN_HEIGHT;
-   // Collapsed with the bots layer: one line per bot plus the "closest" line.
-   return EEA_PANEL_COLLAPSED_HEIGHT+(g_panel_bots_enabled && g_panel_bot_count>0 ?
-          6+g_panel_bot_count*EEA_PANEL_MINI_ROW+EEA_PANEL_MINI_ROW+6 : 0);
+   // Collapsed with the bots layer: every bot's lines (wrapped, not cut) plus the "closest" lines.
+   if(!g_panel_bots_enabled || g_panel_bot_count<=0) return EEA_PANEL_COLLAPSED_HEIGHT;
+   return EEA_PANEL_COLLAPSED_HEIGHT+6+EEA_SymbolPanelMiniLineCount()*EEA_PANEL_MINI_LINE+14;
   }
 
 string EEA_SymbolPanelMeter(const double score)
@@ -886,40 +958,54 @@ string EEA_SymbolPanelMeter(const double score)
   }
 
 // Collapsed panel: what every bot is doing and how close it is to an entry; the closest one last.
+// Long texts wrap onto more lines (the panel grows); every line carries the full text as a tooltip.
 void EEA_SymbolPanelRenderMiniBots(const long chart_id)
   {
    const string pfx=EEA_PANEL_MAIN_PREFIX+"Mini_";
-   if(!g_panel_state.collapsed || !g_panel_bots_enabled || g_panel_bot_count<=0)
-     { ObjectsDeleteAll(chart_id,pfx,g_panel_state.sub_window); return; }
+   ObjectsDeleteAll(chart_id,pfx,g_panel_state.sub_window);
+   if(!g_panel_state.collapsed || !g_panel_bots_enabled || g_panel_bot_count<=0) return;
    int y=EEA_PANEL_COLLAPSED_HEIGHT+6;
-   int best=-1;
+   string lines[];
    for(int i=0;i<g_panel_bot_count && i<4;i++)
      {
       const EEA_PanelBotRow b=g_panel_bots[i];
-      if(b.active && b.mode!="OFF" && (best<0 || b.near_score>g_panel_bots[best].near_score)) best=i;
+      const string id=IntegerToString(i);
+      const string full=EEA_SymbolPanelMiniText(i);
       const color c=(!b.active || b.mode=="OFF") ? EEA_PANEL_FAINT_COLOR :
                     (b.near_score>=0.8 ? EEA_PANEL_OK_COLOR : (b.near_score>=0.5 ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR));
-      EEA_SymbolPanelSetText(chart_id,pfx+"M"+IntegerToString(i),EEA_PANEL_MARGIN_X,y,EEA_SymbolPanelMeter(b.near_score),c,
+      EEA_SymbolPanelSetText(chart_id,pfx+"M"+id,EEA_PANEL_MARGIN_X,y,EEA_SymbolPanelMeter(b.near_score),c,
                              EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,10);
-      EEA_SymbolPanelSetText(chart_id,pfx+"N"+IntegerToString(i),EEA_PANEL_MARGIN_X+62,y,
-                             b.title+(b.active ? "" : " (OFF)"),b.active ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_FAINT_COLOR,
-                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,16);
-      EEA_SymbolPanelSetText(chart_id,pfx+"D"+IntegerToString(i),EEA_PANEL_MARGIN_X+150,y,
+      EEA_SymbolPanelSetText(chart_id,pfx+"N"+id,EEA_PANEL_MARGIN_X+62,y,b.title+(b.active ? "" : " (OFF)"),
+                             b.active ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,16);
+      EEA_SymbolPanelSetText(chart_id,pfx+"D"+id,EEA_PANEL_MARGIN_X+150,y,
                              b.mode+(b.open_count>0 ? " "+IntegerToString(b.open_count)+" mở" : ""),
                              b.mode=="LIVE" ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
                              EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,12);
-      EEA_SymbolPanelSetText(chart_id,pfx+"T"+IntegerToString(i),EEA_PANEL_MARGIN_X+214,y,
-                             b.near_text!="" ? b.near_text : b.status,b.active ? EEA_PANEL_MUTED_COLOR : EEA_PANEL_FAINT_COLOR,
-                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,52);
-      y+=EEA_PANEL_MINI_ROW;
+      const int n=EEA_SymbolPanelWrap(full,EEA_PANEL_MINI_FIRST,EEA_PANEL_MINI_NEXT,EEA_PANEL_MINI_MAX,lines);
+      for(int k=0;k<n;k++)
+        {
+         const string name=pfx+"T"+id+"_"+IntegerToString(k);
+         EEA_SymbolPanelSetText(chart_id,name,k==0 ? EEA_PANEL_MARGIN_X+214 : EEA_PANEL_MARGIN_X+62,y,lines[k],
+                                b.active ? EEA_PANEL_MUTED_COLOR : EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,
+                                EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,200);
+         ObjectSetString(chart_id,name,OBJPROP_TOOLTIP,b.title+": "+full);
+         y+=EEA_PANEL_MINI_LINE;
+        }
      }
-   string line="Gần khớp nhất: không có bot nào đang bật";
-   if(best>=0)
-      line="Gần khớp nhất: "+g_panel_bots[best].title+" "+IntegerToString((int)MathRound(100.0*g_panel_bots[best].near_score))+
-           "%  "+EEA_SymbolPanelGlyph(0x2192)+"  "+g_panel_bots[best].near_text;
-   EEA_SymbolPanelSetText(chart_id,pfx+"Best",EEA_PANEL_MARGIN_X,y+2,line,
-                          best>=0 && g_panel_bots[best].near_score>=0.8 ? EEA_PANEL_OK_COLOR : EEA_PANEL_ACCENT_COLOR,
-                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,90);
+   const int best=EEA_SymbolPanelMiniBest();
+   const string full=EEA_SymbolPanelMiniBestText();
+   const int nb=EEA_SymbolPanelWrap(full,EEA_PANEL_MINI_BEST,EEA_PANEL_MINI_BEST,3,lines);
+   y+=2;
+   for(int k=0;k<nb;k++)
+     {
+      const string name=pfx+"Best_"+IntegerToString(k);
+      EEA_SymbolPanelSetText(chart_id,name,k==0 ? EEA_PANEL_MARGIN_X : EEA_PANEL_MARGIN_X+16,y,lines[k],
+                             best>=0 && g_panel_bots[best].near_score>=0.8 ? EEA_PANEL_OK_COLOR : EEA_PANEL_ACCENT_COLOR,
+                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,200);
+      ObjectSetString(chart_id,name,OBJPROP_TOOLTIP,full);
+      y+=EEA_PANEL_MINI_LINE;
+     }
   }
 
 bool EEA_SymbolPanelSelectionContains(const EEA_ObserverRuntimeContext &ctx,const string canonical)
