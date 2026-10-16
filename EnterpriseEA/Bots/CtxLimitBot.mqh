@@ -353,6 +353,8 @@ public:
       v_realized_r+=(R>0.0 ? v_pos.dir*(px-v_pos.entry)/R : 0.0);
       v_pos.used=false;
       dl_result="lệnh ảo đóng: "+why;
+      const double r=(R>0.0 ? v_pos.dir*(px-v_pos.entry)/R : 0.0);
+      EEA_BotLog(EEA_BOT_CTXLIMIT,"EXIT","SHADOW",StringFormat("lệnh ảo đóng: %s, %+.2fR",why,r),EEA_BotJsonNum("r",r,2));
      }
 
    // SHADOW: virtual limit fills (the first cancels the others), virtual SL / TP.
@@ -366,14 +368,24 @@ public:
               {
                v_pos=v_pend[i]; v_pos.at=TimeCurrent();
                for(int k=0;k<CTXB_MAXV;k++) v_pend[k].used=false;
+               EEA_BotLog(EEA_BOT_CTXLIMIT,"ENTRY","SHADOW",StringFormat("limit (ảo) khớp %s tại %s (SL %s, TP %s)",PnlDir(v_pos.dir),
+                          PxT(v_pos.entry),PxT(v_pos.stop),PxT(v_pos.target)));
                break;
               }
       if(v_pos.used)
         {
          const int d=v_pos.dir;
-         if((d==1 && bid<=v_pos.stop) || (d==-1 && ask>=v_pos.stop)) { v_realized_r+=-1.0; v_pos.used=false; dl_result="lệnh ảo: dừng ở SL"; }
+         if((d==1 && bid<=v_pos.stop) || (d==-1 && ask>=v_pos.stop))
+           {
+            v_realized_r+=-1.0; v_pos.used=false; dl_result="lệnh ảo: dừng ở SL";
+            EEA_BotLog(EEA_BOT_CTXLIMIT,"EXIT","SHADOW","lệnh ảo dừng ở SL, -1R",EEA_BotJsonNum("r",-1.0,2));
+           }
          else if((d==1 && bid>=v_pos.target) || (d==-1 && ask<=v_pos.target))
-           { v_realized_r+=p.target_atr/p.stop_atr; v_pos.used=false; dl_result="lệnh ảo: chạm TP"; }
+           {
+            v_realized_r+=p.target_atr/p.stop_atr; v_pos.used=false; dl_result="lệnh ảo: chạm TP";
+            EEA_BotLog(EEA_BOT_CTXLIMIT,"EXIT","SHADOW",StringFormat("lệnh ảo chạm TP, %+.2fR",p.target_atr/p.stop_atr),
+                       EEA_BotJsonNum("r",p.target_atr/p.stop_atr,2));
+           }
         }
      }
 
@@ -393,7 +405,19 @@ public:
       return v;
      }
 
+   // One journal line per hourly forecast: DECISION, or ENTRY / ORDER when an order went out.
    void Decide(const datetime bar_time)
+     {
+      const int before=orders;
+      DecideCore(bar_time);
+      const bool sent=(orders>before);
+      const bool market=(StringFind(dl_result,"VÀO")==0);
+      EEA_BotLog(EEA_BOT_CTXLIMIT,sent ? (market ? "ENTRY" : "ORDER") : "DECISION",ModeText(),
+                 StringFormat("%s: MUA %+.2fR / BÁN %+.2fR (ngưỡng %.2f) — %s",PnlHm(bar_time+1800),dl_buy,dl_sell,Threshold(),dl_result),
+                 EEA_BotJsonNum("p_buy",dl_buy,3)+","+EEA_BotJsonNum("p_sell",dl_sell,3)+","+EEA_BotJsonNum("threshold",Threshold(),3));
+     }
+
+   void DecideCore(const datetime bar_time)
      {
       decisions++;
       double x[CTX_NFEAT];

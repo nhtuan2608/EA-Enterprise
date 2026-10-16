@@ -41,6 +41,8 @@ EEA_BotsHost g_bots_host;
 double       g_bot_s07_near=0.0;          // collapsed panel: S07 conditions met on the last closed M30 bar
 string       g_bot_s07_near_text="";
 datetime     g_bot_s07_near_bar=0;
+datetime     g_bot_near_logged_bar=0;      // journal: last M30 bar with the NEAR lines
+ulong        g_bot_deal_seen=0;            // journal: highest deal ticket already looked at (0 = not scanned yet)
 CVHedgeBot   g_bot_vhedge;
 CXrtBot      g_bot_xrt;
 CCtxLimitBot g_bot_ctx;
@@ -192,6 +194,69 @@ void EEA_BotsHostInit(const string root,const string symbol,const bool &defaults
    g_bot_xrt.Init(xrt,g_bots_host.symbol,root);
    g_bot_ctx.Init(ctx,g_bots_host.symbol,root);
    g_bots_host.initialized=true;
+   g_bot_journal_root=root;
+   for(int i=0;i<EEA_BOT_COUNT;i++) g_bot_journal_block[i]="";
+   g_bot_near_logged_bar=0; g_bot_deal_seen=0;
+   EEA_BotLog(-1,"START","",StringFormat("EA khởi động trên %s: VHedge %s, XauRegime %s, CtxLimit %s",g_bots_host.symbol,
+              g_bot_vhedge.ModeText(),g_bot_xrt.ModeText(),g_bot_ctx.ModeText()),"\"symbol\":\""+EEA_JsonEscape(g_bots_host.symbol)+"\"");
+  }
+
+int EEA_BotByMagic(const long magic)
+  {
+   if(magic<=0) return -1;
+   for(int i=0;i<EEA_BOT_COUNT;i++) if(g_bots_host.magics[i]==magic) return i;
+   return -1;
+  }
+
+// Journal: every new broker deal of a bot magic (fills and exits of LIVE bots, S07 included) with its money.
+// The first scan after a start only records where it is, so a restart does not repeat old deals.
+void EEA_BotsJournalDeals()
+  {
+   const datetime now=TimeTradeServer();
+   if(!HistorySelect(now-3*86400,now+60)) return;
+   ulong top=g_bot_deal_seen;
+   const bool first=(g_bot_deal_seen==0);
+   for(int i=0;i<HistoryDealsTotal();i++)
+     {
+      const ulong d=HistoryDealGetTicket(i);
+      if(d==0 || d<=g_bot_deal_seen) continue;
+      if(d>top) top=d;
+      if(first) continue;
+      const int bot=EEA_BotByMagic(HistoryDealGetInteger(d,DEAL_MAGIC));
+      if(bot<0) continue;
+      const long type=HistoryDealGetInteger(d,DEAL_TYPE);
+      if(type!=DEAL_TYPE_BUY && type!=DEAL_TYPE_SELL) continue;
+      const long entry=HistoryDealGetInteger(d,DEAL_ENTRY);
+      const long why=HistoryDealGetInteger(d,DEAL_REASON);
+      const double money=HistoryDealGetDouble(d,DEAL_PROFIT)+HistoryDealGetDouble(d,DEAL_SWAP)+HistoryDealGetDouble(d,DEAL_COMMISSION);
+      const string side=(type==DEAL_TYPE_BUY ? "MUA" : "BÁN");
+      const string how=(why==DEAL_REASON_SL ? "SL" : (why==DEAL_REASON_TP ? "TP" : (why==DEAL_REASON_SO ? "stop out" : "")));
+      const bool in=(entry==DEAL_ENTRY_IN);
+      const string text=(in ? StringFormat("khớp %s %.2f lot tại %s",side,HistoryDealGetDouble(d,DEAL_VOLUME),
+                                           DoubleToString(HistoryDealGetDouble(d,DEAL_PRICE),2))
+                            : StringFormat("đóng (%s %.2f lot tại %s%s): %+.2f",side,HistoryDealGetDouble(d,DEAL_VOLUME),
+                                           DoubleToString(HistoryDealGetDouble(d,DEAL_PRICE),2),how!="" ? ", "+how : "",money))+
+                        " | "+HistoryDealGetString(d,DEAL_COMMENT);
+      EEA_BotLog(bot,in ? "FILL" : "CLOSE","LIVE",text,
+                 "\"deal\":"+IntegerToString((long)d)+",\"position\":"+IntegerToString(HistoryDealGetInteger(d,DEAL_POSITION_ID))+
+                 ",\"symbol\":\""+EEA_JsonEscape(HistoryDealGetString(d,DEAL_SYMBOL))+"\","+
+                 EEA_BotJsonNum("volume",HistoryDealGetDouble(d,DEAL_VOLUME),2)+","+EEA_BotJsonNum("price",HistoryDealGetDouble(d,DEAL_PRICE),2)+
+                 ","+EEA_BotJsonNum("money",money,2)+",\"reason\":\""+how+"\"");
+     }
+   g_bot_deal_seen=(top>0 ? top : 1);
+  }
+
+// Journal: one NEAR line per bot on every closed M30 bar (what it waited for, how close it was).
+void EEA_BotsJournalNear()
+  {
+   if(g_bot_s07_near_bar==0 || g_bot_s07_near_bar==g_bot_near_logged_bar) return;
+   g_bot_near_logged_bar=g_bot_s07_near_bar;
+   for(int i=0;i<EEA_BOT_COUNT;i++)
+     {
+      double score=0.0; string text="";
+      EEA_BotNear(i,score,text);
+      EEA_BotLog(i,"NEAR",EEA_BotModeText(i),text,EEA_BotJsonNum("score",score,2)+",\"active\":"+(EEA_BotActive(i) ? "true" : "false"));
+     }
   }
 
 void EEA_BotsHostDeinit()
@@ -304,7 +369,12 @@ void EEA_BotsProcessCommands(CAuditLog &audit)
             const bool on=(action=="BOT_CONFIRM_ENABLE");
             EEA_BotsState keep=g_bots_state;
             g_bots_state.last_gateway_sequence=sequence; g_bots_state.last_command_id=command_id;
-            if(EEA_BotsSetActive(g_bots_state,bot,on,root,"TELEGRAM",command_id,audit,reason)) applied=true;
+            if(EEA_BotsSetActive(g_bots_state,bot,on,root,"TELEGRAM",command_id,audit,reason))
+              {
+               applied=true;
+               EEA_BotLog(bot,"SWITCH",EEA_BotModeText(bot),(on ? "BẬT" : "TẮT")+string(" qua Telegram"),
+                          "\"active\":"+(on ? "true" : "false")+",\"source\":\"TELEGRAM\",\"command_id\":\""+EEA_JsonEscape(command_id)+"\"");
+              }
             else g_bots_state=keep;
            }
          else
@@ -385,6 +455,7 @@ void EEA_BotsHostTimer(const string account_id,const string config_version,CAudi
       EEA_BotsStateLoad(g_bots_state,g_bots_host.root,account_id,config_version,g_bots_host.defaults,audit);
    EEA_BotsProcessCommands(audit);
    EEA_BotsS07Near(g_bots_host.symbol);
+   if(g_bots_state.loaded) { EEA_BotsJournalNear(); EEA_BotsJournalDeals(); }
   }
 
 // After the shell refreshed the guard and the S07 line: panel texts and current/bots_status.json.
@@ -400,7 +471,11 @@ bool EEA_BotsPanelToggle(const string code,CAuditLog &audit,string &reason)
   {
    const int id=EEA_BotFind(code);
    if(id<0) { reason="BOT_UNKNOWN"; return false; }
-   return EEA_BotsSetActive(g_bots_state,id,!EEA_BotActive(id),g_bots_host.root,"PANEL","",audit,reason);
+   const bool on=!EEA_BotActive(id);
+   if(!EEA_BotsSetActive(g_bots_state,id,on,g_bots_host.root,"PANEL","",audit,reason)) return false;
+   EEA_BotLog(id,"SWITCH",EEA_BotModeText(id),(on ? "BẬT" : "TẮT")+string(" trên bảng điều khiển"),
+              "\"active\":"+(on ? "true" : "false")+",\"source\":\"PANEL\"");
+   return true;
   }
 
 #endif

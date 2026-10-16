@@ -24,6 +24,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bot_journal  # noqa: E402  (bridge/bot_journal.py, shared with the MCP server)
+
 VERSION = "telegram-gateway-v1.0.0"
 COMMAND_SCHEMA = "remote-command-v1.0.0"
 BOT_COMMAND_SCHEMA = "bot-command-v1.0.0"     # bots host (16/10/2026): per-bot Active flags
@@ -79,6 +82,7 @@ HELP_VIEWER = ("/status - trạng thái EA\n"
                "/today - tóm tắt hôm nay (lệnh, candidate, tin, cảnh báo)\n"
                "/ask <câu hỏi> - hỏi AI (chỉ đọc, không đặt lệnh)\n"
                "/bots - các bot: Active/Inactive, chế độ, lệnh mở, lãi/lỗ hôm nay\n"
+               "/botlog [bot] [giờ] - nhật ký bot: vào/thoát, bị chặn, quyết định (mặc định 24 giờ)\n"
                "/help - danh sách lệnh")
 HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế đang có vẫn được quản lý)\n"
                                "/resume - xin bật lại vào lệnh, nhận mã xác nhận\n"
@@ -295,6 +299,8 @@ class Gateway:
             self.cmd_ask(uid, mid, arg.strip(), uid_update)
         elif cmd == "/bots":
             self.send(uid, self.bots_text(), mid)
+        elif cmd == "/botlog":
+            self.send(uid, self.botlog_text(arg), mid)
         elif cmd == "/bot":
             if role != "OPERATOR":
                 self.log("UNAUTHORIZED_ACTION", update_id=uid_update, user_id=uid, command=cmd)
@@ -398,6 +404,21 @@ class Gateway:
         if data.get("pending_bot"):
             lines.append(f"Đang chờ /confirm để bật {data['pending_bot']}")
         return "\n".join(lines)
+
+    def botlog_text(self, arg: str) -> str:
+        """/botlog [bot] [hours]: the bots journal (logs/bots-YYYYMM.jsonl), summary and latest lines."""
+        bot, hours = "", 24
+        for tok in str(arg).split():
+            if re.fullmatch(r"\d{1,3}h?", tok.lower()):
+                hours = max(1, min(168, int(tok.lower().rstrip("h"))))
+            else:
+                bot = self.resolve_bot(tok)
+                if not bot:
+                    return "Cú pháp: /botlog [s07|vhedge|xrt|ctxlimit] [số giờ, tối đa 168]"
+        try:
+            return bot_journal.journal_text(self.root, hours, bot, now=self.clock())
+        except Exception as exc:  # a report must never stop the gateway
+            return f"Không đọc được nhật ký bot: {type(exc).__name__}"
 
     def write_bot_command(self, action: str, bot: str, uid: int, mid, update_id: int, nonce: str = ""):
         status = self.bots_status()

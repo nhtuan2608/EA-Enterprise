@@ -256,7 +256,9 @@ public:
         {
          const double r=(MathAbs(v_entry-v_stop)>0.0 ? v_dir*(px-v_entry)/MathAbs(v_entry-v_stop) : 0.0);
          v_realized_r+=r; v_open=false;
+         EEA_BotLog(EEA_BOT_XRT,"EXIT","SHADOW","thoát (ảo): "+why+StringFormat(", %+.2fR",r),EEA_BotJsonNum("r",r,2));
         }
+      else if(IsLive()) EEA_BotLog(EEA_BOT_XRT,"EXIT","LIVE","thoát: "+why);
       last_note="đã thoát: "+why;
       Save();
      }
@@ -337,24 +339,39 @@ public:
         {
          const double ref=(plan.market ? plan.ref : plan.level);
          if(dir*(market-ref)>XRB_MAX_CHASE_ATR*day.atr)
-           { plan.ok=false; plan.note=StringFormat("bỏ hôm nay: giá đã chạy %.2f ATR qua giá kế hoạch",dir*(market-ref)/day.atr); return true; }
-         if(dir*(market-plan.stop)<=0.0) { plan.ok=false; plan.note="bỏ hôm nay: giá đã qua stop kế hoạch"; return true; }
+           {
+            plan.ok=false; plan.note=StringFormat("bỏ hôm nay: giá đã chạy %.2f ATR qua giá kế hoạch",dir*(market-ref)/day.atr);
+            EEA_BotLog(EEA_BOT_XRT,"SKIP",ModeText(),plan.note);
+            return true;
+           }
+         if(dir*(market-plan.stop)<=0.0)
+           { plan.ok=false; plan.note="bỏ hôm nay: giá đã qua stop kế hoạch"; EEA_BotLog(EEA_BOT_XRT,"SKIP",ModeText(),plan.note); return true; }
         }
       const double price=(at_market ? market : plan.level);
       double risk_money=0.0;
       const double vol0=VolumeFor(dir,price,plan.stop,1.0,risk_money);
       string reason="";
       const double w=EntryGate(dir,price,plan.stop,risk_money,reason);
-      if(w<=0.0) { plan.note="đang chờ: "+reason+", thử lại ở nến M5 sau"; return false; }
+      if(w<=0.0)
+        {
+         plan.note="đang chờ: "+reason+", thử lại ở nến M5 sau";
+         EEA_BotLogBlock(EEA_BOT_XRT,ModeText(),reason,(dir==1 ? "MUA" : "BÁN")+string(" theo kế hoạch hôm nay"));
+         return false;
+        }
+      EEA_BotLogClearBlock(EEA_BOT_XRT);
       if(!IsLive())
         {
          if(at_market) { v_open=true; v_dir=dir; v_entry=market; v_stop=plan.stop; best=market; be_done=false; entries++; plan.note="đã vào (ảo) market"; }
          else { v_pending=true; v_dir=dir; v_level=plan.level; v_stop=plan.stop; plan.note="limit (ảo) đang chờ"; }
+         EEA_BotLog(EEA_BOT_XRT,at_market ? "ENTRY" : "ORDER","SHADOW",StringFormat("%s %s: %s, SL %s",plan.note,PnlDir(dir),
+                    PxT(at_market ? market : plan.level),PxT(plan.stop)),
+                    EEA_BotJsonNum("price",at_market ? market : plan.level,2)+","+EEA_BotJsonNum("sl",plan.stop,2));
          Save();
          return true;
         }
       const double vol=(w<1.0 ? VolumeFor(dir,price,plan.stop,w,risk_money) : vol0);
-      if(vol<=0.0) { plan.ok=false; plan.note="bỏ hôm nay: khối lượng dưới mức tối thiểu"; return true; }
+      if(vol<=0.0)
+        { plan.ok=false; plan.note="bỏ hôm nay: khối lượng dưới mức tối thiểu"; EEA_BotLog(EEA_BOT_XRT,"SKIP","LIVE",plan.note); return true; }
       bool ok;
       if(at_market)
         {
@@ -373,6 +390,10 @@ public:
          if(ok) { pending=trade.ResultOrder(); pending_level=plan.level; plan.note="limit đang chờ"; }
          else plan.note=StringFormat("broker từ chối lệnh limit (mã %u)",trade.ResultRetcode());
         }
+      EEA_BotLog(EEA_BOT_XRT,ok ? (at_market ? "ENTRY" : "ORDER") : "ERROR","LIVE",
+                 StringFormat("%s %s %.2f lot tại %s, SL %s (hệ số %.2f)",plan.note,PnlDir(dir),vol,PxT(price),PxT(plan.stop),w),
+                 EEA_BotJsonNum("price",price,2)+","+EEA_BotJsonNum("sl",plan.stop,2)+","+EEA_BotJsonNum("lots",vol,2)+","+
+                 EEA_BotJsonNum("weight",w,2));
       return true;
      }
 
@@ -392,6 +413,14 @@ public:
       want_entry=!OwnPosition(dir);
       plan.ok=false; plan.note="";
       if(want_entry && p.mode!=BOT_OFF) MakePlan();
+      EEA_BotLogClearBlock(EEA_BOT_XRT);
+      const string st=(day.state==1 ? "TĂNG" : (day.state==-1 ? "GIẢM" : "TRUNG TÍNH"));
+      EEA_BotLog(EEA_BOT_XRT,"DECISION",ModeText(),
+                 StringFormat("ngày mới: chế độ D1 %s (đóng %s, EMA%d %s, ATR %s) | %s",st,PxT(day.close),p.ema_period,PxT(day.ema),
+                              PxT(day.atr),!want_entry ? "đang giữ lệnh" :
+                              (plan.ok ? StringFormat("kế hoạch %s %s, stop %s",PnlDir(plan.dir),
+                                                      plan.market ? "market" : "limit "+PxT(plan.level),PxT(plan.stop)) : plan.note)),
+                 "\"state\":"+IntegerToString(day.state)+","+EEA_BotJsonNum("atr",day.atr,2)+",\"plan\":"+(plan.ok ? "true" : "false"));
       Save();
      }
 
@@ -415,9 +444,17 @@ public:
       if(IsLive()) return;
       const double bid=SymbolInfoDouble(sym,SYMBOL_BID), ask=SymbolInfoDouble(sym,SYMBOL_ASK);
       if(v_pending && ((v_dir==1 && ask<=v_level) || (v_dir==-1 && bid>=v_level)))
-        { v_pending=false; v_open=true; v_entry=v_level; best=v_level; be_done=false; entries++; plan.note="limit (ảo) đã khớp"; Save(); }
+        {
+         v_pending=false; v_open=true; v_entry=v_level; best=v_level; be_done=false; entries++; plan.note="limit (ảo) đã khớp";
+         EEA_BotLog(EEA_BOT_XRT,"ENTRY","SHADOW",StringFormat("limit (ảo) khớp %s tại %s, SL %s",PnlDir(v_dir),PxT(v_level),PxT(v_stop)));
+         Save();
+        }
       if(v_open && ((v_dir==1 && bid<=v_stop) || (v_dir==-1 && ask>=v_stop)))
-        { v_realized_r+=-1.0; v_open=false; last_note="dừng ở stop (ảo)"; Save(); }
+        {
+         v_realized_r+=-1.0; v_open=false; last_note="dừng ở stop (ảo)";
+         EEA_BotLog(EEA_BOT_XRT,"EXIT","SHADOW","dừng ở stop (ảo), -1R",EEA_BotJsonNum("r",-1.0,2));
+         Save();
+        }
      }
 
    void OnTick()

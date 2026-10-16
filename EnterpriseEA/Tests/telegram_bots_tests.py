@@ -180,5 +180,87 @@ class BridgeBotIntentTests(unittest.TestCase):
         self.assertIn("BOT_ENABLE, BOT_DISABLE", prompt)
 
 
+
+class BotJournalReaderTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        import bot_journal
+        self.bj = bot_journal
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def line(self, at, bot, event, text="", mode="LIVE", **data):
+        import time
+        g = time.gmtime(at)
+        p = self.root / "logs" / f"bots-{g.tm_year:04d}{g.tm_mon:02d}.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at_utc": at, "server": "2027.01.15 10:00", "bot": bot, "event": event, "mode": mode,
+                                "text": text, "data": data}, ensure_ascii=False) + "\n")
+
+    def test_months_filters_and_damaged_lines(self):
+        jan1 = 1_798_761_600            # 2027-01-01 00:00 UTC
+        self.line(jan1 - 600, "XRT", "DECISION", "cuối tháng 12")
+        self.line(jan1 + 600, "XRT", "ENTRY", "đầu tháng 1")
+        self.line(jan1 + 700, "VHEDGE", "NEAR", "chờ V", score=0.5)
+        with (self.root / "logs" / "bots-202701.jsonl").open("a", encoding="utf-8") as f:
+            f.write('{"at_utc": 17987')       # a line still being written
+        all_ = self.bj.read_journal(self.root, jan1 - 3600, jan1 + 3600)
+        self.assertEqual([e["text"] for e in all_], ["cuối tháng 12", "đầu tháng 1", "chờ V"])
+        self.assertEqual(len(self.bj.read_journal(self.root, jan1 - 3600, jan1 + 3600, bot="xrt")), 2)
+        self.assertEqual(len(self.bj.read_journal(self.root, jan1 - 3600, jan1 + 3600, events=("NEAR",))), 1)
+        self.assertEqual(len(self.bj.read_journal(self.root, jan1, jan1 + 3600, limit=1)), 1)
+
+    def test_summary(self):
+        t = 1_800_000_000
+        self.line(t, "CTXLIMIT", "EXIT", "lệnh ảo chạm TP", mode="SHADOW", r=2.0)
+        self.line(t + 1, "CTXLIMIT", "EXIT", "lệnh ảo dừng ở SL", mode="SHADOW", r=-1.0)
+        self.line(t + 2, "S07", "CLOSE", "đóng", money=-12.5)
+        self.line(t + 3, "S07", "BLOCKED", "x", reason="BOTS_OPEN_RISK_CAP")
+        self.line(t + 4, "S07", "BLOCKED", "y", reason="BOTS_OPEN_RISK_CAP")
+        self.line(t + 5, "VHEDGE", "EXIT", "nhóm 3", mode="SHADOW", u=1.5)
+        s = self.bj.summarize(self.bj.read_journal(self.root, t - 10, t + 10))
+        self.assertEqual(s["bots"]["CTXLIMIT"]["shadow_r"], 1.0)
+        self.assertEqual(s["bots"]["S07"]["live_money"], -12.5)
+        self.assertEqual(s["bots"]["S07"]["blocked"], ["BOTS_OPEN_RISK_CAP"])
+        self.assertEqual(s["bots"]["VHEDGE"]["shadow_r"], 1.5)
+
+
+class BotLogCommandTests(BotsCase):
+    def jline(self, at, bot, event, text, **data):
+        import time
+        g = time.gmtime(at)
+        p = self.root / "logs" / f"bots-{g.tm_year:04d}{g.tm_mon:02d}.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at_utc": at, "server": "2027.01.15 10:30", "bot": bot, "event": event, "mode": "LIVE",
+                                "text": text, "data": data}, ensure_ascii=False) + "\n")
+
+    def test_botlog_summary_and_filters(self):
+        t = self.clock.t
+        self.jline(t - 3600, "XRT", "DECISION", "ngày mới: chế độ D1 TĂNG")
+        self.jline(t - 1800, "VHEDGE", "NEAR", "chờ 1 nến đóng lại trong vùng", score=0.8)
+        self.jline(t - 100 * 3600, "XRT", "ENTRY", "rất cũ")
+        self.feed(msg(1, VIEWER, "/botlog"))
+        text = self.texts()[-1]
+        self.assertIn("Nhật ký bot (tất cả bot, 24 giờ qua): 2 dòng", text)
+        self.assertIn("XRT DECISION LIVE: ngày mới", text)
+        self.assertIn("gần khớp 80%: chờ 1 nến", text)
+        self.assertNotIn("rất cũ", text)
+        self.feed(msg(2, VIEWER, "/botlog xrt 120"))
+        text = self.texts()[-1]
+        self.assertIn("(XRT, 120 giờ qua): 2 dòng", text)
+        self.assertIn("rất cũ", text)
+
+    def test_botlog_empty_and_bad_syntax(self):
+        self.feed(msg(1, VIEWER, "/botlog"), msg(2, VIEWER, "/botlog foo"))
+        texts = self.texts()
+        self.assertIn("chưa có dòng nào", texts[-2])
+        self.assertIn("Cú pháp: /botlog", texts[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -209,6 +209,52 @@ class PanelTests(unittest.TestCase):
         self.assertIn("<10000", b)
 
 
+
+class BotJournalTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/BotJournal.mqh")
+
+    def test_monthly_append_only_file(self):
+        self.assertIn('StringFormat("bots-%04d%02d.jsonl",t.year,t.mon)', self.src)
+        log = body(self.src, "void EEA_BotLog(")
+        self.assertIn("EEA_WriteAtomicAppendText(EEA_BotJournalPath(now),line+\"\\n\");", log)
+        for key in ("at_utc", "server", "bot", "event", "mode", "text", "data"):
+            self.assertIn(f'\\"{key}\\":', log)
+        self.assertIn('if(g_bot_journal_root=="") return;', log)
+
+    def test_blocked_only_when_the_reason_changes(self):
+        blk = body(self.src, "void EEA_BotLogBlock(")
+        self.assertIn("if(g_bot_journal_block[bot]==reason) return;", blk)
+        self.assertIn('EEA_BotLog(bot,"BLOCKED"', blk)
+        self.assertIn('#include "BotJournal.mqh"', read("Bots/PortfolioGuard.mqh"))
+
+    def test_hooks_in_every_bot(self):
+        vh, xrt, ctx, host = (read("Bots/VHedgeBot.mqh"), read("Bots/XrtBot.mqh"), read("Bots/CtxLimitBot.mqh"),
+                              read("Bots/BotHost.mqh"))
+        for ev in ('"SKIP"', '"ENTRY"', '"MANAGE"', '"EXIT"'):
+            self.assertIn(f"EEA_BotLog(EEA_BOT_VHEDGE,{ev}", vh)
+        self.assertIn("EEA_BotLogBlock(EEA_BOT_VHEDGE,ModeText(),pv_block,desc);", vh)
+        for ev in ('"DECISION"', '"EXIT"', '"SKIP"'):
+            self.assertIn(f"EEA_BotLog(EEA_BOT_XRT,{ev}", xrt)
+        self.assertIn("EEA_BotLogBlock(EEA_BOT_XRT,", xrt)
+        decide = body(ctx, "void Decide(const datetime bar_time)")
+        self.assertIn("DecideCore(bar_time);", decide)
+        self.assertIn('"DECISION"', decide)
+        self.assertIn('EEA_BotLog(EEA_BOT_CTXLIMIT,"EXIT","SHADOW"', ctx)
+        self.assertIn("g_bot_journal_root=root;", body(host, "void EEA_BotsHostInit("))
+        timer = body(host, "void EEA_BotsHostTimer(")
+        self.assertIn("EEA_BotsJournalNear(); EEA_BotsJournalDeals();", timer)
+        self.assertIn('"SWITCH"', body(host, "bool EEA_BotsPanelToggle("))
+        self.assertIn('"TELEGRAM"', body(host, "void EEA_BotsProcessCommands("))
+
+    def test_live_deals_are_journaled_once(self):
+        deals = body(read("Bots/BotHost.mqh"), "void EEA_BotsJournalDeals()")
+        self.assertIn("if(first) continue;", deals)          # a restart does not repeat old deals
+        self.assertIn("d<=g_bot_deal_seen", deals)
+        self.assertIn("EEA_BotByMagic(HistoryDealGetInteger(d,DEAL_MAGIC))", deals)
+        self.assertIn('in ? "FILL" : "CLOSE"', deals)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -268,7 +314,7 @@ class CtxLimitBotTests(unittest.TestCase):
         self.assertEqual(mine, theirs)
 
     def test_new_order_asks_the_guard(self):
-        b = body(self.src, "void Decide(")
+        b = body(self.src, "void DecideCore(")
         self.assertIn('EEA_BotGuardCheck(EEA_BOT_CTXLIMIT,risk_money,"SWING",true,false)', b)
         self.assertLess(b.index("EEA_BotGuardCheck"), b.index("trade.Buy("))
         self.assertIn("if(!EEA_BotActive(EEA_BOT_CTXLIMIT))", b)

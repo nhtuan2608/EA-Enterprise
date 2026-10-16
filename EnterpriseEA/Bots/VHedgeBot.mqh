@@ -370,12 +370,24 @@ public:
       const string desc=StringFormat("V %s, quay về %s | EMA bó %.2f %s | vol V %.2fx / quay về %.2fx %s | V %.2f ATR %s%s",
                                      PnlHm(r[v].time),PnlHm(r[j].time),spread,PnlMark(f_ema),vv,rv,PnlMark(f_vol),vsize,
                                      PnlMark(f_big),p.m30_confirm ? " | M30 "+PnlMark(m30) : "");
-      if(!p_g119 && !p_bigv && !p_all) { filtered++; pv_last="BỎ (không hồ sơ nào đạt): "+desc; return; }
+      if(!p_g119 && !p_bigv && !p_all)
+        {
+         filtered++; pv_last="BỎ (không hồ sơ nào đạt): "+desc;
+         EEA_BotLog(EEA_BOT_VHEDGE,"SKIP",ModeText(),"không hồ sơ nào đạt: "+desc);
+         return;
+        }
       string who="";
       if(p_g119 && OpenGroup(0,r[v].time,r[j].time,atr[j],p.stop_g119)) who+="G119 ";
       if(p_bigv && OpenGroup(1,r[v].time,r[j].time,atr[j],p.stop_bigv)) who+="BIGV ";
       if(p_all && OpenGroup(2,r[v].time,r[j].time,atr[j],p.stop_g119)) who+="ALL ";
       pv_last=(who!="" ? "VÀO HEDGE ("+who+"): " : "KHÔNG VÀO ("+pv_block+"): ")+desc;
+      if(who!="")
+        {
+         EEA_BotLogClearBlock(EEA_BOT_VHEDGE);
+         EEA_BotLog(EEA_BOT_VHEDGE,"ENTRY",ModeText(),"vào hedge ("+who+"): "+desc,
+                    "\"group\":"+IntegerToString(next_id-1)+","+EEA_BotJsonNum("atr",atr[j],2));
+        }
+      else EEA_BotLogBlock(EEA_BOT_VHEDGE,ModeText(),pv_block,desc);
      }
 
    // ------------------------------------------------------------------------------------------------ groups
@@ -462,6 +474,11 @@ public:
       sumU[G.prof]+=(G.unit>0.0 ? G.realized/G.unit : 0.0);
       if(G.realized>0.0) wins[G.prof]++;
       G.active=false;
+      const double u=(G.unit>0.0 ? G.realized/G.unit : 0.0);
+      EEA_BotLog(EEA_BOT_VHEDGE,"EXIT",G.live ? "LIVE" : "SHADOW",
+                 StringFormat("nhóm %d %s đóng: %s, %+.2fU",G.id,prof_name[G.prof],G.note,u),
+                 "\"group\":"+IntegerToString(G.id)+",\"profile\":\""+prof_name[G.prof]+"\","+EEA_BotJsonNum("u",u,3)+","+
+                 EEA_BotJsonNum("realized_price",G.realized,2));
       dirty=true;
      }
 
@@ -530,6 +547,11 @@ public:
               }
             G.leg[2]=A;
             dirty=true;
+            EEA_BotLog(EEA_BOT_VHEDGE,"MANAGE",G.live ? "LIVE" : "SHADOW",
+                       StringFormat("nhóm %d %s: chân %s bị cắt, giữ %s, TP %s, bồi %s%s",G.id,prof_name[G.prof],
+                                    bs ? "MUA" : "BÁN",PnlDir(d),PxT(G.tp),A.open ? "đã vào" : "không vào",
+                                    G.note!="" ? " ("+G.note+")" : ""),
+                       "\"group\":"+IntegerToString(G.id)+",\"dir\":"+IntegerToString(d)+","+EEA_BotJsonNum("tp",G.tp,2));
             return;
            }
          if(cap) { CloseLeg(G,0,bid,false); CloseLeg(G,1,ask,false); timeouts++; FinishGroup(G,"hết 24 giờ, chưa phân định"); }

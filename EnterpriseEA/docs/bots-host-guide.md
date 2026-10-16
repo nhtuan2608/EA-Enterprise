@@ -51,6 +51,32 @@ Tên bot chấp nhận: `s07`, `vhedge` (hoặc `g119`, `hedge`), `xrt` (hoặc 
    - XauRegime dùng News Guard (SWING) và sentiment của EnterpriseEA.
    - CtxLimit giống bản tester: không có News Guard.
 
+## Nhật ký bot (bot đã làm gì, vì sao)
+
+EA ghi mỗi sự kiện của bot thành một dòng JSON trong `MQL5\Files\EnterpriseEA\logs\bots-YYYYMM.jsonl`. Mỗi tháng (theo UTC) một file. EA chỉ ghi nối thêm, thư mục `logs` tự tạo khi ghi dòng đầu.
+
+```json
+{"at_utc":1792195200,"server":"2026.10.16 21:00","bot":"XRT","event":"DECISION","mode":"LIVE","text":"ngày mới: chế độ D1 TĂNG ...","data":{"state":1,"atr":38.20,"plan":true}}
+```
+
+| event | khi nào |
+|---|---|
+| `START` | EA khởi động (chế độ từng bot) |
+| `SWITCH` | bật/tắt bot trên bảng điều khiển hoặc qua Telegram |
+| `DECISION` | XauRegime: kế hoạch đầu ngày. CtxLimit: dự báo mỗi giờ tròn (MUA/BÁN R, ngưỡng, kết quả) |
+| `ENTRY` / `ORDER` | bot vào lệnh market / đặt limit, kể cả SHADOW |
+| `MANAGE` | VHedge: một chân bị cắt, giữ chiều nào, có bồi không |
+| `EXIT` | bot thoát lệnh. SHADOW ghi kết quả bằng R (VHedge bằng U) |
+| `BLOCKED` | lệnh bị chặn (Guard, tin, sentiment, INACTIVE...). Chỉ ghi khi lý do đổi |
+| `SKIP` | bỏ tín hiệu (VHedge không hồ sơ nào đạt, XauRegime giá đã chạy quá xa...) |
+| `ERROR` | broker từ chối lệnh |
+| `NEAR` | mỗi nến M30 đóng: từng bot còn thiếu gì, gần khớp bao nhiêu |
+| `FILL` / `CLOSE` | deal thật trên broker theo magic của bot (cả S07), kèm tiền lãi/lỗ |
+
+Đọc nhật ký:
+- Telegram: `/botlog` (24 giờ, mọi bot), `/botlog xrt`, `/botlog vhedge 72` (tối đa 168 giờ). Có tóm tắt theo bot: số lần vào/thoát, R của lệnh ảo, tiền của lệnh thật, các lý do bị chặn, dòng gần khớp mới nhất. Sau đó là các dòng gần nhất (không gồm NEAR).
+- Python: `bridge/bot_journal.py` (`read_journal`, `summarize`, `journal_text`). Gateway và MCP server dùng chung module này.
+
 ## Thử trước khi chạy thật
 
 1. Build `EnterpriseEA.ex5` từ nhánh này.

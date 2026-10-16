@@ -12,6 +12,7 @@
 //   6 no HIGH-impact news block for the symbol (EnterpriseEA News Guard), when the bot uses it (use_news)
 
 #include "BotState.mqh"
+#include "BotJournal.mqh"
 
 struct EEA_BotGuardContext
   {
