@@ -80,6 +80,7 @@ struct EEA_BotsState
    string config_version;
    long   state_version;
    long   last_gateway_sequence;
+   long   last_mcp_sequence;      // MCP commands (Claude / scripts over the data folder) have their own counter
    string last_command_id;
    int    pending_bot;            // a Telegram enable waiting for /confirm (-1 = none)
    string pending_nonce;
@@ -96,7 +97,7 @@ void EEA_BotsStateDefaults(EEA_BotsState &s)
   {
    s.loaded=false;
    for(int i=0;i<EEA_BOT_COUNT;i++) s.active[i]=false;
-   s.account_id=""; s.config_version=""; s.state_version=0; s.last_gateway_sequence=0; s.last_command_id="";
+   s.account_id=""; s.config_version=""; s.state_version=0; s.last_gateway_sequence=0; s.last_mcp_sequence=0; s.last_command_id="";
    s.pending_bot=-1; s.pending_nonce=""; s.pending_chat_id=""; s.pending_user_id=""; s.pending_expires_at_utc=0;
    s.reason="";
   }
@@ -127,6 +128,7 @@ string EEA_BotsStateToJson(const EEA_BotsState &s,const string reason,const long
    return "{\"document_version\":\""+EEA_BOTS_STATE_DOCUMENT+"\",\"account_id\":\""+EEA_JsonEscape(s.account_id)+
       "\",\"config_version\":\""+EEA_JsonEscape(s.config_version)+"\",\"state_version\":"+IntegerToString(s.state_version)+
       bots+",\"last_gateway_sequence\":"+IntegerToString(s.last_gateway_sequence)+
+      ",\"last_mcp_sequence\":"+IntegerToString(s.last_mcp_sequence)+
       ",\"last_command_id\":\""+EEA_JsonEscape(s.last_command_id)+"\",\"pending_bot\":\""+
       (s.pending_bot>=0 ? EEA_BotCode(s.pending_bot) : "")+"\",\"pending_nonce\":\""+EEA_JsonEscape(s.pending_nonce)+
       "\",\"pending_chat_id\":\""+EEA_JsonEscape(s.pending_chat_id)+"\",\"pending_user_id\":\""+EEA_JsonEscape(s.pending_user_id)+
@@ -148,6 +150,7 @@ bool EEA_BotsStateParse(const string json,EEA_BotsState &s)
    s.config_version=EEA_RiskLedgerField(json,"config_version");
    s.state_version=StringToInteger(EEA_RiskLedgerField(json,"state_version"));
    s.last_gateway_sequence=StringToInteger(EEA_RiskLedgerField(json,"last_gateway_sequence"));
+   s.last_mcp_sequence=StringToInteger(EEA_RiskLedgerField(json,"last_mcp_sequence"));   // absent in older files: 0
    s.last_command_id=EEA_RiskLedgerField(json,"last_command_id");
    s.pending_bot=EEA_BotFind(EEA_RiskLedgerField(json,"pending_bot"));
    s.pending_nonce=EEA_RiskLedgerField(json,"pending_nonce");
@@ -208,6 +211,7 @@ void EEA_BotsStateLoad(EEA_BotsState &s,const string root,const string account_i
       reason="BOTS_STATE_IDENTITY_MISMATCH";
       s.state_version=loaded.state_version;
       s.last_gateway_sequence=loaded.last_gateway_sequence;
+      s.last_mcp_sequence=loaded.last_mcp_sequence;
       s.last_command_id=loaded.last_command_id;
      }
    else { s=loaded; s.reason="BOTS_STATE_LOADED"; return; }
@@ -220,7 +224,7 @@ void EEA_BotsStateLoad(EEA_BotsState &s,const string root,const string account_i
    EEA_BotsAudit(audit,"BOTS_STATE_FAIL_CLOSED","bots-state","",EEA_BotsActiveText(s),reason,config_version,"{}");
   }
 
-// Commit, then apply. source: PANEL | TELEGRAM. Returns false when the write failed (flag unchanged).
+// Commit, then apply. source: PANEL | TELEGRAM | MCP. Returns false when the write failed (flag unchanged).
 bool EEA_BotsSetActive(EEA_BotsState &s,const int id,const bool active,const string root,const string source,
                        const string detail,CAuditLog &audit,string &reason)
   {

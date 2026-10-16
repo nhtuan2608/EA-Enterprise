@@ -9,8 +9,12 @@
 //   BOT_DISABLE          applied at once
 //   BOT_REQUEST_ENABLE   stores a one-time nonce (<= 120 s) for that bot, user and chat
 //   BOT_CONFIRM_ENABLE   same nonce, user, chat, before expiry -> Active
-// Every command: schema, OPERATOR role, authenticated private chat, this account and config, TTL, a
-// gateway sequence above the last one (no replay). A disable never needs a confirmation.
+// Every command: schema, OPERATOR role, this account and config, TTL, a sequence above the last one of its
+// source (no replay). A disable never needs a confirmation. Two sources:
+//   Telegram gateway  authenticated private chat (the gateway's attestation flags), gateway_sequence
+//   MCP               source "MCP" (bridge/eea_mcp_server.py --allow-control: whoever can write the data folder,
+//                     e.g. Claude Code over SSH), mcp_sequence with its own counter; off with InpBotsMcpCommands.
+//                     It does not claim the Telegram flags: an MCP file carrying them is rejected.
 
 #include "BotState.mqh"
 #include "PortfolioGuard.mqh"
@@ -21,6 +25,8 @@
 #define EEA_BOT_COMMAND_VERSION "bot-command-v1.0.0"
 #define EEA_BOTS_STATUS_DOCUMENT "bots-status-v1.0.0"
 #define EEA_BOT_MAX_NONCE_SECONDS 120
+
+bool g_bots_allow_mcp=true;                 // InpBotsMcpCommands
 
 struct EEA_BotsHost
   {
@@ -294,28 +300,36 @@ bool EEA_BotSafeId(const string id)
 
 // Pure decision for one command. Returns the reason code; applied state changes go through EEA_BotsSetActive.
 string EEA_BotCommandEvaluate(const EEA_BotsState &s,const string json,const long now,string &action,int &bot,
-                              string &nonce,string &chat,string &user,long &sequence,string &command_id)
+                              string &nonce,string &chat,string &user,long &sequence,string &command_id,string &source)
   {
+   source=EEA_RiskLedgerField(json,"source");
+   const bool mcp=(source=="MCP");
+   if(!mcp) source="TELEGRAM";
    command_id=EEA_RiskLedgerField(json,"command_id");
    action=EEA_RiskLedgerField(json,"action");
    bot=EEA_BotFind(EEA_RiskLedgerField(json,"bot"));
    nonce=EEA_RiskLedgerField(json,"confirmation_nonce");
    chat=EEA_RiskLedgerField(json,"chat_id");
    user=EEA_RiskLedgerField(json,"user_id");
-   sequence=StringToInteger(EEA_RiskLedgerField(json,"gateway_sequence"));
+   sequence=StringToInteger(EEA_RiskLedgerField(json,mcp ? "mcp_sequence" : "gateway_sequence"));
    const long issued=StringToInteger(EEA_RiskLedgerField(json,"issued_at_utc"));
    const long expires=StringToInteger(EEA_RiskLedgerField(json,"expires_at_utc"));
    const long nonce_expires=StringToInteger(EEA_RiskLedgerField(json,"nonce_expires_at_utc"));
    if(!s.loaded) return "BOTS_STATE_NOT_LOADED";
+   if(mcp && !g_bots_allow_mcp) return "BOT_COMMAND_SOURCE_DISABLED";
+   const bool attested=(EEA_RiskLedgerField(json,"private_chat_attested")=="true" &&
+                        EEA_RiskLedgerField(json,"sender_authenticated")=="true" &&
+                        EEA_RiskLedgerField(json,"source_authenticated")=="true");
+   const bool claims=(EEA_RiskLedgerField(json,"private_chat_attested")!="" || EEA_RiskLedgerField(json,"sender_authenticated")!="" ||
+                      EEA_RiskLedgerField(json,"source_authenticated")!="");
    if(EEA_RiskLedgerField(json,"schema_version")!=EEA_BOT_COMMAND_VERSION || !EEA_BotSafeId(command_id) ||
       EEA_RiskLedgerField(json,"role")!="OPERATOR" || chat=="" || user=="" ||
-      EEA_RiskLedgerField(json,"private_chat_attested")!="true" || EEA_RiskLedgerField(json,"sender_authenticated")!="true" ||
-      EEA_RiskLedgerField(json,"source_authenticated")!="true" ||
+      (mcp ? claims : !attested) ||
       EEA_RiskLedgerField(json,"account_id")!=s.account_id || EEA_RiskLedgerField(json,"config_version")!=s.config_version ||
       issued<=0 || expires<=issued || now<issued-5 || now>expires)
       return "BOT_COMMAND_AUTH_IDENTITY_OR_TTL_INVALID";
    if(command_id==s.last_command_id) return "BOT_COMMAND_ALREADY_COMMITTED";
-   if(sequence<=s.last_gateway_sequence) return "BOT_COMMAND_REPLAY_OR_SEQUENCE_REGRESSION";
+   if(sequence<=(mcp ? s.last_mcp_sequence : s.last_gateway_sequence)) return "BOT_COMMAND_REPLAY_OR_SEQUENCE_REGRESSION";
    if(bot<0) return "BOT_UNKNOWN";
    if(action=="BOT_DISABLE") return "";
    if(action=="BOT_REQUEST_ENABLE")
@@ -350,11 +364,12 @@ void EEA_BotsProcessCommands(CAuditLog &audit)
    for(int f=0;f<n;f++)
      {
       const string path=EEA_BotCommandDir(root)+"/"+files[f];
-      string json="", action="", nonce="", chat="", user="", command_id="";
+      string json="", action="", nonce="", chat="", user="", command_id="", source="TELEGRAM";
       int bot=-1; long sequence=0;
       string reason="";
       if(!EEA_PendingReadText(path,json)) reason="BOT_COMMAND_MALFORMED";
-      else reason=EEA_BotCommandEvaluate(g_bots_state,json,(long)TimeGMT(),action,bot,nonce,chat,user,sequence,command_id);
+      else reason=EEA_BotCommandEvaluate(g_bots_state,json,(long)TimeGMT(),action,bot,nonce,chat,user,sequence,command_id,source);
+      const bool mcp=(source=="MCP");
       if(!EEA_BotSafeId(command_id))
         {
          command_id=StringSubstr(files[f],0,StringLen(files[f])-5);
@@ -368,12 +383,14 @@ void EEA_BotsProcessCommands(CAuditLog &audit)
            {
             const bool on=(action=="BOT_CONFIRM_ENABLE");
             EEA_BotsState keep=g_bots_state;
-            g_bots_state.last_gateway_sequence=sequence; g_bots_state.last_command_id=command_id;
-            if(EEA_BotsSetActive(g_bots_state,bot,on,root,"TELEGRAM",command_id,audit,reason))
+            if(mcp) g_bots_state.last_mcp_sequence=sequence; else g_bots_state.last_gateway_sequence=sequence;
+            g_bots_state.last_command_id=command_id;
+            if(EEA_BotsSetActive(g_bots_state,bot,on,root,source,command_id,audit,reason))
               {
                applied=true;
-               EEA_BotLog(bot,"SWITCH",EEA_BotModeText(bot),(on ? "BẬT" : "TẮT")+string(" qua Telegram"),
-                          "\"active\":"+(on ? "true" : "false")+",\"source\":\"TELEGRAM\",\"command_id\":\""+EEA_JsonEscape(command_id)+"\"");
+               EEA_BotLog(bot,"SWITCH",EEA_BotModeText(bot),(on ? "BẬT" : "TẮT")+(mcp ? " qua MCP" : " qua Telegram")+
+                          (mcp ? " ("+user+")" : ""),
+                          "\"active\":"+(on ? "true" : "false")+",\"source\":\""+source+"\",\"command_id\":\""+EEA_JsonEscape(command_id)+"\"");
               }
             else g_bots_state=keep;
            }
@@ -382,7 +399,8 @@ void EEA_BotsProcessCommands(CAuditLog &audit)
             EEA_BotsState next=g_bots_state;
             next.pending_bot=bot; next.pending_nonce=nonce; next.pending_chat_id=chat; next.pending_user_id=user;
             next.pending_expires_at_utc=StringToInteger(EEA_RiskLedgerField(json,"nonce_expires_at_utc"));
-            next.last_gateway_sequence=sequence; next.last_command_id=command_id; next.state_version++;
+            if(mcp) next.last_mcp_sequence=sequence; else next.last_gateway_sequence=sequence;
+            next.last_command_id=command_id; next.state_version++;
             reason="BOT_ENABLE_CONFIRMATION_PENDING";
             if(EEA_BotsStateSave(next,root,reason)) { g_bots_state=next; applied=true; }
             else reason="BOTS_STATE_COMMIT_FAILED";
@@ -394,14 +412,15 @@ void EEA_BotsProcessCommands(CAuditLog &audit)
          "\",\"bot\":\""+(bot>=0 ? EEA_BotCode(bot) : "")+"\",\"accepted\":"+(accepted ? "true" : "false")+
          ",\"applied\":"+(applied ? "true" : "false")+",\"status\":\""+(applied ? "APPLIED" : "REJECTED")+
          "\",\"state_before\":\""+before+"\",\"state_after\":\""+after+"\",\"reason_codes\":[\""+reason+
-         "\"],\"ea_state_version\":"+IntegerToString(g_bots_state.state_version)+",\"observed_at_utc\":"+
+         "\"],\"source\":\""+source+"\",\"ea_state_version\":"+IntegerToString(g_bots_state.state_version)+",\"observed_at_utc\":"+
          IntegerToString((long)TimeGMT())+"}";
       EEA_WriteAtomicText(root+"/current/remote/results/"+command_id+".json",result);
       if(!applied)
          EEA_BotsAudit(audit,"BOT_COMMAND_REJECTED",bot>=0 ? EEA_BotCode(bot) : "bot",before,after,reason,
-                       g_bots_state.config_version,"{\"action\":\""+EEA_JsonEscape(action)+"\"}");
+                       g_bots_state.config_version,"{\"action\":\""+EEA_JsonEscape(action)+"\",\"source\":\""+source+
+                       "\",\"command_id\":\""+EEA_JsonEscape(command_id)+"\"}");
       FileDelete(path,0);
-      g_bots_host.last_command=action+" "+(bot>=0 ? EEA_BotCode(bot) : "?")+": "+reason;
+      g_bots_host.last_command=source+" "+action+" "+(bot>=0 ? EEA_BotCode(bot) : "?")+": "+reason;
      }
   }
 
@@ -440,6 +459,7 @@ string EEA_BotsStatusJson()
    return "{\"document_version\":\""+EEA_BOTS_STATUS_DOCUMENT+"\",\"account_id\":\""+EEA_JsonEscape(g_bots_state.account_id)+
       "\",\"config_version\":\""+EEA_JsonEscape(g_bots_state.config_version)+"\",\"state_version\":"+
       IntegerToString(g_bots_state.state_version)+",\"last_gateway_sequence\":"+IntegerToString(g_bots_state.last_gateway_sequence)+
+      ",\"last_mcp_sequence\":"+IntegerToString(g_bots_state.last_mcp_sequence)+",\"mcp_commands\":"+(g_bots_allow_mcp ? "true" : "false")+
       ",\"state_loaded\":"+(g_bots_state.loaded ? "true" : "false")+",\"state_reason\":\""+EEA_JsonEscape(g_bots_state.reason)+
       "\",\"symbol\":\""+EEA_JsonEscape(g_bots_host.symbol)+"\",\"pending_bot\":\""+
       (g_bots_state.pending_bot>=0 ? EEA_BotCode(g_bots_state.pending_bot) : "")+"\",\"pending_expires_at_utc\":"+

@@ -195,6 +195,7 @@ input double InpBotsMaxOpenRiskPct      = 12.0;    // portfolio: no bot entry wh
 input double InpBotsDailyLossPct        = 6.0;     // portfolio: bots stop new entries after this loss in the server day (% of initial capital)
 input bool   InpBotsNewsGuard           = false;   // portfolio: block bot entries in the News Guard window (VHedge research had no news filter)
 input bool   InpBotsRequireLiveSession  = true;    // portfolio: bot entries need the signed live session, as S07
+input bool   InpBotsMcpCommands         = true;    // accept bot on/off from the MCP server (bridge/eea_mcp_server.py --allow-control)
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -1039,6 +1040,7 @@ void EEA_BotsInitFromInputs()
    CtxLimitBotParams cp;
    CtxLimitBotParamsDefaults(cp);
    cp.mode=InpBotCtxLimitMode; cp.risk_percent=InpBotCtxLimitRiskPct; cp.magic=InpBotCtxLimitMagic;
+   g_bots_allow_mcp=InpBotsMcpCommands;
    EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp,xp,cp);
   }
 

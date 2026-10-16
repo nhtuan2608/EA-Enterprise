@@ -154,7 +154,7 @@ class HostTests(unittest.TestCase):
     def test_command_contract(self):
         b = body(self.host, "string EEA_BotCommandEvaluate(")
         for token in ('"OPERATOR"', '"private_chat_attested"', '"sender_authenticated"', '"source_authenticated"',
-                      "s.account_id", "s.config_version", "now>expires", "sequence<=s.last_gateway_sequence",
+                      "s.account_id", "s.config_version", "now>expires", "s.last_gateway_sequence",
                       '"BOT_COMMAND_ALREADY_COMMITTED"'):
             self.assertIn(token, b)
         dis = b.index('if(action=="BOT_DISABLE") return "";')
