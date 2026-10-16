@@ -1078,6 +1078,8 @@ void EEA_S07AddState(const EEA_ManagedTrade &base,int &count,long &last_utc)
 bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setup,const string canonical,
                          const string broker_symbol,const int direction,string &reason)
   {
+   // Bots host: S07 Inactive (panel Settings > Bots or Telegram) blocks new S07-family entries only.
+   if(!EEA_BotS07EntriesAllowed()) { reason="S07_BOT_INACTIVE"; return false; }
    if(EEA_S07OpenLegs(trades,canonical,direction)>=EEA_S07_MAX_OPEN_LEGS) { reason="S07_MAX_OPEN_LEGS"; return false; }
    const int b=EEA_S07BaseIndex(trades,canonical,direction);
    if(EEA_S07IsBaseSetup(setup))       // G87: S07, S07E and S07R share the base slot; the first trigger enters

@@ -26,11 +26,14 @@ from pathlib import Path
 
 VERSION = "ai-bridge-v1.0.0"
 SCHEMA_VERSION = "1.0"
-REQUEST_TYPES = {"NEWS_DATA_REVIEW", "NEWS_EVENT_REVIEW", "NEWS_PRE_BRIEF", "EA_DIAGNOSTICS", "ASK_AI"}
-ACTION_WHITELIST = {"REPORT", "WARN", "RECOMMEND_WINDOW_CHANGE", "RECOMMEND_REVIEW"}
+REQUEST_TYPES = {"NEWS_DATA_REVIEW", "NEWS_EVENT_REVIEW", "NEWS_PRE_BRIEF", "EA_DIAGNOSTICS", "ASK_AI", "BOT_INTENT"}
+# BOT_ENABLE / BOT_DISABLE (bots host, 16/10/2026): only a BOT_INTENT request may allow them; the
+# answer is a proposal the Telegram gateway turns into a standard bot command (enable still needs /confirm).
+ACTION_WHITELIST = {"REPORT", "WARN", "RECOMMEND_WINDOW_CHANGE", "RECOMMEND_REVIEW", "BOT_ENABLE", "BOT_DISABLE"}
+BOT_ACTIONS = {"BOT_ENABLE", "BOT_DISABLE"}
 PROVIDERS = {"claude", "codex"}
 TTL_SECONDS = {"NEWS_DATA_REVIEW": 24 * 3600, "NEWS_EVENT_REVIEW": 12 * 3600,
-               "EA_DIAGNOSTICS": 24 * 3600, "ASK_AI": 4 * 3600,
+               "EA_DIAGNOSTICS": 24 * 3600, "ASK_AI": 4 * 3600, "BOT_INTENT": 300,
                "NEWS_PRE_BRIEF": 2 * 3600}   # valid until the release plus ~30 min
 MAX_REQUEST_BYTES = 50 * 1024
 MAX_STRING = 300
@@ -102,6 +105,8 @@ def validate_request(raw: bytes) -> dict:
     actions = req["allowed_actions"]
     if not isinstance(actions, list) or not actions or not set(actions) <= ACTION_WHITELIST:
         raise BridgeError("AI_ALLOWED_ACTIONS_INVALID", str(actions)[:120])
+    if set(actions) & BOT_ACTIONS and req["request_type"] != "BOT_INTENT":
+        raise BridgeError("AI_ALLOWED_ACTIONS_INVALID", "bot actions outside BOT_INTENT")
     if not isinstance(req["context"], dict):
         raise BridgeError("AI_CONTEXT_INVALID")
     if int(req["deadline_utc"]) <= utc_now():
@@ -192,6 +197,13 @@ TASKS = {
     "EA_DIAGNOSTICS": "Chẩn đoán vận hành EA trong 24 giờ qua từ thống kê audit: lỗi, trạng thái DEGRADED/BLOCKED, refresh thất bại, kết quả gửi lệnh không rõ. "
                       "Nêu nguyên nhân khả dĩ và việc người vận hành nên kiểm tra. Không đề xuất sửa code hay đổi cấu hình tự động.",
     "ASK_AI": "Tóm tắt tình trạng hệ thống và thị trường hiện tại cho người vận hành, nêu cảnh báo cần chú ý.",
+    # Bots host (16/10/2026): understand an operator message about switching a bot on or off.
+    "BOT_INTENT": "Hiểu ý của người vận hành trong trường operator_message của DATA: họ có muốn BẬT hay TẮT một bot "
+                  "trong danh sách bots (mỗi bot có code, title, active) không. Nếu rõ ràng, trả đúng MỘT recommendation "
+                  "với action BOT_ENABLE hoặc BOT_DISABLE và target là code của bot (S07, VHEDGE, XRT hoặc CTXLIMIT); "
+                  "proposal mô tả ngắn bằng tiếng Việt điều bạn hiểu. Nếu tin nhắn không phải yêu cầu bật/tắt bot, "
+                  "nhắc tới nhiều bot cùng lúc, hoặc không rõ bot nào, thì KHÔNG có recommendation và giải thích trong summary. "
+                  "Không suy ra việc bật/tắt từ phân tích thị trường; chỉ dịch đúng ý người vận hành.",
 }
 # Telegram /ask (G19): the operator's question travels inside DATA. It is answered, never obeyed:
 # the reply stays a report and cannot pause, resume or trade.

@@ -26,6 +26,9 @@ from pathlib import Path
 
 VERSION = "telegram-gateway-v1.0.0"
 COMMAND_SCHEMA = "remote-command-v1.0.0"
+BOT_COMMAND_SCHEMA = "bot-command-v1.0.0"     # bots host (16/10/2026): per-bot Active flags
+BOT_INTENT_DEADLINE = 120       # AI bridge deadline for a natural-language bot switch
+BOT_INTENT_WAIT = 180
 AI_SCHEMA = "1.0"
 COMMAND_TTL = 60                # seconds a /pause or /confirm command stays valid for the EA
 RESUME_TTL = 120                # REQUEST_RESUME command and nonce lifetime (EA max 120 s)
@@ -75,10 +78,15 @@ HELP_VIEWER = ("/status - trạng thái EA\n"
                "/ai - chất lượng vận hành AI 7 ngày và các cổng nâng AI\n"
                "/today - tóm tắt hôm nay (lệnh, candidate, tin, cảnh báo)\n"
                "/ask <câu hỏi> - hỏi AI (chỉ đọc, không đặt lệnh)\n"
+               "/bots - các bot: Active/Inactive, chế độ, lệnh mở, lãi/lỗ hôm nay\n"
                "/help - danh sách lệnh")
 HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế đang có vẫn được quản lý)\n"
                                "/resume - xin bật lại vào lệnh, nhận mã xác nhận\n"
-                               "/confirm <mã> - xác nhận bật lại trong 2 phút")
+                               "/confirm <mã> - xác nhận bật lại (hoặc bật bot) trong 2 phút\n"
+                               "/bot off <tên> - tắt một bot ngay (lệnh đang mở vẫn được quản lý)\n"
+                               "/bot on <tên> - xin bật một bot, nhận mã xác nhận\n"
+                               "Tên bot: s07, vhedge, xrt, ctxlimit\n"
+                               "Nhắn tự nhiên (vd: tắt VHedge đi) - AI hiểu ý rồi gửi lệnh chuẩn; bật vẫn cần /confirm")
 
 
 def now() -> int:
@@ -169,7 +177,8 @@ class Gateway:
     def _load_state(self) -> dict:
         base = {"offset": 0, "sequence": 0, "seen_updates": [], "pending_commands": {}, "pending_asks": {},
                 "outbox": [], "audit_pos": 0, "audit_size": 0, "reports_seen": {}, "news_seen": [],
-                "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": ""}
+                "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": "",
+                "pending_intents": {}, "bot_nonces": {}}
         loaded = read_json(self.state_path)
         if isinstance(loaded, dict):
             base.update(loaded)
@@ -284,6 +293,14 @@ class Gateway:
             self.cmd_edge(uid, mid)
         elif cmd == "/ask":
             self.cmd_ask(uid, mid, arg.strip(), uid_update)
+        elif cmd == "/bots":
+            self.send(uid, self.bots_text(), mid)
+        elif cmd == "/bot":
+            if role != "OPERATOR":
+                self.log("UNAUTHORIZED_ACTION", update_id=uid_update, user_id=uid, command=cmd)
+                self.send(uid, "Lệnh này chỉ dành cho operator.", mid)
+            else:
+                self.cmd_bot(uid, mid, arg.strip(), uid_update)
         elif cmd in ("/pause", "/resume", "/confirm"):
             if role != "OPERATOR":
                 self.log("UNAUTHORIZED_ACTION", update_id=uid_update, user_id=uid, command=cmd)
@@ -297,8 +314,13 @@ class Gateway:
                 nonce = arg.strip()
                 if not re.fullmatch(r"\d{6}", nonce):
                     self.send(uid, "Cú pháp: /confirm <mã 6 số>", mid)
+                elif nonce in self.state["bot_nonces"]:
+                    pending = self.state["bot_nonces"].pop(nonce)
+                    self.write_bot_command("BOT_CONFIRM_ENABLE", pending["bot"], uid, mid, uid_update, nonce=nonce)
                 else:
                     self.write_command("CONFIRM_RESUME", uid, mid, uid_update, nonce=nonce)
+        elif role == "OPERATOR" and text and not text.startswith("/"):
+            self.cmd_bot_intent(uid, mid, text, uid_update)
         else:
             self.send(uid, "Chỉ hỗ trợ lệnh. Gõ /help.", mid)
 
@@ -325,6 +347,147 @@ class Gateway:
         self.log("QUEUED", command_id=command_id, action=action, sequence=seq)
         self.send(uid, f"Đã nhận {action}, chờ EA xác nhận...", mid)
 
+    # -- bots host (16/10/2026): /bots, /bot on|off, natural language through the AI ---------------
+    BOT_CODES = ("S07", "VHEDGE", "XRT", "CTXLIMIT")
+    BOT_TITLES = {"S07": "S07", "VHEDGE": "VHedge G119", "XRT": "XauRegime", "CTXLIMIT": "CtxLimit"}
+
+    @classmethod
+    def resolve_bot(cls, name: str) -> str:
+        """Code, title or alias -> bot code, or "" (mirrors EEA_BotFind in Bots/BotState.mqh)."""
+        s = re.sub(r"[\s_\-]", "", str(name)).upper()
+        if not s:
+            return ""
+        for code in cls.BOT_CODES:
+            if s == code or s == re.sub(r"\s", "", cls.BOT_TITLES[code]).upper():
+                return code
+        if "VHEDGE" in s or "HEDGE" in s or s in ("G119", "VH"):
+            return "VHEDGE"
+        if "XAUREGIME" in s or "REGIME" in s or s == "XRT":
+            return "XRT"
+        if "CTX" in s:
+            return "CTXLIMIT"
+        if "S07" in s:
+            return "S07"
+        return ""
+
+    def bots_status(self) -> dict:
+        data = read_json(self.root / "current" / "bots_status.json")
+        return data if isinstance(data, dict) else {}
+
+    def bots_text(self) -> str:
+        data = self.bots_status()
+        if not data.get("bots"):
+            return "EA chưa có bots_status.json (bản EA chưa có lớp Bots, hoặc InpBotsEnabled=false)."
+        age = self.clock() - int(data.get("written_at_utc", 0) or 0)
+        lines = [f"Bots ({data.get('symbol', '')}), cập nhật {age}s trước" + (" - CŨ" if age > STATUS_STALE else "")]
+        for b in data["bots"]:
+            mark = "ON " if b.get("active") else "OFF"
+            lines.append(f"[{mark}] {b.get('title')} ({b.get('code')}) {b.get('mode')} | mở {b.get('open')} | "
+                         f"hôm nay {float(b.get('today', 0)):+.2f} | thả nổi {float(b.get('floating', 0)):+.2f}")
+            if b.get("status"):
+                lines.append(f"      {str(b['status'])[:160]}")
+        g = data.get("guard") or {}
+        if g:
+            risk = g.get("open_risk_pct")
+            lines.append(f"Guard: {'đã ARM' if g.get('execution_live') else 'CHƯA ARM'}"
+                         f"{' | ĐANG PAUSE' if g.get('operator_paused') else ''} | rủi ro mở "
+                         f"{'?' if risk is None else f'{float(risk):.1f}%'} / trần {float(g.get('max_open_risk_pct', 0)):.1f}%"
+                         f" | dừng ngày -{float(g.get('daily_loss_pct', 0)):.1f}%")
+        if data.get("pending_bot"):
+            lines.append(f"Đang chờ /confirm để bật {data['pending_bot']}")
+        return "\n".join(lines)
+
+    def write_bot_command(self, action: str, bot: str, uid: int, mid, update_id: int, nonce: str = ""):
+        status = self.bots_status()
+        if not status.get("account_id") or not status.get("state_loaded"):
+            self.send(uid, "EA chưa sẵn sàng cho lệnh bot (chưa có bots_status.json hợp lệ).", mid)
+            return
+        seq = self.next_sequence()
+        t = self.clock()
+        ttl = RESUME_TTL if action == "BOT_REQUEST_ENABLE" else COMMAND_TTL
+        command_id = f"tgb-{seq:06d}-{secrets.token_hex(4)}"
+        cmd = {"schema_version": BOT_COMMAND_SCHEMA, "command_id": command_id, "action": action, "bot": bot,
+               "role": "OPERATOR", "chat_id": str(uid), "user_id": str(uid), "telegram_update_id": update_id,
+               "gateway_sequence": seq, "account_id": status["account_id"],
+               "config_version": status.get("config_version", ""), "issued_at_utc": t, "expires_at_utc": t + ttl,
+               "confirmation_nonce": nonce,
+               "nonce_expires_at_utc": t + RESUME_TTL - 5 if action == "BOT_REQUEST_ENABLE" else 0,
+               "private_chat_attested": True, "sender_authenticated": True, "source_authenticated": True}
+        write_atomic(self.root / "current" / "remote" / "bot_commands" / f"{seq:012d}.json", cmd)
+        self.state["pending_commands"][command_id] = {"chat_id": uid, "reply_to": mid, "action": action, "bot": bot,
+                                                      "issued": t, "nonce": nonce}
+        self.log("QUEUED", command_id=command_id, action=action, bot=bot, sequence=seq)
+        verb = {"BOT_DISABLE": "tắt", "BOT_REQUEST_ENABLE": "xin bật", "BOT_CONFIRM_ENABLE": "bật"}.get(action, action)
+        self.send(uid, f"Đã gửi lệnh {verb} {self.BOT_TITLES.get(bot, bot)}, chờ EA xác nhận...", mid)
+
+    def bot_switch(self, uid: int, mid, on: bool, bot: str, update_id: int):
+        if on:
+            nonce = f"{secrets.randbelow(10 ** 6):06d}"
+            self.write_bot_command("BOT_REQUEST_ENABLE", bot, uid, mid, update_id, nonce=nonce)
+        else:
+            self.write_bot_command("BOT_DISABLE", bot, uid, mid, update_id)
+
+    def cmd_bot(self, uid: int, mid, arg: str, update_id: int):
+        verb, _, name = arg.partition(" ")
+        verb = verb.lower()
+        on = verb in ("on", "bat", "bật", "enable", "start")
+        off = verb in ("off", "tat", "tắt", "disable", "stop")
+        bot = self.resolve_bot(name)
+        if not (on or off) or not bot:
+            self.send(uid, "Cú pháp: /bot on <tên> hoặc /bot off <tên> (tên: s07, vhedge, xrt, ctxlimit)", mid)
+            return
+        self.bot_switch(uid, mid, on, bot, update_id)
+
+    def cmd_bot_intent(self, uid: int, mid, text: str, update_id: int):
+        if not self.rate_ok(uid, "ask", self.config["asks_per_hour"], 3600):
+            self.send(uid, "Đã đủ số câu hỏi AI trong 1 giờ. Dùng /bot on|off <tên> để bật/tắt bot.", mid)
+            return
+        status = self.bots_status()
+        bots = [{"code": b.get("code"), "title": b.get("title"), "active": b.get("active")}
+                for b in status.get("bots", [])] or [{"code": c, "title": self.BOT_TITLES[c]} for c in self.BOT_CODES]
+        seq = self.next_sequence()
+        request_id = f"tgi-{seq:06d}-{secrets.token_hex(4)}"
+        t = self.clock()
+        req = {"schema_version": AI_SCHEMA, "request_id": request_id, "request_type": "BOT_INTENT",
+               "created_at_utc": t, "deadline_utc": t + BOT_INTENT_DEADLINE, "provider": self.config["ai_provider"],
+               "allowed_actions": ["BOT_ENABLE", "BOT_DISABLE"],
+               "context": {"operator_message": text[:MAX_QUESTION], "bots": bots, "source": "TELEGRAM",
+                           "telegram_update_id": update_id}}
+        write_atomic(self.root / "ai" / "requests" / f"{request_id}.json", req)
+        self.state["pending_intents"][request_id] = {"chat_id": uid, "reply_to": mid, "issued": t,
+                                                     "update_id": update_id}
+        self.log("QUEUED", request_id=request_id, request_type="BOT_INTENT")
+        self.send(uid, "Đang nhờ AI hiểu yêu cầu...", mid)
+
+    def poll_intents(self):
+        responses = self.root / "ai" / "responses"
+        for request_id, p in list(self.state["pending_intents"].items()):
+            path = responses / f"{request_id}.json"
+            res = read_json(path)
+            if isinstance(res, dict):
+                recs = [r for r in res.get("recommendations", []) if r.get("action") in ("BOT_ENABLE", "BOT_DISABLE")]
+                bot = self.resolve_bot(recs[0].get("target", "")) if len(recs) == 1 else ""
+                if res.get("status") != "OK":
+                    self.send(p["chat_id"], f"AI lỗi: {res.get('error', 'UNKNOWN')}. Dùng /bot on|off <tên>.", p["reply_to"])
+                elif not bot:
+                    self.send(p["chat_id"], "AI không thấy yêu cầu bật/tắt bot rõ ràng, không gửi lệnh nào.\n"
+                                            f"{res.get('summary', '')}".strip(), p["reply_to"])
+                else:
+                    on = recs[0]["action"] == "BOT_ENABLE"
+                    self.send(p["chat_id"], f"AI hiểu là: {'BẬT' if on else 'TẮT'} {self.BOT_TITLES.get(bot, bot)}"
+                                            f"{' (cần /confirm)' if on else ''}", p["reply_to"])
+                    self.bot_switch(p["chat_id"], p["reply_to"], on, bot, p["update_id"])
+                self.log("AI_COMPLETED", request_id=request_id, status=res.get("status"), bot=bot)
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                del self.state["pending_intents"][request_id]
+            elif self.clock() - p["issued"] > BOT_INTENT_WAIT:
+                self.send(p["chat_id"], "AI chưa trả lời (timeout). Dùng /bot on|off <tên>.", p["reply_to"])
+                self.log("AI_TIMEOUT", request_id=request_id)
+                del self.state["pending_intents"][request_id]
+
     def poll_results(self):
         results = self.root / "current" / "remote" / "results"
         for command_id, p in list(self.state["pending_commands"].items()):
@@ -335,6 +498,14 @@ class Gateway:
                 if p["action"] == "REQUEST_RESUME" and res.get("applied"):
                     text = (f"Mã xác nhận: {p['nonce']}\nGửi /confirm {p['nonce']} trong 2 phút để bật lại vào lệnh.\n"
                             "EA sẽ kiểm tra lại toàn bộ điều kiện an toàn trước khi bật.")
+                elif p["action"] == "BOT_REQUEST_ENABLE" and res.get("applied"):
+                    self.state["bot_nonces"][p["nonce"]] = {"bot": p["bot"], "expires": self.clock() + RESUME_TTL}
+                    text = (f"Mã xác nhận bật {self.BOT_TITLES.get(p['bot'], p['bot'])}: {p['nonce']}\n"
+                            f"Gửi /confirm {p['nonce']} trong 2 phút. Bot chỉ vào lệnh mới khi EA đã ARM và qua Portfolio Guard.")
+                elif p["action"].startswith("BOT_") and res.get("applied"):
+                    text = (f"EA đã {'bật' if res.get('state_after') == 'ACTIVE' else 'tắt'} "
+                            f"{self.BOT_TITLES.get(p['bot'], p['bot'])}: {res.get('state_before')} -> {res.get('state_after')}"
+                            f"{' (lệnh đang mở vẫn được quản lý)' if res.get('state_after') == 'INACTIVE' else ''}")
                 elif res.get("applied"):
                     text = f"EA đã áp dụng {p['action']}: {res.get('state_before')} -> {res.get('state_after')} ({reason})"
                 elif res.get("status") == "DUPLICATE_IGNORED":
@@ -848,6 +1019,9 @@ class Gateway:
             self.log("POLL_FAILED", detail=redact(exc, self.token)[:200])
         self.poll_results()
         self.poll_asks()
+        self.poll_intents()
+        now_ = self.clock()
+        self.state["bot_nonces"] = {k: v for k, v in self.state["bot_nonces"].items() if v.get("expires", 0) > now_}
         self.poll_jobs()
         self.notify_audit()
         self.notify_reports()
