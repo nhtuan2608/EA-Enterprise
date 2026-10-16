@@ -16,6 +16,18 @@ void EEA_RuntimeSortDeals(EEA_RuntimeDealRow &rows[],const int count)
      }
   }
 
+// Prints why a reconciliation read failed. The 30 s refresh timer retries the read,
+// so an unchanged message is printed once instead of flooding the Experts journal.
+void EEA_ReconciliationLogFailure(const string reason,const string detail)
+  {
+   static string last_logged="";
+   const string line=reason+": "+detail;
+   if(line==last_logged)
+      return;
+   last_logged=line;
+   Print("EnterpriseEA reconciliation failed, "+line);
+  }
+
 bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
                                    const string config_version,
                                    const int lookback_days,
@@ -81,12 +93,22 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
 
    const int order_total=OrdersTotal();
    if(order_total<0 || order_total>EEA_RUNTIME_MAX_ORDERS)
-     { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+     {
+      reason="ORDERS_OVER_CAP";
+      EEA_ReconciliationLogFailure(reason,"open orders "+IntegerToString(order_total)+
+                                   ", cap "+IntegerToString(EEA_RUNTIME_MAX_ORDERS));
+      return false;
+     }
    for(int i=0;i<order_total;i++)
      {
       const ulong ticket=OrderGetTicket(i);
       if(ticket==0)
-        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+        {
+         reason="ORDER_TICKET_MISSING";
+         EEA_ReconciliationLogFailure(reason,"open order index "+IntegerToString(i)+" of "+
+                                      IntegerToString(order_total)+", error "+IntegerToString(GetLastError()));
+         return false;
+        }
       EEA_RuntimeOrderRow row;
       row.ticket=(long)ticket;
       row.order_id=IntegerToString((long)ticket);
@@ -100,7 +122,13 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
       row.expiration_utc=OrderGetInteger(ORDER_TIME_EXPIRATION);
       if(row.symbol=="" || !EEA_IsFiniteDouble(row.volume) || row.volume<0.0 ||
          !EEA_IsFiniteDouble(row.price) || !EEA_IsFiniteDouble(row.sl) || !EEA_IsFiniteDouble(row.tp))
-        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+        {
+         reason="ORDER_VALUE_INVALID";
+         EEA_ReconciliationLogFailure(reason,"open order "+IntegerToString(row.ticket)+" symbol '"+row.symbol+
+                                      "' volume "+DoubleToString(row.volume,8)+" price "+DoubleToString(row.price,8)+
+                                      " sl "+DoubleToString(row.sl,8)+" tp "+DoubleToString(row.tp,8));
+         return false;
+        }
       snapshot.orders[snapshot.order_count++]=row;
      }
    snapshot.orders_complete=true;
@@ -112,12 +140,23 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
    snapshot.history_orders_complete=false;
    const int history_order_total=HistoryOrdersTotal();
    if(history_order_total<0 || history_order_total>EEA_RUNTIME_MAX_ORDERS)
-     { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+     {
+      reason="HISTORY_ORDERS_OVER_CAP";
+      EEA_ReconciliationLogFailure(reason,"history orders "+IntegerToString(history_order_total)+
+                                   " in the last "+IntegerToString(lookback_days)+" days, cap "+
+                                   IntegerToString(EEA_RUNTIME_MAX_ORDERS));
+      return false;
+     }
    for(int i=0;i<history_order_total;i++)
      {
       const ulong ticket=HistoryOrderGetTicket(i);
       if(ticket==0)
-        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+        {
+         reason="HISTORY_ORDER_TICKET_MISSING";
+         EEA_ReconciliationLogFailure(reason,"history order index "+IntegerToString(i)+" of "+
+                                      IntegerToString(history_order_total)+", error "+IntegerToString(GetLastError()));
+         return false;
+        }
       EEA_RuntimeOrderRow row;
       row.ticket=(long)ticket;
       row.order_id=IntegerToString((long)ticket);
@@ -131,7 +170,14 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
       row.expiration_utc=HistoryOrderGetInteger(ticket,ORDER_TIME_EXPIRATION);
       if(!EEA_IsFiniteDouble(row.volume) || row.volume<0.0 ||
          !EEA_IsFiniteDouble(row.price) || !EEA_IsFiniteDouble(row.sl) || !EEA_IsFiniteDouble(row.tp))
-        { reason="ORDERS_SOURCE_INCOMPLETE"; return false; }
+        {
+         reason="HISTORY_ORDER_VALUE_INVALID";
+         EEA_ReconciliationLogFailure(reason,"history order "+IntegerToString(row.ticket)+" ("+IntegerToString(i)+
+                                      " of "+IntegerToString(history_order_total)+") volume "+DoubleToString(row.volume,8)+
+                                      " price "+DoubleToString(row.price,8)+" sl "+DoubleToString(row.sl,8)+
+                                      " tp "+DoubleToString(row.tp,8));
+         return false;
+        }
       snapshot.history_orders[snapshot.history_order_count++]=row;
      }
    snapshot.history_orders_complete=true;

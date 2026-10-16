@@ -276,6 +276,17 @@ class RuntimeEvidenceAdapterTests(unittest.TestCase):
             self.assertIn(flag, src,
                           f"reconciliation adapter must set source flag: {flag}")
 
+    def test_reconciliation_order_failures_have_detailed_reasons(self):
+        # Each order read failure names its cause and logs the counts behind it,
+        # so a BLOCKED runtime on a VPS terminal can be diagnosed from the journal.
+        src = (ROOT / "Runtime/BrokerReconciliationAdapter.mqh").read_text(encoding="utf-8")
+        for code in ("ORDERS_OVER_CAP", "ORDER_TICKET_MISSING", "ORDER_VALUE_INVALID",
+                     "HISTORY_ORDERS_OVER_CAP", "HISTORY_ORDER_TICKET_MISSING",
+                     "HISTORY_ORDER_VALUE_INVALID"):
+            self.assertIn(f'reason="{code}"', src)
+        self.assertNotIn('reason="ORDERS_SOURCE_INCOMPLETE"', src)
+        self.assertIn("EEA_ReconciliationLogFailure(reason,", src)
+
 
 def test_no_broker_mutation_api_in_project_mql(self):
     forbidden = ("OrderSend", "OrderSendAsync", "CTrade", ".Buy(", ".Sell(",
