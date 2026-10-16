@@ -1,4 +1,4 @@
-#ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
+﻿#ifndef ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 #define ENTERPRISE_EA_SYMBOL_SELECTION_PANEL_MQH
 
 // G94: the EnterpriseS07 edition (EEA_S07_EDITION) shows its own name, no AI tab and the S07 setup column.
@@ -187,6 +187,28 @@ struct EEA_SymbolPanelState
   };
 
 static EEA_SymbolPanelState g_panel_state;
+
+// Bots host rows (published by the EA shell each timer): Settings > Bots and the collapsed panel.
+struct EEA_PanelBotRow
+  {
+   string code;
+   string title;
+   string mode;
+   bool   active;
+   long   magic;
+   int    open_count;
+   double today;
+   double floating;
+   string status;
+   double near_score;             // 0..1: how close the bot is to its next entry
+   string near_text;              // what it waits for / what is still missing
+  };
+
+EEA_PanelBotRow g_panel_bots[4];
+int    g_panel_bot_count=0;
+string g_panel_bots_guard="";      // one line: armed / pause / open risk / daily loss / news
+bool   g_panel_bots_enabled=false;
+#define EEA_PANEL_MINI_ROW 19
 
 // Read-only engine facts published by the EA shell before each refresh. The panel
 // renders them; it never derives execution or strategy state on its own.
@@ -849,7 +871,55 @@ void EEA_SymbolPanelCloseOverlay(const long chart_id)
 
 int EEA_SymbolPanelHeight()
   {
-   return g_panel_state.collapsed ? EEA_PANEL_COLLAPSED_HEIGHT : EEA_PANEL_MAIN_HEIGHT;
+   if(!g_panel_state.collapsed) return EEA_PANEL_MAIN_HEIGHT;
+   // Collapsed with the bots layer: one line per bot plus the "closest" line.
+   return EEA_PANEL_COLLAPSED_HEIGHT+(g_panel_bots_enabled && g_panel_bot_count>0 ?
+          6+g_panel_bot_count*EEA_PANEL_MINI_ROW+EEA_PANEL_MINI_ROW+6 : 0);
+  }
+
+string EEA_SymbolPanelMeter(const double score)
+  {
+   const int n=(int)MathRound(MathMax(0.0,MathMin(1.0,score))*5.0);
+   string m="";
+   for(int i=0;i<5;i++) m+=(i<n ? EEA_SymbolPanelGlyph(0x25A0) : EEA_SymbolPanelGlyph(0x25A1));
+   return m;
+  }
+
+// Collapsed panel: what every bot is doing and how close it is to an entry; the closest one last.
+void EEA_SymbolPanelRenderMiniBots(const long chart_id)
+  {
+   const string pfx=EEA_PANEL_MAIN_PREFIX+"Mini_";
+   if(!g_panel_state.collapsed || !g_panel_bots_enabled || g_panel_bot_count<=0)
+     { ObjectsDeleteAll(chart_id,pfx,g_panel_state.sub_window); return; }
+   int y=EEA_PANEL_COLLAPSED_HEIGHT+6;
+   int best=-1;
+   for(int i=0;i<g_panel_bot_count && i<4;i++)
+     {
+      const EEA_PanelBotRow b=g_panel_bots[i];
+      if(b.active && b.mode!="OFF" && (best<0 || b.near_score>g_panel_bots[best].near_score)) best=i;
+      const color c=(!b.active || b.mode=="OFF") ? EEA_PANEL_FAINT_COLOR :
+                    (b.near_score>=0.8 ? EEA_PANEL_OK_COLOR : (b.near_score>=0.5 ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_TEXT_COLOR));
+      EEA_SymbolPanelSetText(chart_id,pfx+"M"+IntegerToString(i),EEA_PANEL_MARGIN_X,y,EEA_SymbolPanelMeter(b.near_score),c,
+                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,10);
+      EEA_SymbolPanelSetText(chart_id,pfx+"N"+IntegerToString(i),EEA_PANEL_MARGIN_X+62,y,
+                             b.title+(b.active ? "" : " (OFF)"),b.active ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_FAINT_COLOR,
+                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,16);
+      EEA_SymbolPanelSetText(chart_id,pfx+"D"+IntegerToString(i),EEA_PANEL_MARGIN_X+150,y,
+                             b.mode+(b.open_count>0 ? " "+IntegerToString(b.open_count)+" mở" : ""),
+                             b.mode=="LIVE" ? EEA_PANEL_WARNING_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,12);
+      EEA_SymbolPanelSetText(chart_id,pfx+"T"+IntegerToString(i),EEA_PANEL_MARGIN_X+214,y,
+                             b.near_text!="" ? b.near_text : b.status,b.active ? EEA_PANEL_MUTED_COLOR : EEA_PANEL_FAINT_COLOR,
+                             EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,52);
+      y+=EEA_PANEL_MINI_ROW;
+     }
+   string line="Gần khớp nhất: không có bot nào đang bật";
+   if(best>=0)
+      line="Gần khớp nhất: "+g_panel_bots[best].title+" "+IntegerToString((int)MathRound(100.0*g_panel_bots[best].near_score))+
+           "%  "+EEA_SymbolPanelGlyph(0x2192)+"  "+g_panel_bots[best].near_text;
+   EEA_SymbolPanelSetText(chart_id,pfx+"Best",EEA_PANEL_MARGIN_X,y+2,line,
+                          best>=0 && g_panel_bots[best].near_score>=0.8 ? EEA_PANEL_OK_COLOR : EEA_PANEL_ACCENT_COLOR,
+                          EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT_BOLD,ANCHOR_LEFT_UPPER,90);
   }
 
 bool EEA_SymbolPanelSelectionContains(const EEA_ObserverRuntimeContext &ctx,const string canonical)
@@ -981,6 +1051,10 @@ void EEA_SymbolPanelRenderMainView(const long chart_id,EEA_ObserverRuntimeContex
    EEA_SymbolPanelSetText(chart_id,EEA_PANEL_MAIN_PREFIX+"Lbl_Subheader",EEA_PANEL_MARGIN_X,29,subheader,
                           ctx.status.new_entries_blocked ? EEA_PANEL_MUTED_COLOR : EEA_PANEL_WARNING_COLOR,
                           EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,60);
+   // The surface follows the collapsed height (the bot lines appear once the shell published them).
+   EEA_SymbolPanelSetSurface(chart_id,EEA_PANEL_MAIN_PREFIX+"Surface",0,0,EEA_PANEL_MAIN_WIDTH,EEA_SymbolPanelHeight(),
+                             EEA_PANEL_BG_COLOR);
+   EEA_SymbolPanelRenderMiniBots(chart_id);
    if(g_panel_state.collapsed) { ChartRedraw(chart_id); return; }
    bool dashboard=(g_panel_state.active_view!="SETTINGS");
    int tab_y=EEA_PANEL_HEADER_HEIGHT+6;
@@ -1336,23 +1410,6 @@ void EEA_SymbolPanelRenderViewBase(const long chart_id)
 // Bots host (design 2026-10-16): one row per strategy with its Active switch. The EA shell publishes
 // g_panel_bots each timer; a click only sets g_panel_state.bot_toggle_request (the shell commits,
 // audits and applies it). Turning a bot OFF is one click; turning it ON needs a second click (10 s).
-struct EEA_PanelBotRow
-  {
-   string code;
-   string title;
-   string mode;
-   bool   active;
-   long   magic;
-   int    open_count;
-   double today;
-   double floating;
-   string status;
-  };
-
-EEA_PanelBotRow g_panel_bots[4];
-int    g_panel_bot_count=0;
-string g_panel_bots_guard="";      // one line: armed / pause / open risk / daily loss / news
-bool   g_panel_bots_enabled=false;
 
 bool EEA_SymbolPanelBotConfirming(const string code)
   {

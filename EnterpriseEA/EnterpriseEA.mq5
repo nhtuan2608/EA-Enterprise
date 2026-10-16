@@ -1106,6 +1106,7 @@ void EEA_BotsPublishPanel()
       g_panel_bots[i].today=today;
       g_panel_bots[i].floating=floating;
       g_panel_bots[i].status=g_bots_host.status_text[i];
+      EEA_BotNear(i,g_panel_bots[i].near_score,g_panel_bots[i].near_text);
      }
    double open_risk=0.0; string risk_reason="";
    const bool risk_ok=EEA_BotsAccountOpenRisk(open_risk,risk_reason);

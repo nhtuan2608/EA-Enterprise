@@ -38,6 +38,9 @@ struct EEA_BotsHost
   };
 
 EEA_BotsHost g_bots_host;
+double       g_bot_s07_near=0.0;          // collapsed panel: S07 conditions met on the last closed M30 bar
+string       g_bot_s07_near_text="";
+datetime     g_bot_s07_near_bar=0;
 CVHedgeBot   g_bot_vhedge;
 CXrtBot      g_bot_xrt;
 CCtxLimitBot g_bot_ctx;
@@ -95,6 +98,80 @@ string EEA_BotStatusText(const int id)
    if(id==EEA_BOT_XRT) return g_bot_xrt.StatusText();
    if(id==EEA_BOT_CTXLIMIT) return g_bot_ctx.StatusText();
    return "";
+  }
+
+// ------------------------------------------------------------------------------------------------------ closeness
+// Read-only view of the S07 rule on the last closed M30 bar (the engine itself decides; this only counts
+// which of its five conditions are met, for the better direction): 1 compression in the window, 2 ADX turns up
+// within 10 of the low, 3 DI with the side and widening, 4 close beyond the four EMAs, 5 H4 close on that side
+// of the H4 EMA200.
+void EEA_BotsS07Near(const string sym)
+  {
+   const datetime bar=iTime(sym,PERIOD_M30,1);
+   if(bar==0 || bar==g_bot_s07_near_bar) return;
+   MqlRates r[];
+   ArraySetAsSeries(r,false);
+   const int n=CopyRates(sym,PERIOD_M30,1,600,r);
+   if(n<300) { g_bot_s07_near=0.0; g_bot_s07_near_text="chưa đủ nến M30"; return; }
+   double e21[],e55[],e100[],e200[],pdi[],mdi[],adx[],atr[];
+   EEA_S07Ema(r,n,21,e21); EEA_S07Ema(r,n,55,e55); EEA_S07Ema(r,n,100,e100); EEA_S07Ema(r,n,200,e200);
+   EEA_S07Dmi(r,n,pdi,mdi,adx,atr);
+   int h4_side=0;
+   MqlRates h[];
+   ArraySetAsSeries(h,false);
+   const int nh=CopyRates(sym,PERIOD_H4,1,400,h);
+   if(nh>=210)
+     {
+      double eh[];
+      EEA_S07Ema(h,nh,200,eh);
+      h4_side=(h[nh-1].close>eh[nh-1] ? 1 : (h[nh-1].close<eh[nh-1] ? -1 : 0));
+     }
+   const int i=n-1, window=EEA_S07WindowBars("M30");
+   int k=i-window;
+   for(int j=i-window+1;j<i;j++) if(adx[j]<adx[k]) k=j;
+   const bool c1=(adx[k]<=EEA_S07_ADX_LOW && MathAbs(pdi[k]-mdi[k])<=EEA_S07_DI_GAP);
+   const bool c2=(adx[i]>adx[i-1] && adx[i]-adx[k]<=EEA_S07_ADX_RISE);
+   const double gap=pdi[i]-mdi[i], gap_prev=pdi[i-1]-mdi[i-1];
+   const double hi=MathMax(MathMax(e21[i],e55[i]),MathMax(e100[i],e200[i]));
+   const double lo=MathMin(MathMin(e21[i],e55[i]),MathMin(e100[i],e200[i]));
+   int best_d=1, best_n=-1;
+   bool b3=false, b4=false, b5=false;
+   for(int s=0;s<2;s++)
+     {
+      const int d=(s==0 ? 1 : -1);
+      const bool c3=(d*gap>0.0 && d*gap>d*gap_prev);
+      const bool c4=(d==1 ? r[i].close>hi : r[i].close<lo);
+      const bool c5=(h4_side==d);
+      const int cnt=(c1 ? 1 : 0)+(c2 ? 1 : 0)+(c3 ? 1 : 0)+(c4 ? 1 : 0)+(c5 ? 1 : 0);
+      if(cnt>best_n) { best_n=cnt; best_d=d; b3=c3; b4=c4; b5=c5; }
+     }
+   g_bot_s07_near=best_n/5.0;
+   g_bot_s07_near_text=StringFormat("%s %d/5: nén ADX %s | ADX lên %s | DI %s | vượt 4 EMA %s | H4 %s (M30 %s)",
+                                    best_d==1 ? "MUA" : "BÁN",best_n,PnlMark(c1),PnlMark(c2),PnlMark(b3),PnlMark(b4),
+                                    PnlMark(b5),PnlHm(bar+1800));
+   g_bot_s07_near_bar=bar;
+  }
+
+void EEA_BotNear(const int id,double &score,string &text)
+  {
+   score=0.0; text="";
+   if(id==EEA_BOT_S07)
+     {
+      score=g_bot_s07_near; text=g_bot_s07_near_text;
+      int open_count=0; double fl=0.0, today=0.0;
+      EEA_BotMagicStats(g_bots_host.magics[id],"",open_count,fl,today);
+      if(open_count>0) { score=1.0; text=StringFormat("đang giữ %d lệnh S07",open_count); }
+      if(g_bots_host.s07_mode=="OFF") { score=0.0; text="OFF"; }
+     }
+   else if(id==EEA_BOT_VHEDGE)
+     {
+      score=g_bot_vhedge.near_score; text=g_bot_vhedge.near_text;
+      if(g_bot_vhedge.OpenGroups()>0) { score=1.0; text=StringFormat("đang có %d nhóm hedge",g_bot_vhedge.OpenGroups()); }
+      if(g_bot_vhedge.ModeText()=="OFF") { score=0.0; text="OFF"; }
+     }
+   else if(id==EEA_BOT_XRT) g_bot_xrt.Near(score,text);
+   else if(id==EEA_BOT_CTXLIMIT) g_bot_ctx.Near(score,text);
+   if(!EEA_BotActive(id)) score=0.0;
   }
 
 // ------------------------------------------------------------------------------------------------------ lifecycle
@@ -270,11 +347,14 @@ string EEA_BotsStatusJson()
       if(i==EEA_BOT_VHEDGE && g_bot_vhedge.ModeText()=="SHADOW") open_count=g_bot_vhedge.OpenLegs();
       if(i==EEA_BOT_XRT && g_bot_xrt.ModeText()=="SHADOW") open_count=g_bot_xrt.OpenLegs();
       if(i==EEA_BOT_CTXLIMIT && g_bot_ctx.ModeText()=="SHADOW") open_count=g_bot_ctx.OpenLegs();
+      double near=0.0; string near_text="";
+      EEA_BotNear(i,near,near_text);
       bots+=(i>0 ? "," : "")+"{\"code\":\""+EEA_BotCode(i)+"\",\"title\":\""+EEA_JsonEscape(EEA_BotTitle(i))+
             "\",\"active\":"+(EEA_BotActive(i) ? "true" : "false")+",\"mode\":\""+EEA_JsonEscape(EEA_BotModeText(i))+
             "\",\"magic\":"+IntegerToString(g_bots_host.magics[i])+",\"open\":"+IntegerToString(open_count)+
             ",\"floating\":"+DoubleToString(floating,2)+",\"today\":"+DoubleToString(today,2)+
-            ",\"status\":\""+EEA_JsonEscape(EEA_BotStatusText(i))+"\"}";
+            ",\"status\":\""+EEA_JsonEscape(EEA_BotStatusText(i))+"\",\"near\":"+DoubleToString(near,2)+
+            ",\"near_text\":\""+EEA_JsonEscape(near_text)+"\"}";
      }
    string guard="";
    double open_risk=0.0; string risk_reason="";
@@ -304,6 +384,7 @@ void EEA_BotsHostTimer(const string account_id,const string config_version,CAudi
    if(!g_bots_state.loaded || g_bots_state.account_id!=account_id || g_bots_state.config_version!=config_version)
       EEA_BotsStateLoad(g_bots_state,g_bots_host.root,account_id,config_version,g_bots_host.defaults,audit);
    EEA_BotsProcessCommands(audit);
+   EEA_BotsS07Near(g_bots_host.symbol);
   }
 
 // After the shell refreshed the guard and the S07 line: panel texts and current/bots_status.json.

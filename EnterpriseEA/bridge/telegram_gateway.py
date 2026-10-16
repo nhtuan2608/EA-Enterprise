@@ -384,7 +384,9 @@ class Gateway:
             mark = "ON " if b.get("active") else "OFF"
             lines.append(f"[{mark}] {b.get('title')} ({b.get('code')}) {b.get('mode')} | mở {b.get('open')} | "
                          f"hôm nay {float(b.get('today', 0)):+.2f} | thả nổi {float(b.get('floating', 0)):+.2f}")
-            if b.get("status"):
+            if b.get("near_text"):
+                lines.append(f"      gần khớp {round(100 * float(b.get('near', 0)))}%: {str(b['near_text'])[:160]}")
+            elif b.get("status"):
                 lines.append(f"      {str(b['status'])[:160]}")
         g = data.get("guard") or {}
         if g:

@@ -444,6 +444,27 @@ public:
 
    int OpenLegs() { int d=0; return OwnPosition(d) ? 1 : 0; }
 
+   // Collapsed panel: 1 = in a position or a plan for today; otherwise the share of the regime conditions
+   // (D1 close beyond EMA50, EMA slope) met for an allowed direction, with the distance in ATR.
+   void Near(double &score,string &text)
+     {
+      score=0.0; text="";
+      if(p.mode==BOT_OFF) { text="OFF"; return; }
+      if(!day.ok) { text="chưa đủ nến D1"; return; }
+      int dir=0;
+      if(OwnPosition(dir)) { score=1.0; text="đang giữ lệnh "+PnlDir(dir); return; }
+      if(plan.ok) { score=0.95; text="kế hoạch hôm nay: "+(plan.note!="" ? plan.note : "chờ đặt lệnh"); return; }
+      const int d=(p.dir_mode==XRB_SHORT_ONLY ? -1 : 1);
+      const bool c1=(d*(day.close-day.ema)>0.0), c2=(d*(day.ema-day.ema_prev)>0.0);
+      score=((c1 ? 0.45 : 0.0)+(c2 ? 0.45 : 0.0));
+      const double gap=(day.atr>0.0 ? d*(day.close-day.ema)/day.atr : 0.0);
+      if(!c1) score+=MathMax(0.0,0.2-0.1*MathAbs(gap));
+      text=StringFormat("%s: D1 đóng %s EMA%d %s (%+.2f ATR) | EMA %s %s%s",d==1 ? "MUA" : "BÁN",d==1 ? "trên" : "dưới",
+                        p.ema_period,PnlMark(c1),gap,d==1 ? "dốc lên" : "dốc xuống",PnlMark(c2),
+                        dir==0 && blocked_dir==d ? " | chờ chế độ đổi sau trail" : "");
+      score=MathMin(score,0.9);
+     }
+
    string StatusText()
      {
       if(p.mode==BOT_OFF) return "OFF";

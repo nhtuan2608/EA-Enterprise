@@ -510,6 +510,23 @@ public:
 
    int OpenLegs() const { ulong tk=0; return (HasPosition(tk) ? 1 : 0)+PendingCount(); }
 
+   // Collapsed panel: 1 with a position, 0.9 with a waiting limit, else the best forecast over the threshold.
+   void Near(double &score,string &text) const
+     {
+      score=0.0; text="";
+      if(p.mode==BOT_OFF) { text="OFF"; return; }
+      if(!model_ok || !warm || !CtxbOk(g.A)) { text=StatusText(); return; }
+      ulong tk=0;
+      if(HasPosition(tk)) { score=1.0; text="đang có lệnh"; return; }
+      if(PendingCount()>0) { score=0.9; text=StringFormat("%d limit đang chờ khớp",PendingCount()); return; }
+      const double th=Threshold();
+      const double best=MathMax(dl_buy,dl_sell);
+      score=(dl_time>0 && best>0.0 ? MathMin(0.85,best/th*0.85) : 0.0);
+      const datetime next=(datetime)(((long)TimeCurrent()/3600+1)*3600);
+      text=(dl_time==0 ? "chưa có dự báo" :
+            StringFormat("dự báo MUA %+.2fR / BÁN %+.2fR, cần > %.2f",dl_buy,dl_sell,th))+" | xét lúc "+PnlHm(next);
+     }
+
    string StatusText() const
      {
       if(p.mode==BOT_OFF) return "OFF";

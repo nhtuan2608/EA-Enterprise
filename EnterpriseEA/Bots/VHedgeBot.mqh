@@ -96,8 +96,10 @@ public:
    int      day_key;
    double   day_realized_money;
    bool     dirty;
+   double   near_score;            // collapsed panel: closeness to the next group (0..1)
+   string   near_text;
 
-                     CVHedgeBot() { next_id=1; last_bar=0; csv=INVALID_HANDLE; dirty=false; }
+                     CVHedgeBot() { next_id=1; last_bar=0; csv=INVALID_HANDLE; dirty=false; near_score=0.0; near_text=""; }
 
    bool     IsLive() const { return p.mode==BOT_LIVE && live_ok; }
    string   ModeText() const { return p.mode==BOT_OFF ? "OFF" : (IsLive() ? "LIVE" : "SHADOW"); }
@@ -320,6 +322,8 @@ public:
                           r[j].close>e200[j] ? "TRÊN" : "DƯỚI",PxT(e200[j]),spj/atr[j],p.ema_spread_atr,
                           PnlMark(spj/atr[j]<=p.ema_spread_atr),PxT(atr[j]));
       ArrayResize(pv_pending,0);
+      near_score=0.0; near_text="chưa có nến V cắt EMA200";
+      const bool bundled=(spj/atr[j]<=p.ema_spread_atr);
       int found_v=-1;
       for(int v=MathMax(1,j-VHB_RET_BARS);v<j;v++)
         {
@@ -338,6 +342,16 @@ public:
                                        r[v].close>e200[v] ? "phá LÊN" : "phá XUỐNG",PxT(r[v].low),PxT(r[v].high),
                                        (r[v].high-r[v].low)/atr[v],left ? "đã ra ngoài, chờ đóng lại bên trong" : "chưa ra khỏi vùng",
                                        VHB_RET_BARS-(j-v));
+            // A V that already left its range only needs one close back inside: closest.
+            const double sc=(left ? 0.8 : 0.5)*(bundled ? 1.0 : 0.6);
+            if(sc>near_score)
+              {
+               near_score=sc;
+               near_text=StringFormat("V %s %s: %s (còn %d nến) | EMA bó %.2f %s",PnlHm(r[v].time),
+                                      r[v].close>e200[v] ? "phá lên" : "phá xuống",
+                                      left ? "chờ 1 nến đóng lại trong vùng" : "chờ giá ra khỏi vùng rồi quay về",
+                                      VHB_RET_BARS-(j-v),spj/atr[j],PnlMark(bundled));
+              }
            }
          if(hit && found_v<0) found_v=v;
         }

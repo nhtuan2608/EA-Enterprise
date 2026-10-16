@@ -313,3 +313,26 @@ class PolicyReclickTests(unittest.TestCase):
         first = src.index('if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP")')
         self.assertLess(guard, first)
         self.assertIn("pick==g_panel_state.staged_policy && pick==g_panel_state.committed_policy", src[guard:first])
+
+
+class MiniPanelTests(unittest.TestCase):
+    def test_collapsed_panel_shows_every_bot_and_the_closest(self):
+        src = read("Runtime/SymbolSelectionPanel.mqh")
+        self.assertTrue((ROOT / "Runtime/SymbolSelectionPanel.mqh").read_bytes().startswith(b"\xef\xbb\xbf"))
+        mini = body(src, "void EEA_SymbolPanelRenderMiniBots(const long chart_id)")
+        self.assertIn("b.near_score>g_panel_bots[best].near_score", mini)
+        self.assertIn("Gần khớp nhất", mini)
+        self.assertIn("EEA_SymbolPanelRenderMiniBots(chart_id);", body(src, "void EEA_SymbolPanelRenderMainView("))
+        self.assertIn("g_panel_bot_count*EEA_PANEL_MINI_ROW", body(src, "int EEA_SymbolPanelHeight()"))
+
+    def test_closeness_sources(self):
+        host = read("Bots/BotHost.mqh")
+        s07 = body(host, "void EEA_BotsS07Near(const string sym)")
+        for token in ("EEA_S07_ADX_LOW", "EEA_S07_DI_GAP", "EEA_S07_ADX_RISE", "EEA_S07WindowBars(\"M30\")", "g_bot_s07_near=best_n/5.0;"):
+            self.assertIn(token, s07)
+        near = body(host, "void EEA_BotNear(const int id,double &score,string &text)")
+        self.assertIn("if(!EEA_BotActive(id)) score=0.0;", near)
+        self.assertIn('\\"near\\":', host)
+        self.assertRegex(read("Bots/VHedgeBot.mqh"), r"double\s+near_score;")
+        self.assertIn("void Near(double &score,string &text)", read("Bots/XrtBot.mqh"))
+        self.assertIn("void Near(double &score,string &text) const", read("Bots/CtxLimitBot.mqh"))
