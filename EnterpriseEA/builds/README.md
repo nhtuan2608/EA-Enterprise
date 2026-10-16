@@ -26,7 +26,7 @@ Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 
 ## EnterpriseEA_Bots (16/10/2026)
 
-`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ main `ca06763`. Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
+`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ nhánh `feature/bots-host` sau commit `1894fa4` (có nhật ký bot `logs/bots-YYYYMM.jsonl` và nhận lệnh bật/tắt bot từ MCP, input `InpBotsMcpCommands`). Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
 
 Set nằm trong `builds/sets/`:
 

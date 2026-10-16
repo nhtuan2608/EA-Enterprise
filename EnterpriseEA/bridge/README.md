@@ -69,6 +69,10 @@ Lệnh đọc thêm (G17/G20): `/trades` (10 lệnh đã đóng gần nhất kè
 
 `.\bridge\start_all.ps1` chạy một lần sau khi đăng nhập: supervisor (`supervisor.py`) bật AI bridge, Telegram gateway và soak monitor; dịch vụ nào dừng thì chạy lại sau 5 → 15 → 60 → 300 giây; chết 5 lần trong 10 phút thì tạm dừng 10 phút. Mỗi sự cố được báo thẳng tới operator qua Telegram (kể cả khi gateway là dịch vụ bị dừng). Khi khởi động, supervisor dừng các bản đã chạy tay để mỗi dịch vụ chỉ có một. Đầu ra từng dịch vụ: `logs/<tên>.out.log`; nhật ký: `logs/supervisor.jsonl`; `/status` hiện trạng thái supervisor. Đóng cửa sổ là dừng tất cả. Không tạo Task Scheduler. Trên Ubuntu dùng các file systemd (`Restart=always`).
 
+## MCP server cho Claude Code (16/10/2026)
+
+`eea_mcp_server.py` (+ `bot_journal.py`): Claude Code đọc trạng thái, nhật ký bot, audit; với `--allow-control` thì bật/tắt bot. Cài trên máy này và trên VPS qua SSH: xem `docs/mcp-vps-guide.md`.
+
 ## Soak monitor (G17)
 
 `.ridgeun_soak.ps1` lấy mẫu CPU, RAM, handle, thread của MT5 cùng bộ đếm refresh của EA và dung lượng log mỗi 5 phút vào `logs/soak.jsonl` (chỉ đọc). Báo cáo: `python bridge/soak_monitor.py --queue-root <...> --report [--hours 72]` hoặc `/soak` trên Telegram. Cờ: `MEMORY_CLIMBING` (> 50 MB/ngày), `HANDLES_CLIMBING` (> 200/ngày) sau ít nhất 12 giờ; `CPU_ABOVE_BUDGET` (> 25% một lõi); `REFRESH_FAILURES`.
