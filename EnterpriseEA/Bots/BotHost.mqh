@@ -253,10 +253,13 @@ void EEA_BotsJournalDeals()
   }
 
 // Journal: one NEAR line per bot on every closed M30 bar (what it waited for, how close it was).
+// The bar seen at the start is skipped: the bots are still loading their history then.
 void EEA_BotsJournalNear()
   {
    if(g_bot_s07_near_bar==0 || g_bot_s07_near_bar==g_bot_near_logged_bar) return;
+   const bool first=(g_bot_near_logged_bar==0);
    g_bot_near_logged_bar=g_bot_s07_near_bar;
+   if(first) return;
    for(int i=0;i<EEA_BOT_COUNT;i++)
      {
       double score=0.0; string text="";

@@ -416,7 +416,7 @@ public:
       EEA_BotLogClearBlock(EEA_BOT_XRT);
       const string st=(day.state==1 ? "TĂNG" : (day.state==-1 ? "GIẢM" : "TRUNG TÍNH"));
       EEA_BotLog(EEA_BOT_XRT,"DECISION",ModeText(),
-                 StringFormat("ngày mới: chế độ D1 %s (đóng %s, EMA%d %s, ATR %s) | %s",st,PxT(day.close),p.ema_period,PxT(day.ema),
+                 StringFormat("kế hoạch ngày: chế độ D1 %s (đóng %s, EMA%d %s, ATR %s) | %s",st,PxT(day.close),p.ema_period,PxT(day.ema),
                               PxT(day.atr),!want_entry ? "đang giữ lệnh" :
                               (plan.ok ? StringFormat("kế hoạch %s %s, stop %s",PnlDir(plan.dir),
                                                       plan.market ? "market" : "limit "+PxT(plan.level),PxT(plan.stop)) : plan.note)),

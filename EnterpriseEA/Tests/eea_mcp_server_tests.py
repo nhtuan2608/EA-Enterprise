@@ -19,6 +19,22 @@ STATUS = {"document_version": "bots-status-v1.0.0", "account_id": "fnv1a32:abc",
           "bots": [{"code": "S07", "active": True, "mode": "LIVE"}]}
 
 
+def mql_field(json_text, name):
+    """Python copy of EEA_RiskLedgerField (Storage/RiskLedgerStore.mqh): "key": then a quoted string or up to , or }."""
+    key = '"' + name + '":'
+    at = json_text.find(key)
+    if at < 0:
+        return ""
+    start = at + len(key)
+    if start < len(json_text) and json_text[start] == '"':
+        end = json_text.find('"', start + 1)
+        return "" if end < 0 else json_text[start + 1:end]
+    end = json_text.find(",", start)
+    if end < 0:
+        end = json_text.find("}", start)
+    return "" if end < 0 else json_text[start:end]
+
+
 class Case(unittest.TestCase):
     control = False
 
@@ -165,6 +181,9 @@ class ControlToolTests(Case):
         self.assertEqual(cmd["mcp_sequence"], NOW * 1000)
         for k in ("private_chat_attested", "sender_authenticated", "source_authenticated", "gateway_sequence", "reason"):
             self.assertNotIn(k, cmd)
+        raw = next((self.root / "current" / "remote" / "bot_commands").glob("*.json")).read_text(encoding="utf-8")
+        for key in ("source", "action", "bot", "role", "account_id", "config_version", "mcp_sequence", "issued_at_utc"):
+            self.assertEqual(mql_field(raw, key), str(cmd[key]), key)       # what the EA reader sees
         self.assertEqual(cmd["expires_at_utc"] - cmd["issued_at_utc"], self.srv.COMMAND_TTL)
         log = json.loads((self.root / "logs" / "mcp.jsonl").read_text(encoding="utf-8").splitlines()[0])
         self.assertEqual((log["operator"], log["reason"], log["status"]), ("tester", "test", "PENDING"))

@@ -56,7 +56,7 @@ Tên bot chấp nhận: `s07`, `vhedge` (hoặc `g119`, `hedge`), `xrt` (hoặc 
 EA ghi mỗi sự kiện của bot thành một dòng JSON trong `MQL5\Files\EnterpriseEA\logs\bots-YYYYMM.jsonl`. Mỗi tháng (theo UTC) một file. EA chỉ ghi nối thêm, thư mục `logs` tự tạo khi ghi dòng đầu.
 
 ```json
-{"at_utc":1792195200,"server":"2026.10.16 21:00","bot":"XRT","event":"DECISION","mode":"LIVE","text":"ngày mới: chế độ D1 TĂNG ...","data":{"state":1,"atr":38.20,"plan":true}}
+{"at_utc":1792195200,"server":"2026.10.16 21:00","bot":"XRT","event":"DECISION","mode":"LIVE","text":"kế hoạch ngày: chế độ D1 TĂNG ...","data":{"state":1,"atr":38.20,"plan":true}}
 ```
 
 | event | khi nào |

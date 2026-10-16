@@ -18,7 +18,7 @@ Server chỉ dùng thư viện chuẩn, cần Python 3.9 trở lên. Hai file đ
 | `bot_on` → `bot_confirm` | xin bật, nhận mã 6 số (hạn 2 phút), rồi xác nhận. *chỉ khi có `--allow-control`* |
 
 Lệnh điều khiển đi đường này:
-1. Server ghi file vào `current/remote/bot_commands/` với `source: "MCP"`, rồi chờ EA trả lời (tối đa 15 giây).
+1. Server ghi file vào `current/remote/bot_commands/` với `source: "MCP"`, rồi chờ EA trả lời (tối đa 45 giây; EA đọc lệnh mỗi lần timer chạy, `InpRuntimeRefreshSeconds` = 30 giây).
 2. EA kiểm tra như lệnh Telegram: OPERATOR, đúng tài khoản và config, TTL, `mcp_sequence` lớn hơn lần trước (bộ đếm riêng, không lẫn với Telegram).
 3. File MCP không được mang cờ xác thực của Telegram. Nếu có, EA từ chối.
 4. Tắt nhận lệnh MCP: input `InpBotsMcpCommands=false`.
@@ -35,7 +35,7 @@ Không cần tạo tay thư mục nào. EA tự tạo thư mục cha khi ghi fil
 | Đường dẫn (trong `MQL5/Files/EnterpriseEA`) | Ai ghi | Khi nào có |
 |---|---|---|
 | `current/bots_state.json` | EA | timer đầu tiên sau khi biết tài khoản (bootstrap từ input) |
-| `current/bots_status.json` | EA | mỗi timer, vài giây một lần. Cũ hơn 2 phút = EA không chạy |
+| `current/bots_status.json` | EA | mỗi timer (30 giây). Cũ hơn 2 phút = EA không chạy |
 | `current/live_status.json`, `account_snapshot.json` | EA | mỗi timer |
 | `current/live_session.json`, `execution_controller_state.json` | EA | khi bấm Authorize session |
 | `current/bots/vhedge_groups.txt`, `xrt_state.txt` | EA | lần lưu đầu của bot (có nhóm/lệnh hoặc ngày mới) |

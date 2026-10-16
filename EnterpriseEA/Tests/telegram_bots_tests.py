@@ -241,13 +241,13 @@ class BotLogCommandTests(BotsCase):
 
     def test_botlog_summary_and_filters(self):
         t = self.clock.t
-        self.jline(t - 3600, "XRT", "DECISION", "ngày mới: chế độ D1 TĂNG")
+        self.jline(t - 3600, "XRT", "DECISION", "kế hoạch ngày: chế độ D1 TĂNG")
         self.jline(t - 1800, "VHEDGE", "NEAR", "chờ 1 nến đóng lại trong vùng", score=0.8)
         self.jline(t - 100 * 3600, "XRT", "ENTRY", "rất cũ")
         self.feed(msg(1, VIEWER, "/botlog"))
         text = self.texts()[-1]
         self.assertIn("Nhật ký bot (tất cả bot, 24 giờ qua): 2 dòng", text)
-        self.assertIn("XRT DECISION LIVE: ngày mới", text)
+        self.assertIn("XRT DECISION LIVE: kế hoạch ngày", text)
         self.assertIn("gần khớp 80%: chờ 1 nến", text)
         self.assertNotIn("rất cũ", text)
         self.feed(msg(2, VIEWER, "/botlog xrt 120"))

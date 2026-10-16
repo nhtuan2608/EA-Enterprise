@@ -30,7 +30,7 @@ SERVER_NAME = "enterprise-ea"
 SERVER_VERSION = "1.0.0"
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_TEXT = 60_000
-STATUS_STALE = 120          # bots_status.json / live_status.json are rewritten every few seconds by the EA timer
+STATUS_STALE = 120          # bots_status.json / live_status.json are rewritten on every EA timer (30 s)
 BOT_CODES = bot_journal.BOTS
 
 
@@ -143,7 +143,7 @@ class EeaMcp:
                 "schema": {"type": "object", "properties": {}},
                 "handler": self.tool_health},
             "bots_status": {
-                "description": "Current state of the 4 bots (current/bots_status.json, rewritten every ~5 s): Active "
+                "description": "Current state of the 4 bots (current/bots_status.json, rewritten every EA timer, 30 s): Active "
                                "flag, mode OFF/SHADOW/LIVE, open positions, P/L today, status line, closeness to the "
                                "next entry, and the portfolio guard (armed, pause, open risk, daily loss).",
                 "schema": {"type": "object", "properties": {}},
@@ -216,7 +216,7 @@ class EeaMcp:
     # ------------------------------------------------------------------ control handlers
     COMMAND_TTL = 60
     NONCE_TTL = 115                 # the EA accepts at most 120 s
-    RESULT_WAIT = 15.0
+    RESULT_WAIT = 45.0             # the EA reads commands on its timer (InpRuntimeRefreshSeconds, 30 s)
 
     def next_sequence(self) -> int:
         """Milliseconds since 1970: above every earlier MCP command, also after a restart (no state file)."""
@@ -249,7 +249,8 @@ class EeaMcp:
         d = self.root / "current" / "remote" / "bot_commands"
         d.mkdir(parents=True, exist_ok=True)
         tmp = d / f".{command_id}.tmp"
-        tmp.write_text(json.dumps(cmd, ensure_ascii=False), encoding="utf-8")
+        # Compact separators: the EA reader (EEA_RiskLedgerField) expects "key":"value" without spaces.
+        tmp.write_text(json.dumps(cmd, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         os.replace(tmp, d / f"{command_id}.json")
         return command_id
 
@@ -473,7 +474,7 @@ class EeaMcp:
             checks.append(row)
             return row
 
-        item("current/bots_status.json", STATUS_STALE, note="EA timer, every ~5 s")
+        item("current/bots_status.json", STATUS_STALE, note="EA timer, every 30 s")
         item("current/bots_state.json", note="Active flags (written on change)")
         item("current/live_status.json", STATUS_STALE, note="EA timer")
         item("current/live_session.json", note="signed live session")
