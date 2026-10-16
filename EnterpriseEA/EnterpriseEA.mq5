@@ -1402,8 +1402,63 @@ int EEA_UniverseSymbols(string &out[])
    return n;
   }
 
+// ---------------------------------------------------------------------------------------------- one instance
+// One EnterpriseEA per data root (MQL5\Files\<InpDataRoot>): a second one would share the audit log, the
+// state files and the bots' orders. The running instance stamps a terminal global variable on every timer;
+// another chart that finds a fresh stamp (< 3 timers, at least 90 s) refuses to start and says why. A stamp
+// left by an instance that is gone expires on its own. The Strategy Tester has its own globals: not checked.
+string EEA_InstanceKey() { return "EEA_INST_"+InpDataRoot; }
+double EEA_InstanceChartTag() { return (double)(ChartID()%1000000000); }   // a double keeps 9 digits exactly
+int    EEA_InstanceMaxAge() { return MathMax(90,3*InpRuntimeRefreshSeconds); }
+bool   g_instance_owner=false;
+
+bool EEA_InstanceClaim(string &message)
+  {
+   message="";
+   if(MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_OPTIMIZATION)) return true;
+   const string k=EEA_InstanceKey(), kc=k+"_chart";
+   if(GlobalVariableCheck(k) && GlobalVariableCheck(kc))
+     {
+      const double chart=GlobalVariableGet(kc);
+      const long age=(long)TimeLocal()-(long)GlobalVariableGet(k);
+      if(chart!=EEA_InstanceChartTag() && age>=0 && age<EEA_InstanceMaxAge())
+        {
+         message=StringFormat("EnterpriseEA is already running on another chart with the data root '%s' (last seen %d s ago). "
+                              "Only one EnterpriseEA per data root: remove it from that chart first, or use another InpDataRoot.",
+                              InpDataRoot,(int)age);
+         return false;
+        }
+     }
+   GlobalVariableSet(k,(double)TimeLocal());
+   GlobalVariableSet(kc,EEA_InstanceChartTag());
+   g_instance_owner=true;
+   return true;
+  }
+
+void EEA_InstanceBeat()
+  {
+   if(!g_instance_owner) return;
+   GlobalVariableSet(EEA_InstanceKey(),(double)TimeLocal());
+  }
+
+void EEA_InstanceRelease()
+  {
+   if(!g_instance_owner) return;
+   const string k=EEA_InstanceKey();
+   if(GlobalVariableCheck(k+"_chart") && GlobalVariableGet(k+"_chart")==EEA_InstanceChartTag())
+     { GlobalVariableDel(k); GlobalVariableDel(k+"_chart"); }
+   g_instance_owner=false;
+  }
+
 int OnInit()
   {
+   string instance_message="";
+   if(!EEA_InstanceClaim(instance_message))
+     {
+      Print("INIT_FAILED: ",instance_message);
+      Alert(instance_message);
+      return INIT_FAILED;
+     }
    if(!EAConfig_LoadDefaults(g_config))
       return INIT_FAILED;
    g_config.observer_only=InpObserverOnly;
@@ -1487,7 +1542,12 @@ int OnInit()
    g_state.portfolio_snapshot.snapshot_id="core-portfolio-unknown";
    g_state.risk_status="POLICY_DATA_UNKNOWN";
    if(!g_audit.Open(g_config.data_root+"/logs/audit.jsonl"))
+     {
+      Print("INIT_FAILED: cannot open MQL5\\Files\\",g_config.data_root,"\\logs\\audit.jsonl (error ",GetLastError(),
+            "). Is another EnterpriseEA using this data root, or is the file open in another program?");
+      EEA_InstanceRelease();
       return INIT_FAILED;
+     }
    string state_path=g_config.data_root+"/current/shared_state.json";
    EEAStateLoadResult recovery=EEA_StateCheckCheckpoint(state_path,g_config.config_version);
    if(recovery==EEA_STATE_INCOMPATIBLE)
@@ -1637,6 +1697,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
+   EEA_InstanceRelease();
    EEA_BotsHostDeinit();
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
@@ -1763,6 +1824,7 @@ void OnTick()
 
 void OnTimer()
   {
+   EEA_InstanceBeat();
    if(InpRuntimeEvidenceEnabled)
       {
        EEA_ObserverRuntimeOnTimer(g_runtime,g_audit);

@@ -272,3 +272,24 @@ class CtxLimitBotTests(unittest.TestCase):
         self.assertIn('EEA_BotGuardCheck(EEA_BOT_CTXLIMIT,risk_money,"SWING",true,false)', b)
         self.assertLess(b.index("EEA_BotGuardCheck"), b.index("trade.Buy("))
         self.assertIn("if(!EEA_BotActive(EEA_BOT_CTXLIMIT))", b)
+
+
+class SingleInstanceTests(unittest.TestCase):
+    def setUp(self):
+        self.ea = read("EnterpriseEA.mq5")
+
+    def test_second_instance_is_refused_with_a_message(self):
+        init = body(self.ea, "int OnInit()")
+        self.assertLess(init.index("EEA_InstanceClaim(instance_message)"), init.index("EAConfig_LoadDefaults(g_config)"))
+        self.assertIn("Alert(instance_message);", init)
+        claim = body(self.ea, "bool EEA_InstanceClaim(string &message)")
+        self.assertIn("chart!=EEA_InstanceChartTag() && age>=0 && age<EEA_InstanceMaxAge()", claim)
+        self.assertIn("MQL_TESTER", claim)
+        self.assertIn("Only one EnterpriseEA per data root", claim)
+        self.assertIn('"INIT_FAILED: cannot open MQL5', init)
+
+    def test_stamp_and_release(self):
+        self.assertIn("EEA_InstanceBeat();", body(self.ea, "void OnTimer()"))
+        self.assertIn("EEA_InstanceRelease();", body(self.ea, "void OnDeinit(const int reason)"))
+        rel = body(self.ea, "void EEA_InstanceRelease()")
+        self.assertIn('GlobalVariableGet(k+"_chart")==EEA_InstanceChartTag()', rel)   # only its own stamp
