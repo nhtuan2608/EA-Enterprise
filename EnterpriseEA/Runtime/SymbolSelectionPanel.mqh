@@ -178,6 +178,9 @@ struct EEA_SymbolPanelState
    double cmd_request_sl;
    double cmd_request_fraction;
    uint ai_request_tick;          // one AI request per minute from the panel
+   string bot_toggle_request;     // consumed by the EA shell: bot code to toggle (Settings > Bots)
+   string bot_confirm_code;       // enabling needs a second click within 10 seconds
+   uint bot_confirm_tick;
    uint recovery_confirm_tick;    // RESOLVE needs a second click within 10 seconds
    string session_confirm_action; // the first click arms a confirmation for 10 seconds
    uint session_confirm_tick;
@@ -1012,6 +1015,7 @@ bool EEA_SymbolPanelInit(const long chart_id,const int sub_window)
    g_panel_state.session_request=""; g_panel_state.session_confirm_action=""; g_panel_state.session_confirm_tick=0;
    g_panel_state.recovery_request=""; g_panel_state.recovery_confirm_tick=0;
    g_panel_state.ai_request=""; g_panel_state.ai_request_tick=0;
+   g_panel_state.bot_toggle_request=""; g_panel_state.bot_confirm_code=""; g_panel_state.bot_confirm_tick=0;
    g_panel_state.cmd_request_action=""; g_panel_state.cmd_request_kind=""; g_panel_state.cmd_request_ticket=0;
    g_panel_state.cmd_request_volume=0.0; g_panel_state.cmd_request_sl=0.0; g_panel_state.cmd_request_fraction=0.0;
    g_panel_state.trade_selected_kind=""; g_panel_state.trade_selected_ticket=0; g_panel_state.trade_selected_volume=0.0;
@@ -1104,7 +1108,7 @@ void EEA_SymbolPanelLoadUiState(const string data_root)
 #ifdef EEA_S07_EDITION
    if(g_panel_state.dashboard_tab=="AI") g_panel_state.dashboard_tab="OVERVIEW";
 #endif
-   if(settings=="RISK" || settings=="SYMBOLS" || settings=="AUTHORIZATION" || settings=="SYSTEM")
+   if(settings=="RISK" || settings=="SYMBOLS" || settings=="AUTHORIZATION" || settings=="SYSTEM" || settings=="BOTS")
       g_panel_state.settings_tab=settings;
    g_panel_state.collapsed=StringFind(json,"\"collapsed\":true")>=0;
   }
@@ -1328,23 +1332,97 @@ void EEA_SymbolPanelRenderViewBase(const long chart_id)
                              EEA_PANEL_STATUSBAR_Y-top,EEA_PANEL_BG_COLOR,EEA_PANEL_BG_COLOR);
   }
 
+// ---------------------------------------------------------------------------------------------- Bots tab
+// Bots host (design 2026-10-16): one row per strategy with its Active switch. The EA shell publishes
+// g_panel_bots each timer; a click only sets g_panel_state.bot_toggle_request (the shell commits,
+// audits and applies it). Turning a bot OFF is one click; turning it ON needs a second click (10 s).
+struct EEA_PanelBotRow
+  {
+   string code;
+   string title;
+   string mode;
+   bool   active;
+   long   magic;
+   int    open_count;
+   double today;
+   double floating;
+   string status;
+  };
+
+EEA_PanelBotRow g_panel_bots[4];
+int    g_panel_bot_count=0;
+string g_panel_bots_guard="";      // one line: armed / pause / open risk / daily loss / news
+bool   g_panel_bots_enabled=false;
+
+bool EEA_SymbolPanelBotConfirming(const string code)
+  {
+   return g_panel_state.bot_confirm_code==code && g_panel_state.bot_confirm_tick>0 &&
+          GetTickCount()-g_panel_state.bot_confirm_tick<10000;
+  }
+
+void EEA_SymbolPanelSettingsBots(const long chart_id)
+  {
+   int y=EEA_PANEL_CONTENT_Y;
+   EEA_SymbolPanelSetCaption(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_Bots",EEA_PANEL_CONTENT_X,y,
+                             "BOTS"+EEA_SymbolPanelSep()+"ONE PORTFOLIO"+EEA_SymbolPanelSep()+"ACTIVE GATES NEW ENTRIES ONLY");
+   if(!g_panel_bots_enabled)
+     {
+      EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_BotsOff",EEA_PANEL_CONTENT_X,y+24,
+                             "The bots layer is off (InpBotsEnabled=false).",EEA_PANEL_MUTED_COLOR,EEA_PANEL_BODY_FONT_SIZE);
+      return;
+     }
+   for(int i=0;i<g_panel_bot_count && i<4;i++)
+     {
+      const EEA_PanelBotRow b=g_panel_bots[i];
+      const int ry=y+20+i*66;
+      const string id=EEA_PANEL_OVERLAY_PREFIX+"Bot"+IntegerToString(i);
+      EEA_SymbolPanelSetSurface(chart_id,id+"_Bg",EEA_PANEL_INNER_X,ry,EEA_PANEL_INNER_WIDTH,60,EEA_PANEL_SURFACE_COLOR,
+                                b.active ? EEA_PANEL_OK_COLOR : EEA_PANEL_BORDER_COLOR);
+      EEA_SymbolPanelSetText(chart_id,id+"_T",EEA_PANEL_CONTENT_X,ry+7,b.title,EEA_PANEL_TEXT_COLOR,EEA_PANEL_BODY_FONT_SIZE+1,
+                             EEA_PANEL_FONT_BOLD);
+      color mode_fill=EEA_PANEL_SURFACE_ALT_COLOR, mode_text=EEA_PANEL_MUTED_COLOR;
+      if(b.mode=="LIVE") { mode_fill=EEA_PANEL_WARNING_FILL_COLOR; mode_text=EEA_PANEL_WARNING_COLOR; }
+      else if(b.mode=="SHADOW") { mode_fill=EEA_PANEL_ACCENT_FILL_COLOR; mode_text=EEA_PANEL_TEXT_COLOR; }
+      EEA_SymbolPanelSetPill(chart_id,id+"_M",EEA_PANEL_CONTENT_X+130,ry+5,70,b.mode,mode_fill,mode_text);
+      EEA_SymbolPanelSetText(chart_id,id+"_I",EEA_PANEL_CONTENT_X+210,ry+9,
+                             "magic "+IntegerToString(b.magic)+EEA_SymbolPanelSep()+"open "+IntegerToString(b.open_count)+
+                             EEA_SymbolPanelSep()+"today "+DoubleToString(b.today,2),EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT_MONO,ANCHOR_LEFT_UPPER,40);
+      EEA_SymbolPanelSetText(chart_id,id+"_S",EEA_PANEL_CONTENT_X,ry+34,b.status,
+                             b.active ? EEA_PANEL_TEXT_COLOR : EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,
+                             EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,70);
+      const bool confirming=EEA_SymbolPanelBotConfirming(b.code);
+      const string label=b.active ? "ACTIVE" : (confirming ? "Confirm ON" : "INACTIVE");
+      const EEA_SymbolPanelButtonVariant v=b.active ? EEA_PANEL_BUTTON_ON : (confirming ? EEA_PANEL_BUTTON_WARNING : EEA_PANEL_BUTTON_OFF);
+      EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Btn_Bot_"+b.code,EEA_PANEL_MAIN_WIDTH-EEA_PANEL_CONTENT_X-104,
+                                 ry+6,104,26,label,v,EEA_PANEL_META_FONT_SIZE);
+     }
+   const int gy=y+20+4*66+4;
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_BotsGuard",EEA_PANEL_CONTENT_X,gy,g_panel_bots_guard,
+                          EEA_PANEL_MUTED_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,90);
+   EEA_SymbolPanelSetText(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Lbl_BotsNote",EEA_PANEL_CONTENT_X,gy+16,
+                          "OFF = no new entry; open trades keep their stops and exits. ON needs a second click. Telegram: /bots",
+                          EEA_PANEL_FAINT_COLOR,EEA_PANEL_META_FONT_SIZE,EEA_PANEL_FONT,ANCHOR_LEFT_UPPER,100);
+  }
+
 void EEA_SymbolPanelRenderSettings(const long chart_id,EEA_ObserverRuntimeContext &ctx)
   {
    EEA_SymbolPanelBeginOverlay(chart_id,"SETTINGS");
    EEA_SymbolPanelRenderViewBase(chart_id);
-   string tabs[4]={"RISK","SYMBOLS","AUTHORIZATION","SYSTEM"};
-   string titles[4]={"Risk policy","Symbols","Authorization","System"};
-   titles[1]="Symbols  ("+IntegerToString(EEA_SymbolPanelStagedSymbolCount())+")";
-   for(int t=0;t<4;t++)
-      EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tab_"+tabs[t],EEA_PANEL_INNER_X+t*134,
-                                 EEA_PANEL_VIEW_Y,130,24,titles[t],
+   string tabs[5]={"RISK","SYMBOLS","AUTHORIZATION","SYSTEM","BOTS"};
+   string titles[5]={"Risk policy","Symbols","Authorization","System","Bots"};
+   titles[1]="Symbols ("+IntegerToString(EEA_SymbolPanelStagedSymbolCount())+")";
+   for(int t=0;t<5;t++)
+      EEA_SymbolPanelSetButtonEx(chart_id,EEA_PANEL_OVERLAY_PREFIX+"Tab_"+tabs[t],EEA_PANEL_INNER_X+t*107,
+                                 EEA_PANEL_VIEW_Y,104,24,titles[t],
                                  g_panel_state.settings_tab==tabs[t] ? EEA_PANEL_BUTTON_SELECTED : EEA_PANEL_BUTTON_GHOST,
                                  EEA_PANEL_META_FONT_SIZE);
    if(g_panel_state.settings_tab=="SYMBOLS") EEA_SymbolPanelSettingsSymbols(chart_id,ctx);
    else if(g_panel_state.settings_tab=="AUTHORIZATION") EEA_SymbolPanelSettingsAuthorization(chart_id,ctx);
    else if(g_panel_state.settings_tab=="SYSTEM") EEA_SymbolPanelSettingsSystem(chart_id,ctx);
+   else if(g_panel_state.settings_tab=="BOTS") EEA_SymbolPanelSettingsBots(chart_id);
    else EEA_SymbolPanelSettingsRisk(chart_id,ctx);
-   EEA_SymbolPanelSettingsFooter(chart_id,ctx);
+   if(g_panel_state.settings_tab!="BOTS") EEA_SymbolPanelSettingsFooter(chart_id,ctx);
    ChartRedraw(chart_id);
   }
 
@@ -3046,6 +3124,18 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       // A different sub-view has different controls: rebuild it from scratch.
       EEA_SymbolPanelClearOverlay(g_panel_state.chart_id);
       EEA_SymbolPanelRenderActiveView(g_panel_state.chart_id,ctx);
+      return;
+     }
+   if(StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Btn_Bot_")==0)
+     {
+      const string code=StringSubstr(sparam,StringLen(EEA_PANEL_OVERLAY_PREFIX+"Btn_Bot_"));
+      bool active=false;
+      for(int i=0;i<g_panel_bot_count;i++) if(g_panel_bots[i].code==code) active=g_panel_bots[i].active;
+      if(active || EEA_SymbolPanelBotConfirming(code))
+        { g_panel_state.bot_toggle_request=code; g_panel_state.bot_confirm_code=""; g_panel_state.bot_confirm_tick=0; }
+      else
+        { g_panel_state.bot_confirm_code=code; g_panel_state.bot_confirm_tick=GetTickCount(); }
+      EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx);
       return;
      }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_CalMode")

@@ -35,6 +35,7 @@
 #include "Integration/RiskDecisionRelease.mqh"
 #include "Runtime/ExecutionIntentBuilder.mqh"
 #include "Runtime/StrategyCandidateRuntime.mqh"
+#include "Bots/BotState.mqh"
 #include "Integration/ControlledLiveRuntime.mqh"
 #include "Integration/CandidateLedger.mqh"
 #include "Integration/S06BPyramidRuntime.mqh"
@@ -51,6 +52,7 @@
 #include "News/NewsReactionRecorder.mqh"
 #include "Runtime/AiBridgeClient.mqh"
 #include "Runtime/CommandQueue.mqh"
+#include "Bots/BotHost.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -171,6 +173,22 @@ EEA_HIDDEN string InpDrillNonce              = "";     // G66 D1: unique id of t
 EEA_HIDDEN string InpDrillSymbol             = "EURUSD"; // G66 D1: canonical symbol of the drill entry (must be a selected symbol)
 enum EEA_DrillDirectionInput { DRILL_BUY=0, DRILL_SELL=1 };
 EEA_HIDDEN EEA_DrillDirectionInput InpDrillDirection = DRILL_BUY; // G66 D1: direction of the drill entry
+// Bots host (design 2026-10-16): S07 + VHedge G119 + XauRegime + CtxLimit, one portfolio, Active flags
+// on the panel (Settings > Bots) and from Telegram. A flag only gates new entries.
+input bool   InpBotsEnabled             = EEA_ED(true,false); // run the bots layer (Active flags, VHedge / XauRegime / CtxLimit modules)
+input string InpBotsSymbol              = "";      // symbol of the bot modules ("" = chart symbol, e.g. XAUUSD.r on a cent account)
+input bool   InpBotS07Active            = true;    // first-start Active flags (afterwards current/bots_state.json rules)
+input bool   InpBotVHedgeActive         = true;
+input bool   InpBotXrtActive            = true;
+input bool   InpBotCtxLimitActive       = true;
+input EEA_BotModeInput InpBotVHedgeMode = BOT_SHADOW; // VHedge G119: OFF, SHADOW (virtual) or LIVE (hedging account)
+input double InpBotVHedgeRiskPct        = 0.75;    // VHedge: risk per leg, % of the initial capital (one group = 2 legs)
+input bool   InpBotVHedgeBigV           = false;   // VHedge: also the BIGV profile (G120: worse ratio than G119 alone)
+input long   InpBotVHedgeMagic          = 116119;
+input double InpBotsMaxOpenRiskPct      = 12.0;    // portfolio: no bot entry when account-wide open risk would exceed this (% of initial capital)
+input double InpBotsDailyLossPct        = 6.0;     // portfolio: bots stop new entries after this loss in the server day (% of initial capital)
+input bool   InpBotsNewsGuard           = false;   // portfolio: block bot entries in the News Guard window (VHedge research had no news filter)
+input bool   InpBotsRequireLiveSession  = true;    // portfolio: bot entries need the signed live session, as S07
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -989,6 +1007,117 @@ void EEA_RemoteModeTimer()
 // Entries stay blocked until the mode is known (fail closed) and while the operator paused them.
 bool EEA_RemoteEntriesPaused() { return !g_remote_loaded || g_remote_mode.operator_paused; }
 
+// ---------------------------------------------------------------------------------------------- bots host
+void EEA_BotsInitFromInputs()
+  {
+   g_bots_layer_enabled=InpBotsEnabled;
+   if(!InpBotsEnabled) return;
+   bool defaults[EEA_BOT_COUNT];
+   defaults[EEA_BOT_S07]=InpBotS07Active; defaults[EEA_BOT_VHEDGE]=InpBotVHedgeActive;
+   defaults[EEA_BOT_XRT]=InpBotXrtActive; defaults[EEA_BOT_CTXLIMIT]=InpBotCtxLimitActive;
+   EEA_BotModeInput modes[EEA_BOT_COUNT];
+   modes[EEA_BOT_S07]=(InpS07Mode==S07_LIVE ? BOT_LIVE : (InpS07Mode==S07_SHADOW ? BOT_SHADOW : BOT_OFF));
+   modes[EEA_BOT_VHEDGE]=InpBotVHedgeMode;
+   modes[EEA_BOT_XRT]=BOT_OFF;                 // stage 2
+   modes[EEA_BOT_CTXLIMIT]=BOT_OFF;            // stage 2
+   long magics[EEA_BOT_COUNT];
+   magics[EEA_BOT_S07]=InpLiveMagic; magics[EEA_BOT_VHEDGE]=InpBotVHedgeMagic;
+   magics[EEA_BOT_XRT]=969696; magics[EEA_BOT_CTXLIMIT]=717171;
+   VHedgeBotParams vp;
+   VHedgeBotParamsDefaults(vp);
+   vp.mode=InpBotVHedgeMode; vp.risk_percent=InpBotVHedgeRiskPct; vp.prof_bigv=InpBotVHedgeBigV;
+   vp.magic=InpBotVHedgeMagic; vp.news_guard=InpBotsNewsGuard;
+   EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp);
+  }
+
+string EEA_BotsCanonicalFor(const string broker)
+  {
+   for(int i=0;i<g_runtime.symbol_count;i++)
+      if(g_runtime.broker_symbols[i]==broker) return g_runtime.canonical_symbols[i];
+   if(StringFind(broker,"XAUUSD")==0) return "XAUUSD";
+   return broker;
+  }
+
+// The account-wide guard inputs the bots read before an entry (same gates as the S07 path).
+void EEA_BotsGuardUpdate()
+  {
+   if(!g_bots_host.initialized) return;
+   string session_reason="";
+   const bool session_ok=(!InpBotsRequireLiveSession || EEA_LiveSessionStateText(session_reason)=="ACTIVE");
+   g_bot_guard.execution_live=g_live_config.enabled && g_live_config.armed && !g_live_runtime.recovery_blocked &&
+                              !g_controller.kill_active && session_ok;
+   g_bot_guard.operator_paused=EEA_RemoteEntriesPaused();
+   g_bot_guard.capital=(g_risk_ledger.initial_capital>0.0 ? g_risk_ledger.initial_capital :
+                        (InpLiveInitialCapital>0.0 ? InpLiveInitialCapital : AccountInfoDouble(ACCOUNT_BALANCE)));
+   g_bot_guard.daily_loss_pct=InpBotsDailyLossPct;
+   g_bot_guard.max_open_risk_pct=InpBotsMaxOpenRiskPct;
+   g_bot_guard.news_guard=InpBotsNewsGuard;
+   const string canonical=EEA_BotsCanonicalFor(g_bots_host.symbol);
+   g_bot_guard.news_block_scalp=EEA_NewsEntryBlockFor(g_news,canonical,"SCALP");
+   g_bot_guard.news_block_swing=EEA_NewsEntryBlockFor(g_news,canonical,"SWING");
+   EEA_BotGuardRollDay(g_bot_guard);
+   g_bot_guard.ready=true;
+   g_bots_host.s07_mode=(InpS07Mode==S07_LIVE ? "LIVE" : (InpS07Mode==S07_SHADOW ? "SHADOW" : "OFF"));
+   if(InpS07Mode==S07_OFF) g_bots_host.s07_status="OFF";
+   else if(!EEA_BotActive(EEA_BOT_S07)) g_bots_host.s07_status="INACTIVE: no new S07 entry (open legs keep their management)";
+   else if(!g_bot_guard.execution_live) g_bots_host.s07_status="EA not armed or no ACTIVE live session"+(session_reason!="" ? " ("+session_reason+")" : "");
+   else g_bots_host.s07_status="engine: "+(g_live_runtime.last_reason=="" ? "waiting" : g_live_runtime.last_reason);
+  }
+
+// Settings > Bots rows (one per bot) and the guard line.
+void EEA_BotsPublishPanel()
+  {
+   g_panel_bots_enabled=InpBotsEnabled && g_bots_host.initialized;
+   if(!g_panel_bots_enabled) { g_panel_bot_count=0; return; }
+   g_panel_bot_count=EEA_BOT_COUNT;
+   for(int i=0;i<EEA_BOT_COUNT;i++)
+     {
+      int open_count=0; double floating=0.0, today=0.0;
+      EEA_BotMagicStats(g_bots_host.magics[i],i==EEA_BOT_S07 ? "" : g_bots_host.symbol,open_count,floating,today);
+      if(i==EEA_BOT_VHEDGE && g_bot_vhedge.ModeText()=="SHADOW") open_count=g_bot_vhedge.OpenLegs();
+      g_panel_bots[i].code=EEA_BotCode(i);
+      g_panel_bots[i].title=EEA_BotTitle(i);
+      g_panel_bots[i].mode=EEA_BotModeText(i);
+      g_panel_bots[i].active=EEA_BotActive(i);
+      g_panel_bots[i].magic=g_bots_host.magics[i];
+      g_panel_bots[i].open_count=open_count;
+      g_panel_bots[i].today=today;
+      g_panel_bots[i].floating=floating;
+      g_panel_bots[i].status=g_bots_host.status_text[i];
+     }
+   double open_risk=0.0; string risk_reason="";
+   const bool risk_ok=EEA_BotsAccountOpenRisk(open_risk,risk_reason);
+   const double cap=g_bot_guard.capital;
+   g_panel_bots_guard="Guard: "+(g_bot_guard.execution_live ? "armed" : "NOT armed")+
+      (g_bot_guard.operator_paused ? " | PAUSED" : "")+" | open risk "+
+      (risk_ok && cap>0.0 ? DoubleToString(100.0*open_risk/cap,1)+"%" : risk_reason)+" / cap "+
+      DoubleToString(g_bot_guard.max_open_risk_pct,1)+"% | day "+
+      (g_bot_guard.day_start_equity>0.0 && cap>0.0 ?
+       DoubleToString(100.0*(AccountInfoDouble(ACCOUNT_EQUITY)-g_bot_guard.day_start_equity)/cap,2)+"%" : "--")+
+      " / stop -"+DoubleToString(g_bot_guard.daily_loss_pct,1)+"%"+
+      (g_bot_guard.news_block_scalp!="" ? " | news "+g_bot_guard.news_block_scalp : "");
+  }
+
+// A Settings > Bots click (the panel already asked for the second click when turning ON).
+void EEA_BotsHandlePanelRequest()
+  {
+   if(StringLen(g_panel_state.bot_toggle_request)==0) return;
+   const string code=g_panel_state.bot_toggle_request;
+   g_panel_state.bot_toggle_request="";
+   string reason="";
+   if(!g_bots_host.initialized) reason="BOTS_LAYER_OFF";
+   else if(EEA_BotsPanelToggle(code,g_audit,reason))
+     {
+      const int id=EEA_BotFind(code);
+      EEA_SymbolPanelToast(EEA_BotTitle(id)+(EEA_BotActive(id) ? " ACTIVE" : " INACTIVE (open trades stay managed)"),
+                           EEA_BotActive(id) ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+      EEA_WriteAtomicText(g_bots_host.root+"/current/bots_status.json",EEA_BotsStatusJson());
+      EEA_BotsPublishPanel();
+      return;
+     }
+   EEA_SymbolPanelToast("Bot switch rejected: "+reason,EEA_PANEL_DANGER_COLOR);
+  }
+
 void EEA_CommandProcessNow()
   {
    if(!g_runtime.initialized || !g_trade_manager.loaded) return;
@@ -1467,6 +1596,7 @@ int OnInit()
          g_strategy_runtime.reason_code="EEA_STRATEGY_RUNTIME_CHECKPOINT_LOAD_FAILED";
         }
      }
+   EEA_BotsInitFromInputs();
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelInit(0, InpPanelSubWindow);
@@ -1485,6 +1615,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
+   EEA_BotsHostDeinit();
    if(EEA_LivePanelAllowed() && InpShowSymbolPanel)
      {
       EEA_SymbolPanelDestroy(0);
@@ -1602,8 +1733,10 @@ void EEA_WriteLiveStatus()
 
 void OnTick()
   {
-   // Strategy scanning, risk release and any market request are timer-owned;
-   // OnTick remains free of broker mutation and per-tick file writes.
+   // Strategy scanning, risk release and any market request of the EnterpriseEA engines are
+   // timer-owned. The bots host (VHedge) is tick-driven like its research tester: new M5 bars
+   // and stop / add management of its own groups; every new entry passes EEA_BotGuardCheck().
+   if(InpBotsEnabled) EEA_BotsHostTick();
   }
 
 void OnTimer()
@@ -1620,6 +1753,14 @@ void OnTimer()
        if(g_runtime.initialized)
           EEA_ControlledLiveReconcileRecovery(g_live_runtime,g_config.data_root,
                                               g_runtime.reconciliation,g_audit);
+       // Bots host: guard inputs, Active flags, Telegram bot commands, bots_status.json.
+       if(InpBotsEnabled && g_runtime.initialized)
+         {
+          EEA_RemoteModeTimer();
+          EEA_BotsGuardUpdate();
+          EEA_BotsHostTimer(g_runtime.account.account_fingerprint,g_config.config_version,g_audit);
+         }
+       if(InpBotsEnabled) EEA_BotsPublishPanel();
        // Every timer, also when the strategy branch below is off: /status and the soak see why.
        EEA_WriteLiveStatus();
        if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
@@ -1734,8 +1875,10 @@ void OnChartEvent(const int id,
       EEA_SymbolPanelHandleChartEvent(id, lparam, dparam, sparam, g_runtime, g_audit);
       // StringLen, not !="": an unset (NULL) string compares unequal to "" in MQL5.
       if(StringLen(g_panel_state.session_request)>0 || StringLen(g_panel_state.recovery_request)>0 ||
-         StringLen(g_panel_state.ai_request)>0 || StringLen(g_panel_state.cmd_request_action)>0)
+         StringLen(g_panel_state.ai_request)>0 || StringLen(g_panel_state.cmd_request_action)>0 ||
+         StringLen(g_panel_state.bot_toggle_request)>0)
         {
+         EEA_BotsHandlePanelRequest();
          EEA_CommandHandlePanelRequest();
          EEA_AiHandlePanelRequest();
          EEA_LiveSessionHandlePanelRequest();
