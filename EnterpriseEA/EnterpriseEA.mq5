@@ -185,6 +185,12 @@ input EEA_BotModeInput InpBotVHedgeMode = BOT_SHADOW; // VHedge G119: OFF, SHADO
 input double InpBotVHedgeRiskPct        = 0.75;    // VHedge: risk per leg, % of the initial capital (one group = 2 legs)
 input bool   InpBotVHedgeBigV           = false;   // VHedge: also the BIGV profile (G120: worse ratio than G119 alone)
 input long   InpBotVHedgeMagic          = 116119;
+input EEA_BotModeInput InpBotXrtMode    = BOT_SHADOW; // XauRegime (G96 D1 regime, buy only, market at the day open, 3 ATR stop / trail): OFF, SHADOW or LIVE
+input double InpBotXrtRiskPct           = 1.5;     // XauRegime: risk per trade, % of the initial capital
+input long   InpBotXrtMagic             = 969696;
+input EEA_BotModeInput InpBotCtxLimitMode = BOT_SHADOW; // CtxLimit (MKT04 gold context forecast, plan L limits, S07 gates): OFF, SHADOW or LIVE
+input double InpBotCtxLimitRiskPct      = 0.5;     // CtxLimit: risk per trade, % of the initial capital (x 0.67 without the ordered ribbon)
+input long   InpBotCtxLimitMagic        = 717171;
 input double InpBotsMaxOpenRiskPct      = 12.0;    // portfolio: no bot entry when account-wide open risk would exceed this (% of initial capital)
 input double InpBotsDailyLossPct        = 6.0;     // portfolio: bots stop new entries after this loss in the server day (% of initial capital)
 input bool   InpBotsNewsGuard           = false;   // portfolio: block bot entries in the News Guard window (VHedge research had no news filter)
@@ -1018,16 +1024,22 @@ void EEA_BotsInitFromInputs()
    EEA_BotModeInput modes[EEA_BOT_COUNT];
    modes[EEA_BOT_S07]=(InpS07Mode==S07_LIVE ? BOT_LIVE : (InpS07Mode==S07_SHADOW ? BOT_SHADOW : BOT_OFF));
    modes[EEA_BOT_VHEDGE]=InpBotVHedgeMode;
-   modes[EEA_BOT_XRT]=BOT_OFF;                 // stage 2
-   modes[EEA_BOT_CTXLIMIT]=BOT_OFF;            // stage 2
+   modes[EEA_BOT_XRT]=InpBotXrtMode;
+   modes[EEA_BOT_CTXLIMIT]=InpBotCtxLimitMode;
    long magics[EEA_BOT_COUNT];
    magics[EEA_BOT_S07]=InpLiveMagic; magics[EEA_BOT_VHEDGE]=InpBotVHedgeMagic;
-   magics[EEA_BOT_XRT]=969696; magics[EEA_BOT_CTXLIMIT]=717171;
+   magics[EEA_BOT_XRT]=InpBotXrtMagic; magics[EEA_BOT_CTXLIMIT]=InpBotCtxLimitMagic;
    VHedgeBotParams vp;
    VHedgeBotParamsDefaults(vp);
    vp.mode=InpBotVHedgeMode; vp.risk_percent=InpBotVHedgeRiskPct; vp.prof_bigv=InpBotVHedgeBigV;
    vp.magic=InpBotVHedgeMagic; vp.news_guard=InpBotsNewsGuard;
-   EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp);
+   XrtBotParams xp;
+   XrtBotParamsDefaults(xp);
+   xp.mode=InpBotXrtMode; xp.risk_percent=InpBotXrtRiskPct; xp.magic=InpBotXrtMagic;
+   CtxLimitBotParams cp;
+   CtxLimitBotParamsDefaults(cp);
+   cp.mode=InpBotCtxLimitMode; cp.risk_percent=InpBotCtxLimitRiskPct; cp.magic=InpBotCtxLimitMagic;
+   EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp,xp,cp);
   }
 
 string EEA_BotsCanonicalFor(const string broker)
@@ -1055,6 +1067,14 @@ void EEA_BotsGuardUpdate()
    const string canonical=EEA_BotsCanonicalFor(g_bots_host.symbol);
    g_bot_guard.news_block_scalp=EEA_NewsEntryBlockFor(g_news,canonical,"SCALP");
    g_bot_guard.news_block_swing=EEA_NewsEntryBlockFor(g_news,canonical,"SWING");
+   g_bot_guard.news_be_due=EEA_NewsBreakEvenDueFor(g_news,canonical);
+   for(int k=0;k<2;k++)
+     {
+      EEA_SentAlignment a;
+      EEA_SentimentAlignFor(g_sentiment,canonical,k==0 ? 1 : -1,"SWING",a);
+      g_bot_guard.sent_factor[k]=(a.factor>0.0 && a.factor<=1.0 ? a.factor : 1.0);
+      g_bot_guard.sent_block[k]=a.block;
+     }
    EEA_BotGuardRollDay(g_bot_guard);
    g_bot_guard.ready=true;
    g_bots_host.s07_mode=(InpS07Mode==S07_LIVE ? "LIVE" : (InpS07Mode==S07_SHADOW ? "SHADOW" : "OFF"));
@@ -1075,6 +1095,8 @@ void EEA_BotsPublishPanel()
       int open_count=0; double floating=0.0, today=0.0;
       EEA_BotMagicStats(g_bots_host.magics[i],i==EEA_BOT_S07 ? "" : g_bots_host.symbol,open_count,floating,today);
       if(i==EEA_BOT_VHEDGE && g_bot_vhedge.ModeText()=="SHADOW") open_count=g_bot_vhedge.OpenLegs();
+      if(i==EEA_BOT_XRT && g_bot_xrt.ModeText()=="SHADOW") open_count=g_bot_xrt.OpenLegs();
+      if(i==EEA_BOT_CTXLIMIT && g_bot_ctx.ModeText()=="SHADOW") open_count=g_bot_ctx.OpenLegs();
       g_panel_bots[i].code=EEA_BotCode(i);
       g_panel_bots[i].title=EEA_BotTitle(i);
       g_panel_bots[i].mode=EEA_BotModeText(i);

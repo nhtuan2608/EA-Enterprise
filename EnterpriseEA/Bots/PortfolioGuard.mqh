@@ -9,7 +9,7 @@
 //   3 no operator /pause
 //   4 the day's loss (equity vs the server-day start) is below InpBotsDailyLossPct of the capital
 //   5 account-wide open risk (every position and pending order, every magic) + this order <= InpBotsMaxOpenRiskPct
-//   6 no HIGH-impact news block for the symbol (EnterpriseEA News Guard), unless the bot opted out
+//   6 no HIGH-impact news block for the symbol (EnterpriseEA News Guard), when the bot uses it (use_news)
 
 #include "BotState.mqh"
 
@@ -21,9 +21,12 @@ struct EEA_BotGuardContext
    double capital;                // risk basis (initial capital, INITIAL as S07)
    double daily_loss_pct;
    double max_open_risk_pct;
-   bool   news_guard;
-   string news_block_scalp;       // "" = no block
-   string news_block_swing;
+   bool   news_guard;             // InpBotsNewsGuard: the VHedge module's News Guard switch
+   string news_block_scalp;       // "" = no block (EnterpriseEA News Guard, SCALP profile)
+   string news_block_swing;       // (SWING profile)
+   bool   news_be_due;            // break-even before a HIGH USD event is due (EnterpriseEA News Guard)
+   double sent_factor[2];         // EnterpriseEA sentiment, SWING profile: [0] buy, [1] sell (1 = neutral)
+   bool   sent_block[2];          // strongly against: no SWING entry
    int    day_key;                // server day of the equity anchor
    double day_start_equity;
   };
@@ -34,7 +37,8 @@ void EEA_BotGuardDefaults(EEA_BotGuardContext &g)
   {
    g.ready=false; g.execution_live=false; g.operator_paused=true; g.capital=0.0; g.daily_loss_pct=0.0;
    g.max_open_risk_pct=0.0; g.news_guard=true; g.news_block_scalp="NEWS_GUARD_NOT_READY";
-   g.news_block_swing="NEWS_GUARD_NOT_READY"; g.day_key=0; g.day_start_equity=0.0;
+   g.news_block_swing="NEWS_GUARD_NOT_READY"; g.day_key=0; g.day_start_equity=0.0; g.news_be_due=false;
+   g.sent_factor[0]=1.0; g.sent_factor[1]=1.0; g.sent_block[0]=false; g.sent_block[1]=false;
   }
 
 // The server day anchors the daily loss; the first call of a new day takes the equity then.
@@ -101,7 +105,7 @@ string EEA_BotGuardCheck(const int bot,const double new_risk_money,const string 
    if(!EEA_BotsAccountOpenRisk(open_risk,reason)) return reason;
    if(g.max_open_risk_pct>0.0 && open_risk+MathMax(new_risk_money,0.0)>g.max_open_risk_pct/100.0*g.capital)
       return "BOTS_OPEN_RISK_CAP";
-   if(use_news && g.news_guard)
+   if(use_news)
      {
       const string block=(profile=="SWING" ? g.news_block_swing : g.news_block_scalp);
       if(block!="") return block;

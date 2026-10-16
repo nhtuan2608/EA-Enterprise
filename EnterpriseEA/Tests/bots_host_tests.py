@@ -211,3 +211,64 @@ class PanelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class XrtBotTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/XrtBot.mqh")
+        self.tester = read("XauRegimeTester.mq5")
+
+    def test_defaults_match_the_tester_set(self):
+        b = body(self.src, "void XrtBotParamsDefaults(")
+        for token in ("p.risk_percent=1.5", "p.dir_mode=XRB_LONG_ONLY", "p.ema_period=50", "p.slope_days=10",
+                      "p.atr_period=20", "p.buy_zone=XRB_MARKET", "p.stop_atr=3.0", "p.trail=true", "p.trail_atr=3.0",
+                      "p.magic=969696", "p.mode=BOT_SHADOW"):
+            self.assertIn(token, b)
+        self.assertIn("#define XRB_MAX_CHASE_ATR 0.5", self.src)
+        self.assertIn("#define XRT_MAX_CHASE_ATR 0.5", self.tester)
+
+    def test_regime_and_exits_are_the_tester_rules(self):
+        for token in ("day.state=(side==slope ? side : 0);", "plan.stop=base-dir*p.stop_atr*day.atr;",
+                      "if(day.state!=dir) { CloseOwn(", "dir*(day.close-best)<=-p.trail_atr*day.atr",
+                      "if(blocked_dir!=0 && day.state!=blocked_dir) blocked_dir=0;"):
+            self.assertIn(token, self.src)
+        for token in ("g_day.state=(side==slope ? side : 0);", "g_plan.stop=base-dir*InpStopAtr*g_day.atr;"):
+            self.assertIn(token, self.tester)
+
+    def test_gates_use_the_live_ea_and_the_guard(self):
+        b = body(self.src, "double EntryGate(")
+        self.assertIn("g_bot_guard.news_block_swing", b)
+        self.assertIn("g_bot_guard.sent_block[k]", b)
+        self.assertIn('EEA_BotGuardCheck(EEA_BOT_XRT,risk_money*sent,"SWING",true,false)', b)
+        self.assertIn('else if(!EEA_BotActive(EEA_BOT_XRT))', b)
+
+    def test_state_persists(self):
+        self.assertIn('return root+"/current/bots/xrt_state.txt";', self.src)
+        self.assertIn("Load();", body(self.src, "void Init("))
+
+
+class CtxLimitBotTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/CtxLimitBot.mqh")
+        self.tester = read("CtxLimitTester.mq5")
+
+    def test_defaults_and_threshold(self):
+        b = body(self.src, "void CtxLimitBotParamsDefaults(")
+        for token in ("p.plan=CTXB_PLAN_LIMIT", "p.risk_percent=0.5", "p.unordered_weight=0.67", "p.stop_atr=1.0",
+                      "p.target_atr=2.0", "p.pull_atr=0.5", "p.limit_bars=8", "p.hold_bars=96", "p.magic=717171"):
+            self.assertIn(token, b)
+        self.assertIn("0.3825820347356539 : 0.21075521107935286", self.src)
+        self.assertIn("0.3825820347356539 : 0.21075521107935286", self.tester)
+
+    def test_features_are_the_tester_features(self):
+        strip = lambda x: re.sub(r"\s+", "", re.sub(r"//.*", "", x)).replace("Ctxb", "Ctx").replace("CTXB_", "CTX_")
+        mine = strip(body(self.src, "void CtxAdd(const MqlRates &r)"))
+        theirs = strip(body(self.tester, "void CtxAdd(const MqlRates &r)"))
+        mine = mine.replace("dday", "day").replace("constdoubleh=r.high", "constdoubleo=r.open,h=r.high")
+        self.assertEqual(mine, theirs)
+
+    def test_new_order_asks_the_guard(self):
+        b = body(self.src, "void Decide(")
+        self.assertIn('EEA_BotGuardCheck(EEA_BOT_CTXLIMIT,risk_money,"SWING",true,false)', b)
+        self.assertLess(b.index("EEA_BotGuardCheck"), b.index("trade.Buy("))
+        self.assertIn("if(!EEA_BotActive(EEA_BOT_CTXLIMIT))", b)

@@ -15,6 +15,8 @@
 #include "BotState.mqh"
 #include "PortfolioGuard.mqh"
 #include "VHedgeBot.mqh"
+#include "XrtBot.mqh"
+#include "CtxLimitBot.mqh"
 
 #define EEA_BOT_COMMAND_VERSION "bot-command-v1.0.0"
 #define EEA_BOTS_STATUS_DOCUMENT "bots-status-v1.0.0"
@@ -37,6 +39,8 @@ struct EEA_BotsHost
 
 EEA_BotsHost g_bots_host;
 CVHedgeBot   g_bot_vhedge;
+CXrtBot      g_bot_xrt;
+CCtxLimitBot g_bot_ctx;
 
 void EEA_BotsHostDefaults(EEA_BotsHost &h)
   {
@@ -79,6 +83,8 @@ string EEA_BotModeText(const int id)
   {
    if(id==EEA_BOT_S07) return g_bots_host.s07_mode;
    if(id==EEA_BOT_VHEDGE) return g_bot_vhedge.ModeText();
+   if(id==EEA_BOT_XRT) return g_bot_xrt.ModeText();
+   if(id==EEA_BOT_CTXLIMIT) return g_bot_ctx.ModeText();
    return EEA_BotModeName(g_bots_host.modes[id]);
   }
 
@@ -86,13 +92,15 @@ string EEA_BotStatusText(const int id)
   {
    if(id==EEA_BOT_S07) return g_bots_host.s07_status;
    if(id==EEA_BOT_VHEDGE) return g_bot_vhedge.StatusText();
-   if(g_bots_host.modes[id]==BOT_OFF) return "OFF";
-   return "chưa có trong bản này (giai đoạn 2)";
+   if(id==EEA_BOT_XRT) return g_bot_xrt.StatusText();
+   if(id==EEA_BOT_CTXLIMIT) return g_bot_ctx.StatusText();
+   return "";
   }
 
 // ------------------------------------------------------------------------------------------------------ lifecycle
 void EEA_BotsHostInit(const string root,const string symbol,const bool &defaults[],const EEA_BotModeInput &modes[],
-                      const long &magics[],const VHedgeBotParams &vhedge)
+                      const long &magics[],const VHedgeBotParams &vhedge,const XrtBotParams &xrt,
+                      const CtxLimitBotParams &ctx)
   {
    EEA_BotsHostDefaults(g_bots_host);
    EEA_BotsStateDefaults(g_bots_state);
@@ -104,6 +112,8 @@ void EEA_BotsHostInit(const string root,const string symbol,const bool &defaults
    if(!SymbolSelect(g_bots_host.symbol,true))
       PrintFormat("BotsHost: symbol %s is not available; bots stay idle",g_bots_host.symbol);
    g_bot_vhedge.Init(vhedge,g_bots_host.symbol,root);
+   g_bot_xrt.Init(xrt,g_bots_host.symbol,root);
+   g_bot_ctx.Init(ctx,g_bots_host.symbol,root);
    g_bots_host.initialized=true;
   }
 
@@ -111,6 +121,8 @@ void EEA_BotsHostDeinit()
   {
    if(!g_bots_host.initialized) return;
    g_bot_vhedge.Deinit();
+   g_bot_xrt.Deinit();
+   g_bot_ctx.Deinit();
   }
 
 // Every tick: bot management and new-bar signals. Never runs before the state was loaded.
@@ -119,6 +131,8 @@ void EEA_BotsHostTick()
    if(!g_bots_host.initialized || !g_bots_state.loaded) return;
    EEA_BotGuardRollDay(g_bot_guard);
    g_bot_vhedge.OnTick();
+   g_bot_xrt.OnTick();
+   g_bot_ctx.OnTick();
   }
 
 // ------------------------------------------------------------------------------------------------------ remote
@@ -254,6 +268,8 @@ string EEA_BotsStatusJson()
       const string sym=(i==EEA_BOT_S07 ? "" : g_bots_host.symbol);
       EEA_BotMagicStats(g_bots_host.magics[i],sym,open_count,floating,today);
       if(i==EEA_BOT_VHEDGE && g_bot_vhedge.ModeText()=="SHADOW") open_count=g_bot_vhedge.OpenLegs();
+      if(i==EEA_BOT_XRT && g_bot_xrt.ModeText()=="SHADOW") open_count=g_bot_xrt.OpenLegs();
+      if(i==EEA_BOT_CTXLIMIT && g_bot_ctx.ModeText()=="SHADOW") open_count=g_bot_ctx.OpenLegs();
       bots+=(i>0 ? "," : "")+"{\"code\":\""+EEA_BotCode(i)+"\",\"title\":\""+EEA_JsonEscape(EEA_BotTitle(i))+
             "\",\"active\":"+(EEA_BotActive(i) ? "true" : "false")+",\"mode\":\""+EEA_JsonEscape(EEA_BotModeText(i))+
             "\",\"magic\":"+IntegerToString(g_bots_host.magics[i])+",\"open\":"+IntegerToString(open_count)+
