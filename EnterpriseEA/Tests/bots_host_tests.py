@@ -304,3 +304,12 @@ class PolicyConfirmTests(unittest.TestCase):
         self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,false)", handler)
         self.assertIn("g_panel_state.policy_confirmed=!g_panel_state.policy_confirmed;\n            g_panel_state.apply_reason",
                       handler.replace("\r\n", "\n"))                    # a failed write rolls the toggle back
+
+
+class PolicyReclickTests(unittest.TestCase):
+    def test_clicking_the_policy_in_force_keeps_the_confirmation(self):
+        src = read("Runtime/SymbolSelectionPanel.mqh")
+        guard = src.index('if(StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_")==0)')
+        first = src.index('if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP")')
+        self.assertLess(guard, first)
+        self.assertIn("pick==g_panel_state.staged_policy && pick==g_panel_state.committed_policy", src[guard:first])

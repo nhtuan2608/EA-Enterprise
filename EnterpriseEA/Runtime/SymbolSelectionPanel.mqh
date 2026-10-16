@@ -3263,6 +3263,18 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
       EEA_SymbolPanelRenderMainView(g_panel_state.chart_id,ctx);
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
+   // Clicking the policy already in force changes nothing (it used to stage it again and clear the
+   // confirmation, which then blocked the live session with LIVE_POLICY_NOT_CONFIRMED).
+   if(StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_")==0)
+     {
+      const string pick=StringSubstr(sparam,StringLen(EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_"));
+      if(pick==g_panel_state.staged_policy && pick==g_panel_state.committed_policy)
+        {
+         EEA_SymbolPanelToast("Policy "+pick+" is already in force"+(g_panel_state.policy_confirmed ? " and confirmed" :
+                              ": press Confirm policy"),g_panel_state.policy_confirmed ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+         EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
+        }
+     }
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_Policy_FTMO_1_STEP")
      {
       EEA_SymbolPanelPolicySnapshot old_policy;
