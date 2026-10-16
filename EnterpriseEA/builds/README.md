@@ -24,6 +24,22 @@ Riêng các set cho VHedge G119 (bỏ BIGV, 0,75% mỗi chân, INITIAL) có tron
 
 Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 
+## EnterpriseEA_Bots (16/10/2026)
+
+`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ main `ca06763`. Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
+
+Set nằm trong `builds/sets/`:
+
+| File | Dùng cho |
+|---|---|
+| `EnterpriseEA_Bots_demo.set` | Demo: S07 LIVE, các bot SHADOW |
+| `EnterpriseEA_Bots_demo_all_live.set` | Demo: tất cả LIVE |
+| `EnterpriseEA_Bots_vps_cent.set` | VPS cent: tất cả LIVE, cho phép phiên trên tài khoản thật |
+
+Hướng dẫn: `docs/bots-host-guide.md`.
+
+**Chỉ gắn một EnterpriseEA_Bots cho mỗi tài khoản**, và tháo S07Tester, VHedgeTester, XauRegimeTester, CtxLimitTester ra trước.
+
 ## Lưu ý
 
 - `S07Tester` và `XauRegimeTester` khi chạy trong Strategy Tester đọc thêm `S07Tester_news.csv` và `S07Tester_sentiment.csv` trong `MQL5\Files`. Khi chạy trên chart, hai bot này đọc tin và sentiment trực tiếp từ MT5.
