@@ -293,3 +293,14 @@ class SingleInstanceTests(unittest.TestCase):
         self.assertIn("EEA_InstanceRelease();", body(self.ea, "void OnDeinit(const int reason)"))
         rel = body(self.ea, "void EEA_InstanceRelease()")
         self.assertIn('GlobalVariableGet(k+"_chart")==EEA_InstanceChartTag()', rel)   # only its own stamp
+
+
+class PolicyConfirmTests(unittest.TestCase):
+    def test_confirming_the_policy_in_force_is_saved_at_once(self):
+        src = read("Runtime/SymbolSelectionPanel.mqh")
+        i = src.index('if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy")')
+        handler = src[i:i + 1500]
+        self.assertIn("g_panel_state.staged_policy==g_panel_state.committed_policy", handler)
+        self.assertIn("EEA_SymbolPanelPersistPolicy(ctx,audit,false)", handler)
+        self.assertIn("g_panel_state.policy_confirmed=!g_panel_state.policy_confirmed;\n            g_panel_state.apply_reason",
+                      handler.replace("\r\n", "\n"))                    # a failed write rolls the toggle back

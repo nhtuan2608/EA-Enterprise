@@ -3345,6 +3345,21 @@ void EEA_SymbolPanelHandleChartEvent(const int id,const long &lparam,const doubl
    if(sparam==EEA_PANEL_OVERLAY_PREFIX+"Btn_ConfirmPolicy")
      {
       g_panel_state.policy_confirmed=!g_panel_state.policy_confirmed;
+      // Confirming (or un-confirming) the policy already in force is not a staged change, so Apply never
+      // saved it and a live session could not be signed again (LIVE_POLICY_NOT_CONFIRMED). Persist it at
+      // once, audited; a different staged policy still needs Apply (its confirmation is saved with it).
+      if(g_panel_state.staged_policy==g_panel_state.committed_policy && g_panel_state.committed_policy!="UNSELECTED")
+        {
+         if(EEA_SymbolPanelPersistPolicy(ctx,audit,false))
+            EEA_SymbolPanelToast(g_panel_state.policy_confirmed ? "Policy "+g_panel_state.committed_policy+" confirmed and saved" :
+                                 "Policy confirmation removed",
+                                 g_panel_state.policy_confirmed ? EEA_PANEL_OK_COLOR : EEA_PANEL_WARNING_COLOR);
+         else
+           {
+            g_panel_state.policy_confirmed=!g_panel_state.policy_confirmed;
+            g_panel_state.apply_reason="POLICY_SETTINGS_PERSISTENCE_FAILED";
+           }
+        }
       EEA_SymbolPanelRenderSettings(g_panel_state.chart_id,ctx); return;
      }
    for(int i=0;i<g_panel_state.row_count;i++)
