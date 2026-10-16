@@ -109,7 +109,8 @@ class BotIntentTests(BotsCase):
     def test_free_text_becomes_a_bot_intent_request(self):
         self.feed(msg(1, OP, "tắt VHedge đi nhé"))
         req = self.intent_request()
-        self.assertEqual((req["request_type"], req["allowed_actions"]), ("BOT_INTENT", ["BOT_ENABLE", "BOT_DISABLE"]))
+        self.assertEqual((req["request_type"], req["allowed_actions"]),
+                         ("BOT_INTENT", ["BOT_ENABLE", "BOT_DISABLE", "SESSION_SIGN_24H", "SESSION_SIGN_7D", "SESSION_REVOKE"]))
         self.assertEqual(req["context"]["operator_message"], "tắt VHedge đi nhé")
         self.assertEqual([b["code"] for b in req["context"]["bots"]], ["S07", "VHEDGE"])
         self.assertEqual(self.bot_commands(), [])                                # nothing until the AI answered

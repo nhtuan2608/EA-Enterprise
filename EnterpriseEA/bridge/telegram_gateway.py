@@ -38,6 +38,12 @@ RESUME_TTL = 120                # REQUEST_RESUME command and nonce lifetime (EA 
 RESULT_WAIT = 90                # no EA result after this: tell the user the EA did not confirm
 ASK_DEADLINE = 180              # AI request deadline for the bridge
 ASK_WAIT = 240                  # no AI answer after this: tell the user it timed out
+# Telegram /session (17/10/2026): the two durations the panel offers. Signing needs a 6-digit code
+# and InpSessionRemoteSignAllowed=true on the EA; revoking never needs a code.
+SESSION_SECONDS = {"24h": 86400, "7d": 7 * 86400}
+SESSION_LABEL = {86400: "24 giờ", 7 * 86400: "7 ngày"}
+BOT_INTENT_ACTIONS = ["BOT_ENABLE", "BOT_DISABLE"]
+SESSION_INTENT_ACTIONS = ["SESSION_SIGN_24H", "SESSION_SIGN_7D", "SESSION_REVOKE"]
 MAX_QUESTION = 300              # the bridge truncates context strings at 300 characters
 MAX_MESSAGE = 3500              # Telegram allows 4096
 STATUS_STALE = 120              # EA snapshot older than this is reported STALE
@@ -90,7 +96,11 @@ HELP_OPERATOR = HELP_VIEWER + ("\n/pause - dừng vào lệnh mới (vị thế 
                                "/bot off <tên> - tắt một bot ngay (lệnh đang mở vẫn được quản lý)\n"
                                "/bot on <tên> - xin bật một bot, nhận mã xác nhận\n"
                                "Tên bot: s07, vhedge, xrt, ctxlimit\n"
-                               "Nhắn tự nhiên (vd: tắt VHedge đi) - AI hiểu ý rồi gửi lệnh chuẩn; bật vẫn cần /confirm")
+                               "/session - phiên live hiện tại\n"
+                               "/session 24h | /session 7d - xin cấp phiên live, nhận mã xác nhận\n"
+                               "/session revoke - thu hồi phiên ngay (dừng vào lệnh mới)\n"
+                               "Nhắn tự nhiên (vd: tắt VHedge đi, cấp phiên 7 ngày) - AI hiểu ý rồi gửi lệnh chuẩn; "
+                               "bật bot và cấp phiên vẫn cần /confirm")
 
 
 def now() -> int:
@@ -182,7 +192,7 @@ class Gateway:
         base = {"offset": 0, "sequence": 0, "seen_updates": [], "pending_commands": {}, "pending_asks": {},
                 "outbox": [], "audit_pos": 0, "audit_size": 0, "reports_seen": {}, "news_seen": [],
                 "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": "",
-                "pending_intents": {}, "bot_nonces": {}}
+                "pending_intents": {}, "bot_nonces": {}, "session_nonces": {}}
         loaded = read_json(self.state_path)
         if isinstance(loaded, dict):
             base.update(loaded)
@@ -307,6 +317,12 @@ class Gateway:
                 self.send(uid, "Lệnh này chỉ dành cho operator.", mid)
             else:
                 self.cmd_bot(uid, mid, arg.strip(), uid_update)
+        elif cmd == "/session":
+            if role != "OPERATOR":
+                self.log("UNAUTHORIZED_ACTION", update_id=uid_update, user_id=uid, command=cmd)
+                self.send(uid, "Lệnh này chỉ dành cho operator.", mid)
+            else:
+                self.cmd_session(uid, mid, arg.strip(), uid_update)
         elif cmd in ("/pause", "/resume", "/confirm"):
             if role != "OPERATOR":
                 self.log("UNAUTHORIZED_ACTION", update_id=uid_update, user_id=uid, command=cmd)
@@ -323,6 +339,9 @@ class Gateway:
                 elif nonce in self.state["bot_nonces"]:
                     pending = self.state["bot_nonces"].pop(nonce)
                     self.write_bot_command("BOT_CONFIRM_ENABLE", pending["bot"], uid, mid, uid_update, nonce=nonce)
+                elif nonce in self.state["session_nonces"]:
+                    self.state["session_nonces"].pop(nonce)
+                    self.write_command("CONFIRM_SESSION_SIGN", uid, mid, uid_update, nonce=nonce)
                 else:
                     self.write_command("CONFIRM_RESUME", uid, mid, uid_update, nonce=nonce)
         elif role == "OPERATOR" and text and not text.startswith("/"):
@@ -331,25 +350,27 @@ class Gateway:
             self.send(uid, "Chỉ hỗ trợ lệnh. Gõ /help.", mid)
 
     # -- EA commands (REQ-019) ----------------------------------------------
-    def write_command(self, action: str, uid: int, mid, update_id: int, nonce: str = ""):
+    def write_command(self, action: str, uid: int, mid, update_id: int, nonce: str = "", session_seconds: int = 0):
         mode = read_json(self.root / "current" / "operator_mode.json")
         if not isinstance(mode, dict) or not mode.get("account_id"):
             self.send(uid, "EA chưa sẵn sàng (chưa có operator_mode.json). Kiểm tra EA đã chạy bản có Telegram chưa.", mid)
             return
         seq = self.next_sequence()
         t = self.clock()
-        ttl = RESUME_TTL if action == "REQUEST_RESUME" else COMMAND_TTL
+        challenge = action in ("REQUEST_RESUME", "REQUEST_SESSION_SIGN")
+        ttl = RESUME_TTL if challenge else COMMAND_TTL
         command_id = f"tg-{seq:06d}-{secrets.token_hex(4)}"
         cmd = {"schema_version": COMMAND_SCHEMA, "command_id": command_id, "action": action, "role": "OPERATOR",
                "chat_id": str(uid), "user_id": str(uid), "telegram_update_id": update_id, "gateway_sequence": seq,
                "account_id": mode["account_id"], "config_version": mode.get("config_version", ""),
                "expected_state_version": int(mode.get("state_version", 0)), "issued_at_utc": t,
                "expires_at_utc": t + ttl, "confirmation_nonce": nonce,
-               "nonce_expires_at_utc": t + RESUME_TTL - 5 if action == "REQUEST_RESUME" else 0,
+               "nonce_expires_at_utc": t + RESUME_TTL - 5 if challenge else 0,
+               "session_seconds": session_seconds,
                "private_chat_attested": True, "sender_authenticated": True, "source_authenticated": True}
         write_atomic(self.root / "current" / "remote" / "commands" / f"{seq:012d}.json", cmd)
         self.state["pending_commands"][command_id] = {"chat_id": uid, "reply_to": mid, "action": action,
-                                                      "issued": t, "nonce": nonce}
+                                                      "issued": t, "nonce": nonce, "session_seconds": session_seconds}
         self.log("QUEUED", command_id=command_id, action=action, sequence=seq)
         self.send(uid, f"Đã nhận {action}, chờ EA xác nhận...", mid)
 
@@ -461,6 +482,37 @@ class Gateway:
             return
         self.bot_switch(uid, mid, on, bot, update_id)
 
+    # -- live session (17/10/2026): /session, /session 24h|7d, /session revoke ----------------------
+    def session_text(self) -> str:
+        """current/live_session.json (EA, written when a session is signed or revoked)."""
+        s = read_json(self.root / "current" / "live_session.json")
+        if not isinstance(s, dict) or not s.get("session_id"):
+            return "Chưa có phiên live nào."
+        until = int(s.get("valid_until_utc", 0) or 0)
+        left = until - self.clock()
+        if s.get("status") != "ACTIVE" or int(s.get("revoked_at_utc", 0) or 0) > 0:
+            return f"Phiên {s.get('session_id')}: {s.get('status')} (không vào lệnh mới)."
+        if left <= 0:
+            return f"Phiên {s.get('session_id')}: đã hết hạn."
+        return (f"Phiên {s.get('session_id')}: ACTIVE, hết hạn {time.strftime('%H:%M %d/%m', time.localtime(until))} "
+                f"(còn {left // 3600} giờ {left % 3600 // 60} phút), symbol {s.get('allowed_symbols', '')}, "
+                f"policy {s.get('risk_policy_id', '')}.")
+
+    def cmd_session(self, uid: int, mid, arg: str, update_id: int):
+        word = arg.lower().replace(" ", "")
+        if not word:
+            self.send(uid, self.session_text(), mid)
+        elif word in SESSION_SECONDS:
+            self.session_sign(uid, mid, SESSION_SECONDS[word], update_id)
+        elif word in ("revoke", "off", "stop", "thuhoi", "thuhồi", "huy", "hủy"):
+            self.write_command("REVOKE_SESSION", uid, mid, update_id)
+        else:
+            self.send(uid, "Cú pháp: /session, /session 24h, /session 7d hoặc /session revoke", mid)
+
+    def session_sign(self, uid: int, mid, seconds: int, update_id: int):
+        nonce = f"{secrets.randbelow(10 ** 6):06d}"
+        self.write_command("REQUEST_SESSION_SIGN", uid, mid, update_id, nonce=nonce, session_seconds=seconds)
+
     def cmd_bot_intent(self, uid: int, mid, text: str, update_id: int):
         if not self.rate_ok(uid, "ask", self.config["asks_per_hour"], 3600):
             self.send(uid, "Đã đủ số câu hỏi AI trong 1 giờ. Dùng /bot on|off <tên> để bật/tắt bot.", mid)
@@ -473,8 +525,9 @@ class Gateway:
         t = self.clock()
         req = {"schema_version": AI_SCHEMA, "request_id": request_id, "request_type": "BOT_INTENT",
                "created_at_utc": t, "deadline_utc": t + BOT_INTENT_DEADLINE, "provider": self.config["ai_provider"],
-               "allowed_actions": ["BOT_ENABLE", "BOT_DISABLE"],
-               "context": {"operator_message": text[:MAX_QUESTION], "bots": bots, "source": "TELEGRAM",
+               "allowed_actions": BOT_INTENT_ACTIONS + SESSION_INTENT_ACTIONS,
+               "context": {"operator_message": text[:MAX_QUESTION], "bots": bots,
+                           "live_session": self.session_text(), "source": "TELEGRAM",
                            "telegram_update_id": update_id}}
         write_atomic(self.root / "ai" / "requests" / f"{request_id}.json", req)
         self.state["pending_intents"][request_id] = {"chat_id": uid, "reply_to": mid, "issued": t,
@@ -488,19 +541,31 @@ class Gateway:
             path = responses / f"{request_id}.json"
             res = read_json(path)
             if isinstance(res, dict):
-                recs = [r for r in res.get("recommendations", []) if r.get("action") in ("BOT_ENABLE", "BOT_DISABLE")]
-                bot = self.resolve_bot(recs[0].get("target", "")) if len(recs) == 1 else ""
+                recs = [r for r in res.get("recommendations", [])
+                        if r.get("action") in BOT_INTENT_ACTIONS + SESSION_INTENT_ACTIONS]
+                action = recs[0].get("action") if len(recs) == 1 else ""
+                bot = self.resolve_bot(recs[0].get("target", "")) if action in BOT_INTENT_ACTIONS else ""
                 if res.get("status") != "OK":
-                    self.send(p["chat_id"], f"AI lỗi: {res.get('error', 'UNKNOWN')}. Dùng /bot on|off <tên>.", p["reply_to"])
+                    self.send(p["chat_id"], f"AI lỗi: {res.get('error', 'UNKNOWN')}. Dùng /bot on|off <tên> "
+                                            "hoặc /session 24h|7d|revoke.", p["reply_to"])
+                elif action in ("SESSION_SIGN_24H", "SESSION_SIGN_7D"):
+                    seconds = SESSION_SECONDS["24h" if action == "SESSION_SIGN_24H" else "7d"]
+                    self.send(p["chat_id"], f"AI hiểu là: CẤP phiên live {SESSION_LABEL[seconds]} (cần /confirm)",
+                              p["reply_to"])
+                    self.session_sign(p["chat_id"], p["reply_to"], seconds, p["update_id"])
+                elif action == "SESSION_REVOKE":
+                    self.send(p["chat_id"], "AI hiểu là: THU HỒI phiên live", p["reply_to"])
+                    self.write_command("REVOKE_SESSION", p["chat_id"], p["reply_to"], p["update_id"])
                 elif not bot:
-                    self.send(p["chat_id"], "AI không thấy yêu cầu bật/tắt bot rõ ràng, không gửi lệnh nào.\n"
+                    self.send(p["chat_id"], "AI không thấy yêu cầu bật/tắt bot hay cấp/thu hồi phiên rõ ràng, "
+                                            "không gửi lệnh nào.\n"
                                             f"{res.get('summary', '')}".strip(), p["reply_to"])
                 else:
                     on = recs[0]["action"] == "BOT_ENABLE"
                     self.send(p["chat_id"], f"AI hiểu là: {'BẬT' if on else 'TẮT'} {self.BOT_TITLES.get(bot, bot)}"
                                             f"{' (cần /confirm)' if on else ''}", p["reply_to"])
                     self.bot_switch(p["chat_id"], p["reply_to"], on, bot, p["update_id"])
-                self.log("AI_COMPLETED", request_id=request_id, status=res.get("status"), bot=bot)
+                self.log("AI_COMPLETED", request_id=request_id, status=res.get("status"), bot=bot, action=action)
                 try:
                     path.unlink()
                 except OSError:
@@ -521,6 +586,19 @@ class Gateway:
                 if p["action"] == "REQUEST_RESUME" and res.get("applied"):
                     text = (f"Mã xác nhận: {p['nonce']}\nGửi /confirm {p['nonce']} trong 2 phút để bật lại vào lệnh.\n"
                             "EA sẽ kiểm tra lại toàn bộ điều kiện an toàn trước khi bật.")
+                elif p["action"] == "REQUEST_SESSION_SIGN" and res.get("applied"):
+                    self.state["session_nonces"][p["nonce"]] = {"expires": self.clock() + RESUME_TTL}
+                    label = SESSION_LABEL.get(p.get("session_seconds"), "")
+                    text = (f"Mã xác nhận cấp phiên live {label}: {p['nonce']}\n"
+                            f"Gửi /confirm {p['nonce']} trong 2 phút. EA kiểm tra lại runtime, policy, tài khoản "
+                            "và symbol như khi bấm trên panel.")
+                elif p["action"] == "CONFIRM_SESSION_SIGN" and res.get("applied"):
+                    text = f"EA đã cấp phiên live. {self.session_text()}"
+                elif p["action"] == "REVOKE_SESSION" and res.get("applied"):
+                    text = "EA đã thu hồi phiên live: không vào lệnh mới. Vị thế đang mở vẫn được quản lý."
+                elif "SESSION_REMOTE_SIGN_DISABLED" in res.get("reason_codes", []):
+                    text = ("EA từ chối: cấp phiên qua Telegram đang tắt. Bật input InpSessionRemoteSignAllowed=true "
+                            "trên EA, hoặc cấp phiên trên panel.")
                 elif p["action"] == "BOT_REQUEST_ENABLE" and res.get("applied"):
                     self.state["bot_nonces"][p["nonce"]] = {"bot": p["bot"], "expires": self.clock() + RESUME_TTL}
                     text = (f"Mã xác nhận bật {self.BOT_TITLES.get(p['bot'], p['bot'])}: {p['nonce']}\n"
@@ -1045,6 +1123,8 @@ class Gateway:
         self.poll_intents()
         now_ = self.clock()
         self.state["bot_nonces"] = {k: v for k, v in self.state["bot_nonces"].items() if v.get("expires", 0) > now_}
+        self.state["session_nonces"] = {k: v for k, v in self.state["session_nonces"].items()
+                                        if v.get("expires", 0) > now_}
         self.poll_jobs()
         self.notify_audit()
         self.notify_reports()

@@ -123,6 +123,7 @@ input string InpLiveAuthorizationPath  = "";
 input int    InpSessionMaxScalpPerDay   = 6;      // session: SCALP (M5) entries per Prague day
 input int    InpSessionMaxSwingPerDay   = 2;      // session: SWING (H1) entries per Prague day
 input bool   InpSessionAllowRealAccount = false;  // a session on a REAL account needs this set explicitly
+input bool   InpSessionRemoteSignAllowed = false; // Telegram /session may sign a live session (operator + 6-digit code); revoke always works
 input string InpOperatorId              = "operator"; // recorded on session and controller documents
 input bool   InpNewsGuardEnabled        = true;   // News Guard: MT5 economic calendar, HIGH impact only
 input int    InpNewsScalpBlockBeforeMin = 60;     // News Guard: SCALP blocks new entries this long before
@@ -994,6 +995,16 @@ void EEA_RemoteResumeEvidenceNow(EEA_RemoteResumeEvidence &e)
    e.protective_management_ready=(g_trade_manager.loaded && StringFind(g_trade_manager.reason,"FAILED")<0 &&
                                   StringFind(g_trade_manager.reason,"UNREADABLE")<0);
    e.evidence_fresh=((long)TimeGMT()-(long)g_runtime.status.last_timer_at_utc<=120);
+   e.session_remote_sign_allowed=InpSessionRemoteSignAllowed;
+  }
+
+// Telegram /session (17/10/2026): an applied CONFIRM_SESSION_SIGN or REVOKE_SESSION runs the
+// same sign / revoke as the panel buttons, with all of their checks.
+bool EEA_RemoteSessionAction(const long seconds,string &reason)
+  {
+   bool ok=(seconds>0 ? EEA_LiveSessionSign(seconds,reason) : EEA_LiveSessionRevoke(reason));
+   g_live_session.last_action=(ok ? "" : "FAILED  ")+reason+" (Telegram)";
+   return ok;
   }
 
 // G19: load (or bootstrap) the operator mode for this account, then apply queued remote commands.
@@ -1008,7 +1019,7 @@ void EEA_RemoteModeTimer()
      }
    EEA_RemoteResumeEvidence evidence;
    EEA_RemoteResumeEvidenceNow(evidence);
-   EEA_RemoteModeProcessInbox(g_remote_mode,g_config.data_root,evidence,g_audit,g_remote_last);
+   EEA_RemoteModeProcessInbox(g_remote_mode,g_config.data_root,evidence,EEA_RemoteSessionAction,g_audit,g_remote_last);
   }
 
 // Entries stay blocked until the mode is known (fail closed) and while the operator paused them.

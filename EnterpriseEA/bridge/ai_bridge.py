@@ -29,8 +29,11 @@ SCHEMA_VERSION = "1.0"
 REQUEST_TYPES = {"NEWS_DATA_REVIEW", "NEWS_EVENT_REVIEW", "NEWS_PRE_BRIEF", "EA_DIAGNOSTICS", "ASK_AI", "BOT_INTENT"}
 # BOT_ENABLE / BOT_DISABLE (bots host, 16/10/2026): only a BOT_INTENT request may allow them; the
 # answer is a proposal the Telegram gateway turns into a standard bot command (enable still needs /confirm).
-ACTION_WHITELIST = {"REPORT", "WARN", "RECOMMEND_WINDOW_CHANGE", "RECOMMEND_REVIEW", "BOT_ENABLE", "BOT_DISABLE"}
-BOT_ACTIONS = {"BOT_ENABLE", "BOT_DISABLE"}
+# SESSION_SIGN_24H / SESSION_SIGN_7D / SESSION_REVOKE (17/10/2026): same rule; the gateway turns them into
+# /session commands, and signing still needs the operator's /confirm code and the EA's own checks.
+ACTION_WHITELIST = {"REPORT", "WARN", "RECOMMEND_WINDOW_CHANGE", "RECOMMEND_REVIEW", "BOT_ENABLE", "BOT_DISABLE",
+                    "SESSION_SIGN_24H", "SESSION_SIGN_7D", "SESSION_REVOKE"}
+BOT_ACTIONS = {"BOT_ENABLE", "BOT_DISABLE", "SESSION_SIGN_24H", "SESSION_SIGN_7D", "SESSION_REVOKE"}
 PROVIDERS = {"claude", "codex"}
 TTL_SECONDS = {"NEWS_DATA_REVIEW": 24 * 3600, "NEWS_EVENT_REVIEW": 12 * 3600,
                "EA_DIAGNOSTICS": 24 * 3600, "ASK_AI": 4 * 3600, "BOT_INTENT": 300,
@@ -106,7 +109,7 @@ def validate_request(raw: bytes) -> dict:
     if not isinstance(actions, list) or not actions or not set(actions) <= ACTION_WHITELIST:
         raise BridgeError("AI_ALLOWED_ACTIONS_INVALID", str(actions)[:120])
     if set(actions) & BOT_ACTIONS and req["request_type"] != "BOT_INTENT":
-        raise BridgeError("AI_ALLOWED_ACTIONS_INVALID", "bot actions outside BOT_INTENT")
+        raise BridgeError("AI_ALLOWED_ACTIONS_INVALID", "operator-intent actions outside BOT_INTENT")
     if not isinstance(req["context"], dict):
         raise BridgeError("AI_CONTEXT_INVALID")
     if int(req["deadline_utc"]) <= utc_now():
@@ -198,12 +201,16 @@ TASKS = {
                       "Nêu nguyên nhân khả dĩ và việc người vận hành nên kiểm tra. Không đề xuất sửa code hay đổi cấu hình tự động.",
     "ASK_AI": "Tóm tắt tình trạng hệ thống và thị trường hiện tại cho người vận hành, nêu cảnh báo cần chú ý.",
     # Bots host (16/10/2026): understand an operator message about switching a bot on or off.
-    "BOT_INTENT": "Hiểu ý của người vận hành trong trường operator_message của DATA: họ có muốn BẬT hay TẮT một bot "
-                  "trong danh sách bots (mỗi bot có code, title, active) không. Nếu rõ ràng, trả đúng MỘT recommendation "
-                  "với action BOT_ENABLE hoặc BOT_DISABLE và target là code của bot (S07, VHEDGE, XRT hoặc CTXLIMIT); "
-                  "proposal mô tả ngắn bằng tiếng Việt điều bạn hiểu. Nếu tin nhắn không phải yêu cầu bật/tắt bot, "
-                  "nhắc tới nhiều bot cùng lúc, hoặc không rõ bot nào, thì KHÔNG có recommendation và giải thích trong summary. "
-                  "Không suy ra việc bật/tắt từ phân tích thị trường; chỉ dịch đúng ý người vận hành.",
+    "BOT_INTENT": "Hiểu ý của người vận hành trong trường operator_message của DATA. Có hai loại yêu cầu: "
+                  "(1) BẬT hay TẮT một bot trong danh sách bots (mỗi bot có code, title, active): action BOT_ENABLE hoặc "
+                  "BOT_DISABLE, target là code của bot (S07, VHEDGE, XRT hoặc CTXLIMIT); "
+                  "(2) CẤP hay THU HỒI phiên live (live_session là phiên hiện tại): action SESSION_SIGN_24H (cấp 24 giờ), "
+                  "SESSION_SIGN_7D (cấp 7 ngày) hoặc SESSION_REVOKE (thu hồi, dừng vào lệnh mới), target là SESSION. "
+                  "Chỉ dùng SESSION_SIGN_* khi người vận hành nói rõ thời hạn 24 giờ/1 ngày hoặc 7 ngày/1 tuần. "
+                  "Nếu rõ ràng, trả đúng MỘT recommendation; proposal mô tả ngắn bằng tiếng Việt điều bạn hiểu. "
+                  "Nếu tin nhắn không phải một trong hai loại, có nhiều yêu cầu cùng lúc, hoặc không rõ bot nào hay thời hạn nào, "
+                  "thì KHÔNG có recommendation và giải thích trong summary. "
+                  "Không suy ra việc bật/tắt hay cấp phiên từ phân tích thị trường; chỉ dịch đúng ý người vận hành.",
 }
 # Telegram /ask (G19): the operator's question travels inside DATA. It is answered, never obeyed:
 # the reply stays a report and cannot pause, resume or trade.
