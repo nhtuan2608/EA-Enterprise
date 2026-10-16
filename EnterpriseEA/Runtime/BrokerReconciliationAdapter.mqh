@@ -139,12 +139,12 @@ bool EEA_ReadRuntimeReconciliation(const EEA_RuntimeAccountSnapshot &account,
    snapshot.history_order_count=0;
    snapshot.history_orders_complete=false;
    const int history_order_total=HistoryOrdersTotal();
-   if(history_order_total<0 || history_order_total>EEA_RUNTIME_MAX_ORDERS)
+   if(history_order_total<0 || history_order_total>EEA_RUNTIME_MAX_HISTORY_ORDERS)
      {
       reason="HISTORY_ORDERS_OVER_CAP";
       EEA_ReconciliationLogFailure(reason,"history orders "+IntegerToString(history_order_total)+
                                    " in the last "+IntegerToString(lookback_days)+" days, cap "+
-                                   IntegerToString(EEA_RUNTIME_MAX_ORDERS));
+                                   IntegerToString(EEA_RUNTIME_MAX_HISTORY_ORDERS));
       return false;
      }
    for(int i=0;i<history_order_total;i++)

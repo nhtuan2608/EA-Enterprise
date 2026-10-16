@@ -287,6 +287,17 @@ class RuntimeEvidenceAdapterTests(unittest.TestCase):
         self.assertNotIn('reason="ORDERS_SOURCE_INCOMPLETE"', src)
         self.assertIn("EEA_ReconciliationLogFailure(reason,", src)
 
+    def test_history_orders_have_their_own_cap(self):
+        # A cent account running limit bots kept 273 history orders in 7 days and
+        # stayed BLOCKED on the shared 256 cap (VPS, 2026-10-16).
+        core = (ROOT / "Runtime/RuntimeEvidence.mqh").read_text(encoding="utf-8")
+        adapter = (ROOT / "Runtime/BrokerReconciliationAdapter.mqh").read_text(encoding="utf-8")
+        self.assertIn("#define EEA_RUNTIME_MAX_HISTORY_ORDERS 2048", core)
+        self.assertIn("history_orders[EEA_RUNTIME_MAX_HISTORY_ORDERS];", core)
+        self.assertIn("history_order_total>EEA_RUNTIME_MAX_HISTORY_ORDERS", adapter)
+        oracle = (ROOT / "Tests/runtime_evidence_oracle.py").read_text(encoding="utf-8")
+        self.assertIn("if len(history_orders) > 2048:", oracle)
+
 
 def test_no_broker_mutation_api_in_project_mql(self):
     forbidden = ("OrderSend", "OrderSendAsync", "CTrade", ".Buy(", ".Sell(",

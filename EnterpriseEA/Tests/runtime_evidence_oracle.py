@@ -119,7 +119,7 @@ def evaluate(snapshot: Dict[str, Any], now_utc: int, previous_watermark: int = -
 
     # History order tickets and finite numeric fields
     history_orders = snapshot.get("history_orders", [])
-    if len(history_orders) > 256:
+    if len(history_orders) > 2048:
         result["reason_code"] = "ORDERS_SOURCE_INCOMPLETE"
         return result
     hist_ord_tickets = set()

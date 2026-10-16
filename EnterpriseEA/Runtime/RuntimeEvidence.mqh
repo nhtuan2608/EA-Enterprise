@@ -8,6 +8,9 @@
 #define EEA_RUNTIME_MAX_POSITIONS 256
 #define EEA_RUNTIME_MAX_ORDERS    256
 #define EEA_RUNTIME_MAX_DEALS     2048
+// Cancelled and expired pending orders stay in history, so a bot that places limits
+// passes 256 history orders in a week long before it passes 256 open orders.
+#define EEA_RUNTIME_MAX_HISTORY_ORDERS 2048
 
 // Pure finite-number helper using the built-in MQL5 MathIsValidNumber.
 // Returns true only for finite numeric values (rejects NaN / Inf).
@@ -135,7 +138,7 @@ struct EEA_RuntimeReconciliationSnapshot
    int    position_count;
    EEA_RuntimeOrderRow orders[EEA_RUNTIME_MAX_ORDERS];
    int    order_count;
-   EEA_RuntimeOrderRow history_orders[EEA_RUNTIME_MAX_ORDERS];
+   EEA_RuntimeOrderRow history_orders[EEA_RUNTIME_MAX_HISTORY_ORDERS];
    int    history_order_count;
    EEA_RuntimeDealRow deals[EEA_RUNTIME_MAX_DEALS];
    int    deal_count;
