@@ -1,0 +1,213 @@
+"""Bots host (design docs/superpowers/specs/2026-10-16-bots-host-design.md): Active flags, portfolio guard,
+VHedge port, S07 gate, panel tab and Telegram command contract."""
+from __future__ import annotations
+
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(rel):
+    return (ROOT / rel).read_text(encoding="utf-8-sig")
+
+
+def body(src, signature):
+    i = src.index(signature)
+    j = src.index("{", i)
+    depth = 0
+    for k in range(j, len(src)):
+        if src[k] == "{":
+            depth += 1
+        elif src[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[j:k + 1]
+    raise AssertionError("unbalanced " + signature)
+
+
+class BotStateTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/BotState.mqh")
+
+    def test_registry(self):
+        for code in ("S07", "VHEDGE", "XRT", "CTXLIMIT"):
+            self.assertIn(f'return "{code}";', self.src)
+        self.assertIn("#define EEA_BOT_COUNT 4", self.src)
+
+    def test_active_fails_closed_until_loaded(self):
+        b = body(self.src, "bool EEA_BotActive(const int id)")
+        self.assertIn("g_bots_state.loaded && g_bots_state.active[id]", b)
+        d = body(self.src, "void EEA_BotsStateDefaults(EEA_BotsState &s)")
+        self.assertIn("s.active[i]=false", d)
+
+    def test_s07_gate_only_when_the_layer_runs(self):
+        b = body(self.src, "bool EEA_BotS07EntriesAllowed()")
+        self.assertIn("!g_bots_layer_enabled || (g_bots_state.loaded && g_bots_state.active[EEA_BOT_S07])", b)
+
+    def test_load_bootstrap_and_fail_closed(self):
+        b = body(self.src, "void EEA_BotsStateLoad(")
+        self.assertIn("s.active[i]=defaults[i]", b)                      # missing file: input flags
+        self.assertIn('"BOTS_STATE_UNREADABLE"', b)
+        self.assertIn('"BOTS_STATE_IDENTITY_MISMATCH"', b)
+        self.assertIn("s.active[i]=false;            // fail closed", b)
+        self.assertIn('"BOTS_STATE_FAIL_CLOSED"', b)
+
+    def test_commit_then_apply(self):
+        b = body(self.src, "bool EEA_BotsSetActive(")
+        save = b.index("EEA_BotsStateSave(next,root,reason)")
+        adopt = b.index("s=next;")
+        self.assertLess(save, adopt)
+        self.assertIn('reason="BOTS_STATE_COMMIT_FAILED"; return false;', b)
+
+    def test_aliases(self):
+        b = body(self.src, "int EEA_BotFind(const string name)")
+        for alias in ('"G119"', '"XRT"', '"CTX"', '"S07"', '"HEDGE"'):
+            self.assertIn(alias, b)
+
+
+class GuardTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/PortfolioGuard.mqh")
+
+    def test_guard_order_and_codes(self):
+        b = body(self.src, "string EEA_BotGuardCheck(")
+        codes = ['"BOTS_GUARD_NOT_READY"', '"BOT_INACTIVE"', '"EA_EXECUTION_NOT_ARMED"', '"OPERATOR_PAUSED_ENTRIES"',
+                 '"BOTS_CAPITAL_UNKNOWN"', '"BOTS_DAILY_LOSS_LIMIT"', '"BOTS_OPEN_RISK_CAP"']
+        pos = [b.index(c) for c in codes]
+        self.assertEqual(pos, sorted(pos))
+        self.assertIn("if(require_active && !EEA_BotActive(bot))", b)
+
+    def test_open_risk_is_account_wide_and_fails_closed(self):
+        b = body(self.src, "bool EEA_BotsAccountOpenRisk(")
+        self.assertIn("PositionsTotal()", b)
+        self.assertIn("OrdersTotal()", b)
+        self.assertNotIn("POSITION_MAGIC", b)                            # every magic counts
+        self.assertIn('"BOTS_POSITION_WITHOUT_STOP"', b)
+        self.assertIn('"BOTS_ORDER_WITHOUT_STOP"', b)
+
+    def test_defaults_block(self):
+        b = body(self.src, "void EEA_BotGuardDefaults(")
+        self.assertIn("g.ready=false", b)
+        self.assertIn("g.operator_paused=true", b)
+        self.assertIn("g.execution_live=false", b)
+
+
+class VHedgeBotTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Bots/VHedgeBot.mqh")
+        self.tester = read("VHedgeTester.mq5")
+
+    def test_defaults_are_g119_only(self):
+        b = body(self.src, "void VHedgeBotParamsDefaults(")
+        for token in ("p.prof_g119=true", "p.prof_bigv=false", "p.stop_g119=1.5", "p.stop_bigv=1.0", "p.ema_spread_atr=0.91",
+                      "p.v_vol_ratio=1.26", "p.r_vol_ratio=1.17", "p.bigv_size_atr=1.38", "p.target_r=5.0",
+                      "p.break_even=true", "p.risk_percent=0.75", "p.magic=116119", "p.mode=BOT_SHADOW"):
+            self.assertIn(token, b)
+
+    def test_rules_are_the_tester_rules(self):
+        self.assertIn("#define VHB_RET_BARS 6", self.src)
+        self.assertIn("#define VHB_CAP_BARS 288", self.src)
+        for token in ("(r[i].open<e[i] && r[i].close>e[i]) || (r[i].open>e[i] && r[i].close<e[i])",
+                      "if(inside) { decided=true; hit=(left && q==j); }", "if(hit && found_v<0) found_v=v;",
+                      "const double gap=(stop_atr+0.1)*atr;", "G.tp=G.surv_entry+d*p.target_r*G.R;",
+                      "A.entry=(d==1 ? ask : bid);", "A.sl=G.surv_sl"):
+            self.assertIn(token, self.src)
+
+    def test_new_group_asks_the_guard_and_the_flag(self):
+        b = body(self.src, "bool OpenGroup(")
+        self.assertIn("if(!EEA_BotActive(EEA_BOT_VHEDGE))", b)
+        self.assertIn('EEA_BotGuardCheck(EEA_BOT_VHEDGE,2.0*leg_risk,"SCALP",true,p.news_guard)', b)
+        self.assertLess(b.index("EEA_BotGuardCheck"), b.index("LiveOpen("))
+
+    def test_add_is_a_guarded_risk_increase_without_the_active_check(self):
+        b = body(self.src, "void ManageGroup(")
+        self.assertIn('EEA_BotGuardCheck(EEA_BOT_VHEDGE,-add_risk,"SCALP",false,false)', b)
+        self.assertLess(b.index("EEA_BotGuardCheck"), b.index('StringFormat("VH%d %s A"'))
+
+    def test_live_needs_hedging_and_groups_persist(self):
+        b = body(self.src, "void Init(")
+        self.assertIn("ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", b)
+        self.assertIn('"VHEDGE_LIVE_NEEDS_HEDGING_ACCOUNT"', b)
+        self.assertIn("Load();", b)
+        self.assertIn('return root+"/current/bots/vhedge_groups.txt";', self.src)
+        tick = body(self.src, "void OnTick()")
+        self.assertIn("if(dirty) Save();", tick)
+
+    def test_management_runs_for_inactive_bots(self):
+        tick = body(self.src, "void OnTick()")
+        self.assertNotIn("EEA_BotActive", tick)                          # Inactive only stops new groups
+
+
+class HostTests(unittest.TestCase):
+    def setUp(self):
+        self.host = read("Bots/BotHost.mqh")
+        self.ea = read("EnterpriseEA.mq5")
+        self.cl = read("Integration/ControlledLiveRuntime.mqh")
+
+    def test_s07_gate_in_the_entry_check(self):
+        b = body(self.cl, "bool EEA_S07EntryAllowed(")
+        self.assertIn('if(!EEA_BotS07EntriesAllowed()) { reason="S07_BOT_INACTIVE"; return false; }', b)
+        self.assertLess(b.index("EEA_BotS07EntriesAllowed"), b.index("EEA_S07OpenLegs"))
+
+    def test_command_contract(self):
+        b = body(self.host, "string EEA_BotCommandEvaluate(")
+        for token in ('"OPERATOR"', '"private_chat_attested"', '"sender_authenticated"', '"source_authenticated"',
+                      "s.account_id", "s.config_version", "now>expires", "sequence<=s.last_gateway_sequence",
+                      '"BOT_COMMAND_ALREADY_COMMITTED"'):
+            self.assertIn(token, b)
+        dis = b.index('if(action=="BOT_DISABLE") return "";')
+        req = b.index('if(action=="BOT_REQUEST_ENABLE")')
+        self.assertLess(dis, req)                                         # a disable needs no nonce
+        confirm = b[b.index('if(action=="BOT_CONFIRM_ENABLE")'):]
+        for token in ("s.pending_bot!=bot", "nonce!=s.pending_nonce", "chat!=s.pending_chat_id",
+                      "user!=s.pending_user_id", "now>s.pending_expires_at_utc"):
+            self.assertIn(token, confirm)
+        self.assertIn("#define EEA_BOT_MAX_NONCE_SECONDS 120", self.host)
+
+    def test_results_are_one_file_per_command(self):
+        b = body(self.host, "void EEA_BotsProcessCommands(")
+        self.assertIn('"/current/remote/results/"+command_id+".json"', b)
+        self.assertIn("FileDelete(path,0);", b)
+
+    def test_shell_wiring(self):
+        tick = body(self.ea, "void OnTick()")
+        self.assertIn("if(InpBotsEnabled) EEA_BotsHostTick();", tick)
+        code = re.sub(r"//.*", "", tick)
+        self.assertEqual(len(re.findall(r";", code)), 1)                 # nothing else on the tick
+        self.assertIn("EEA_BotsGuardUpdate();", self.ea)
+        self.assertIn("EEA_BotsHostTimer(g_runtime.account.account_fingerprint,g_config.config_version,g_audit);", self.ea)
+        self.assertIn("EEA_BotsHostDeinit();", self.ea)
+        g = body(self.ea, "void EEA_BotsGuardUpdate()")
+        for token in ("g_live_config.enabled && g_live_config.armed", "!g_live_runtime.recovery_blocked",
+                      "!g_controller.kill_active", "EEA_RemoteEntriesPaused()", 'EEA_LiveSessionStateText(session_reason)=="ACTIVE"'):
+            self.assertIn(token, g)
+
+    def test_inputs(self):
+        for token in ("input bool   InpBotsEnabled", "input EEA_BotModeInput InpBotVHedgeMode = BOT_SHADOW;",
+                      "input double InpBotVHedgeRiskPct        = 0.75;", "input bool   InpBotVHedgeBigV           = false;",
+                      "input double InpBotsMaxOpenRiskPct", "input double InpBotsDailyLossPct",
+                      "input bool   InpBotsRequireLiveSession  = true;"):
+            self.assertIn(token, self.ea)
+
+
+class PanelTests(unittest.TestCase):
+    def setUp(self):
+        self.src = read("Runtime/SymbolSelectionPanel.mqh")
+
+    def test_bots_tab(self):
+        self.assertIn('string tabs[5]={"RISK","SYMBOLS","AUTHORIZATION","SYSTEM","BOTS"};', self.src)
+        self.assertIn('settings=="BOTS"', self.src)
+
+    def test_turning_on_needs_a_second_click(self):
+        i = self.src.index('StringFind(sparam,EEA_PANEL_OVERLAY_PREFIX+"Btn_Bot_")==0')
+        handler = self.src[i:i + 900]
+        self.assertIn("if(active || EEA_SymbolPanelBotConfirming(code))", handler)
+        self.assertIn("g_panel_state.bot_confirm_tick=GetTickCount();", handler)
+        b = body(self.src, "bool EEA_SymbolPanelBotConfirming(")
+        self.assertIn("<10000", b)
+
+
+if __name__ == "__main__":
+    unittest.main()
