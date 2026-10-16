@@ -297,13 +297,19 @@ string EEA_BotsStatusJson()
       "\",\"guard\":"+guard+",\"bots\":["+bots+"],\"written_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
   }
 
-// Every timer: load the flags once the account is known, run the Telegram commands, write the status.
+// Every timer: load the flags once the account is known and run the Telegram commands.
 void EEA_BotsHostTimer(const string account_id,const string config_version,CAuditLog &audit)
   {
    if(!g_bots_host.initialized || account_id=="" || config_version=="") return;
    if(!g_bots_state.loaded || g_bots_state.account_id!=account_id || g_bots_state.config_version!=config_version)
       EEA_BotsStateLoad(g_bots_state,g_bots_host.root,account_id,config_version,g_bots_host.defaults,audit);
    EEA_BotsProcessCommands(audit);
+  }
+
+// After the shell refreshed the guard and the S07 line: panel texts and current/bots_status.json.
+void EEA_BotsWriteStatus()
+  {
+   if(!g_bots_host.initialized || !g_bots_state.loaded) return;
    for(int i=0;i<EEA_BOT_COUNT;i++) g_bots_host.status_text[i]=EEA_BotStatusText(i);
    EEA_WriteAtomicText(g_bots_host.root+"/current/bots_status.json",EEA_BotsStatusJson());
   }

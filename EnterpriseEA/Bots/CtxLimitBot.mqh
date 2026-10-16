@@ -19,6 +19,7 @@
 #define CTXB_SLOTS 48
 #define CTXB_VOLHIST 20
 #define CTXB_MAXV 8
+#define CTXB_MIN_BARS 9600            // ~200 trading days of M30: H4 / D1 EMA200 need it (CtxLimitTester note)
 
 enum CtxBotPlan { CTXB_PLAN_LIMIT=0, CTXB_PLAN_MARKET=1 };
 
@@ -470,7 +471,9 @@ public:
       if(last_bar==0)
         {
          const int total=Bars(sym,PERIOD_M30);
+         if(total<CTXB_MIN_BARS) return;                 // history still loading: not warm, tried again next tick
          n=CopyRates(sym,PERIOD_M30,1,MathMax(0,total-1),r);
+         if(n<CTXB_MIN_BARS-1) return;
         }
       else
          n=CopyRates(sym,PERIOD_M30,last_bar+1,TimeCurrent(),r);
@@ -495,10 +498,13 @@ public:
       ulong tk=0;
       const bool pos=HasPosition(tk);
       if(pos) ManagePending(true);
-      if(bar==seen_bar) return;
+      if(bar==seen_bar && warm) return;
+      if(bar!=seen_bar)
+        {
+         ManagePosition();
+         ManagePending(HasPosition(tk));
+        }
       seen_bar=bar;
-      ManagePosition();
-      ManagePending(HasPosition(tk));
       ProcessBars();
      }
 
@@ -508,7 +514,7 @@ public:
      {
       if(p.mode==BOT_OFF) return "OFF";
       if(!model_ok) return "mô hình không khớp thứ tự đặc trưng";
-      if(!warm || !CtxbOk(g.A)) return "đang nạp lịch sử M30";
+      if(!warm || !CtxbOk(g.A)) return StringFormat("đang nạp lịch sử M30 (%d / %d nến)",Bars(sym,PERIOD_M30),CTXB_MIN_BARS);
       if(dl_time==0) return "chờ nến M30 đóng đúng giờ tròn";
       return StringFormat("%s: MUA %+.2fR / BÁN %+.2fR (ngưỡng %.2f) — %s",PnlHm(dl_time+1800),dl_buy,dl_sell,Threshold(),dl_result);
      }

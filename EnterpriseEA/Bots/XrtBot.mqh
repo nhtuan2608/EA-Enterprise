@@ -425,8 +425,9 @@ public:
       if(p.mode==BOT_OFF) return;
       ShadowTick();
       const datetime d1=iTime(sym,PERIOD_D1,0);
-      if(d1!=0 && d1!=last_d1) { last_d1=d1; OnNewDay(); }
       const datetime m5=iTime(sym,PERIOD_M5,0);
+      // A new D1 bar, or a D1 refresh that failed (history still loading after a start): retried each new M5 bar.
+      if(d1!=0 && (d1!=last_d1 || (!day.ok && m5!=last_m5))) { last_d1=d1; OnNewDay(); }
       if(m5==last_m5) return;
       last_m5=m5;
       int dir=0;

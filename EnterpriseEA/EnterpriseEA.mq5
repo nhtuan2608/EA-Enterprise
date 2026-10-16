@@ -1779,8 +1779,9 @@ void OnTimer()
        if(InpBotsEnabled && g_runtime.initialized)
          {
           EEA_RemoteModeTimer();
-          EEA_BotsGuardUpdate();
           EEA_BotsHostTimer(g_runtime.account.account_fingerprint,g_config.config_version,g_audit);
+          EEA_BotsGuardUpdate();
+          EEA_BotsWriteStatus();
          }
        if(InpBotsEnabled) EEA_BotsPublishPanel();
        // Every timer, also when the strategy branch below is off: /status and the soak see why.
