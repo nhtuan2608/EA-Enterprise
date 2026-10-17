@@ -52,6 +52,11 @@ class DxyLabelTests(unittest.TestCase):
             if "EEA_DxyF3Label(" in text:
                 self.assertEqual(path.name, "DxyLabel.mqh")
 
+    def test_timer_keeps_the_dxy_bars_loaded(self):
+        shell = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8")
+        self.assertIn("EEA_DxyLabelRefresh(g_dxy_label);", shell)
+        self.assertIn("if(rates[last].time<=s.last_bar) return true;", self.source)   # rescans only on a new bar
+
     def test_broker_dollar_index_names(self):
         rows = resolve_batch(["DXY"], [{"name": "USDInd", "tradeable": True, "conversion_only": False}])
         self.assertEqual(rows[0]["broker_symbol"], "USDInd")

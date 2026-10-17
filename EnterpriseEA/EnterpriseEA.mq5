@@ -2040,6 +2040,8 @@ void OnTimer()
           EEA_AiTimer();
           // G29: USD flow at the last closed H1 bar, for the S06B filter and every candidate log.
           EEA_UsdFlowUpdateFromObserver(g_usd_flow,g_runtime);
+          // G76/G77 F3 label: keep the dollar index bars loaded, so the first gold candidate is not UNKNOWN.
+          EEA_DxyLabelRefresh(g_dxy_label);
           // SHADOW setups record would-be trades; the replay measures S02/S04 on history.
           EEA_S04ShadowOnTimer(g_live_runtime,g_strategy_runtime,g_runtime,g_risk_ledger,g_news,g_sentiment,
                                g_trade_manager,g_pending_runtime,g_audit);
