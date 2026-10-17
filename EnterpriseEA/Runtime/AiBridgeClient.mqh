@@ -14,7 +14,7 @@
 #include "../Storage/AtomicWriter.mqh"
 #include "../Storage/AuditLog.mqh"
 
-#define EEA_AI_TYPES 5
+#define EEA_AI_TYPES 6
 #define EEA_AI_PRE_BRIEF_KEEP 32
 #define EEA_AI_MAX_PENDING 4
 #define EEA_AI_LINES 8
@@ -30,6 +30,7 @@ string EEA_AiType(const int i)
    if(i==2) return "EA_DIAGNOSTICS";
    if(i==3) return "ASK_AI";
    if(i==4) return "NEWS_PRE_BRIEF";      // REQ-007: before a HIGH release
+   if(i==5) return "NEWS_FLASH";          // 17/10/2026: minutes after a HIGH release, with a scalp view
    return "";
   }
 
@@ -65,6 +66,8 @@ struct EEA_AiClient
    long   last_diag_day;
    int    pre_brief_count;                  // clusters (time_utc) already briefed, newest last
    long   pre_brief_times[EEA_AI_PRE_BRIEF_KEEP];
+   int    flash_count;                      // clusters (time_utc) already flashed after release, newest last
+   long   flash_times[EEA_AI_PRE_BRIEF_KEEP];
    int    pending_count;
    string pending_id[EEA_AI_MAX_PENDING];
    string pending_type[EEA_AI_MAX_PENDING];
@@ -165,13 +168,38 @@ void EEA_AiPreBriefRemember(EEA_AiClient &c,const long cluster_utc)
    c.pre_brief_times[c.pre_brief_count++]=cluster_utc;
   }
 
+// Post-release flashes: same bookkeeping as the pre-release briefs, kept apart.
+string EEA_AiFlashText(const EEA_AiClient &c)
+  {
+   string text="";
+   for(int i=0;i<c.flash_count;i++) text+=(i>0 ? "," : "")+IntegerToString(c.flash_times[i]);
+   return text;
+  }
+
+bool EEA_AiFlashDone(const EEA_AiClient &c,const long cluster_utc)
+  {
+   for(int i=0;i<c.flash_count;i++) if(c.flash_times[i]==cluster_utc) return true;
+   return false;
+  }
+
+void EEA_AiFlashRemember(EEA_AiClient &c,const long cluster_utc)
+  {
+   if(EEA_AiFlashDone(c,cluster_utc)) return;
+   if(c.flash_count>=EEA_AI_PRE_BRIEF_KEEP)
+     {
+      for(int i=1;i<c.flash_count;i++) c.flash_times[i-1]=c.flash_times[i];
+      c.flash_count--;
+     }
+   c.flash_times[c.flash_count++]=cluster_utc;
+  }
+
 void EEA_AiSaveState(const EEA_AiClient &c)
   {
    string json="{\"document_version\":\"ai-client-v1.0.0\",\"day_local\":"+IntegerToString(c.day_local)+
       ",\"calls_today\":"+IntegerToString(c.calls_today)+",\"failures\":"+IntegerToString(c.failures)+
       ",\"circuit_until_utc\":"+IntegerToString(c.circuit_until_utc)+
       ",\"last_news_review_day\":"+IntegerToString(c.last_news_review_day)+
-      ",\"last_diag_day\":"+IntegerToString(c.last_diag_day)+",\"pre_brief_times\":\""+EEA_AiPreBriefText(c)+"\"}";
+      ",\"last_diag_day\":"+IntegerToString(c.last_diag_day)+",\"pre_brief_times\":\""+EEA_AiPreBriefText(c)+"\",\"flash_times\":\""+EEA_AiFlashText(c)+"\"}";
    EEA_WriteAtomicText(EEA_AiStatePath(c),json);
   }
 
@@ -195,6 +223,7 @@ void EEA_AiClientInit(EEA_AiClient &c,const string root,const bool enabled,const
   {
    c.enabled=enabled; c.root=root; c.max_calls_per_day=max_calls_per_day; c.day_local=0; c.calls_today=0;
    c.failures=0; c.circuit_until_utc=0; c.last_news_review_day=0; c.last_diag_day=0; c.pre_brief_count=0; c.pending_count=0;
+   c.flash_count=0;
    c.bridge_seen_utc=0; c.bridge_version=""; c.last_reason=enabled ? "AI_CLIENT_READY" : "AI_DISABLED";
    string json;
    if(EEA_AiReadText(EEA_AiStatePath(c),json))
@@ -211,6 +240,13 @@ void EEA_AiClientInit(EEA_AiClient &c,const string root,const bool enabled,const
         {
          long t=StringToInteger(times[i]);
          if(t>0) EEA_AiPreBriefRemember(c,t);
+        }
+      string flashes[];
+      int m=StringSplit(EEA_AiField(json,"flash_times"),',',flashes);
+      for(int i=0;i<m;i++)
+        {
+         long t=StringToInteger(flashes[i]);
+         if(t>0) EEA_AiFlashRemember(c,t);
         }
      }
    for(int i=0;i<EEA_AI_TYPES;i++)

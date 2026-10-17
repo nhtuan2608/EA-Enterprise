@@ -64,7 +64,7 @@ DEFAULT_CONFIG = {
     "commands_per_minute": 20,
     "asks_per_hour": 6,
     "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True,
-               "pre_news": True},
+               "pre_news": True, "post_news": True, "post_news_review": True},
     "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
     "edge_local": "08:05",      # G37: daily edge check time; a worse status is pushed to every user
 }
@@ -76,8 +76,12 @@ ALERT_EVENTS = {"EA_STOPPED", "EA_INITIALIZED", "RUNTIME_REFRESH_FAILED", "LIVE_
                 "TRADE_MANAGER_PERSISTENCE_FAILED"}
 ALERT_REASONS = ("LOSS_LIMIT_REACHED", "RECOVERY_REQUIRED", "EXECUTION_UNKNOWN")
 REPORT_TYPES = {"EA_DIAGNOSTICS": "Chẩn đoán EA", "NEWS_DATA_REVIEW": "Review dữ liệu tin",
-                "NEWS_PRE_BRIEF": "Tóm tắt trước tin"}
-REPORT_FLAGS = {"NEWS_PRE_BRIEF": "pre_news"}   # per-kind notify flag on top of ai_reports
+                "NEWS_PRE_BRIEF": "Tóm tắt trước tin",
+                # 17/10/2026: a few minutes after the release (with the AI's scalp view), and the
+                # 240-minute review once the reaction is fully measured.
+                "NEWS_FLASH": "Sau tin", "NEWS_EVENT_REVIEW": "Đánh giá sau tin (đủ 4 giờ)"}
+REPORT_FLAGS = {"NEWS_PRE_BRIEF": "pre_news", "NEWS_FLASH": "post_news",
+                "NEWS_EVENT_REVIEW": "post_news_review"}   # per-kind notify flag on top of ai_reports
 
 HELP_VIEWER = ("/status - trạng thái EA\n"
                "/trades - các lệnh đã đóng gần đây\n"
@@ -1090,8 +1094,13 @@ class Gateway:
             flag = REPORT_FLAGS.get(kind)
             if flag and not self.config["notify"].get(flag, True):
                 continue
-            lines = [str(rep.get("summary", ""))] + [f"[{f.get('severity')}] {f.get('detail')}"
-                                                     for f in rep.get("findings", [])[:6]]
+            recs = rep.get("recommendations", [])
+            scalp = [f"{r.get('target')}: {r.get('proposal')}" for r in recs if r.get("action") == "SCALP_VIEW"]
+            lines = ([str(rep.get("summary", ""))] + [f"[{f.get('severity')}] {f.get('detail')}"
+                                                      for f in rep.get("findings", [])[:6]] +
+                     [f"> {r.get('target')}: {r.get('proposal')}" for r in recs[:4] if r.get("action") != "SCALP_VIEW"])
+            if scalp:   # the operator reads the scalp view first; the EA never trades on it
+                lines = ["Nhận định scalp (AI, EA không tự vào lệnh):"] + scalp + [""] + lines
             self.broadcast(f"{title} (AI):\n" + "\n".join(lines))
 
     def notify_news(self):

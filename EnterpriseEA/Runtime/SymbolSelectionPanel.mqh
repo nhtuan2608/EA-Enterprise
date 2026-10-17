@@ -71,7 +71,7 @@
 #define EEA_PANEL_CONTROL_HEIGHT 30
 #define EEA_PANEL_BODY_FONT_SIZE 9
 #define EEA_PANEL_META_FONT_SIZE 8
-#define EEA_AI_VIEW_SLOTS 5   // must equal EEA_AI_TYPES (AiBridgeClient.mqh); one report slot per request type
+#define EEA_AI_VIEW_SLOTS 6   // must equal EEA_AI_TYPES (AiBridgeClient.mqh); one report slot per request type
 #define EEA_PANEL_TITLE_FONT_SIZE 12
 #define EEA_PANEL_VALUE_FONT_SIZE 13
 #define EEA_PANEL_VISIBLE_ROWS 9
@@ -2624,8 +2624,8 @@ void EEA_SymbolPanelDashAi(const long chart_id,EEA_ObserverRuntimeContext &ctx)
    for(int t=0;t<EEA_AI_VIEW_SLOTS;t++)
      {
       EEA_SymbolPanelSetCaption(chart_id,p+"RT_"+IntegerToString(t),EEA_PANEL_CONTENT_X,ry,g_panel_engine.ai_title[t]);
-      ry+=15;   // 5 slots must fit above the status bar (y 572): tighter header/line/gap pitch
-      int shown=MathMin(g_panel_engine.ai_line_count[t],t==0 ? 5 : 3);
+      ry+=15;   // 6 slots must fit above the status bar (y 572): tighter header/line/gap pitch
+      int shown=MathMin(g_panel_engine.ai_line_count[t],t==0 ? 5 : 2);
       for(int i=0;i<5;i++)
         {
          string n=p+"RL_"+IntegerToString(t)+"_"+IntegerToString(i);

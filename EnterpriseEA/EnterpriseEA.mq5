@@ -143,6 +143,7 @@ EEA_HIDDEN string InpAiAnalysisProvider      = "claude"; // AI Bridge: provider 
 EEA_HIDDEN string InpAiNewsReviewLocal       = "07:00"; // AI Bridge: daily news data review (operator local time)
 EEA_HIDDEN string InpAiDiagnosticsLocal      = "06:30"; // AI Bridge: daily EA diagnostics (operator local time)
 EEA_HIDDEN int InpAiPreNewsMinutes        = 45;     // AI Bridge: pre-release brief this many minutes before a HIGH cluster (0 = off)
+EEA_HIDDEN int InpAiPostNewsMinutes       = 3;      // AI Bridge: post-release flash with a scalp view this many minutes after a HIGH cluster (0 = off)
 input string InpLiveSetupVersion        = "";
 input double InpLiveInitialCapital      = 0.0;
 enum EEA_AccountPhaseInput { PHASE_EVALUATION=0, PHASE_FUNDED=1 };
@@ -777,6 +778,7 @@ string EEA_AiContextStatus()
 // (tracked currencies, ignore keywords), so a cluster here is exactly what the guard sees.
 // Reaction history comes from the recorder's in-memory summaries (no log re-read).
 long g_ai_pre_brief_time=0;   // cluster time (UTC) the next NEWS_PRE_BRIEF request is about
+long g_ai_flash_time=0;       // cluster time (UTC) the next NEWS_FLASH request is about
 
 bool EEA_AiClusterTouchesSymbol(const long cluster_utc,const string currencies,bool &direct)
   {
@@ -884,6 +886,122 @@ long EEA_AiPreBriefDue()
    return 0;
   }
 
+// The released value read from the calendar now: the 15-minute calendar refresh may not hold it yet.
+string EEA_AiFlashActual(const long cluster_utc,const string currency,const string name)
+  {
+   const long offset=EEA_NewsServerOffsetSeconds();
+   MqlCalendarValue values[];
+   if(!CalendarValueHistory(values,(datetime)(cluster_utc+offset-60),(datetime)(cluster_utc+offset+60))) return "";
+   for(int i=0;i<ArraySize(values);i++)
+     {
+      MqlCalendarEvent ev;
+      if(!CalendarEventById(values[i].event_id,ev) || ev.name!=name) continue;
+      MqlCalendarCountry country;
+      if(!CalendarCountryById(ev.country_id,country) || country.currency!=currency) continue;
+      return EEA_NewsValueText(values[i].HasActualValue(),values[i].GetActualValue());
+     }
+   return "";
+  }
+
+// 17/10/2026: what happened in the first minutes after a HIGH cluster, for the AI's scalp view.
+// Moves are in ATR (M5, before the release) from the open of the release minute.
+string EEA_AiContextFlash(const long cluster_utc)
+  {
+   const long now=(long)TimeGMT();
+   const long offset=EEA_NewsServerOffsetSeconds();
+   string json="{\"cluster_utc\":"+IntegerToString(cluster_utc)+",\"minutes_since_release\":"+
+      IntegerToString((int)((now-cluster_utc)/60))+",\"events\":[";
+   int written=0;
+   for(int e=0;e<g_news.count && written<12;e++)
+     {
+      if(g_news.events[e].time_utc!=cluster_utc) continue;
+      string actual=EEA_AiFlashActual(cluster_utc,g_news.events[e].currency,g_news.events[e].name);
+      if(actual=="") actual=g_news.events[e].actual;
+      json+=(written>0 ? "," : "")+"{\"currency\":\""+EEA_JsonEscape(g_news.events[e].currency)+"\",\"name\":\""+
+            EEA_JsonEscape(g_news.events[e].name)+"\",\"actual\":\""+EEA_JsonEscape(actual)+"\",\"forecast\":\""+
+            EEA_JsonEscape(g_news.events[e].forecast)+"\",\"previous\":\""+EEA_JsonEscape(g_news.events[e].previous)+"\"}";
+      written++;
+     }
+   json+="],\"symbols\":[";
+   int n_affected=0;
+   for(int s=0;s<g_news.symbol_count && n_affected<16;s++)
+     {
+      bool direct;
+      if(!EEA_AiClusterTouchesSymbol(cluster_utc,g_news.symbols[s].currencies,direct)) continue;
+      const string canonical=g_news.symbols[s].canonical;
+      const int row=EEA_ObserverRuntimeIndexOf(g_runtime,canonical);
+      const string broker=(row>=0 && row<ArraySize(g_runtime.broker_symbols) ? g_runtime.broker_symbols[row] : "");
+      if(broker=="") continue;                                   // not offered by this broker
+      n_affected++;
+      string labels[]; int label_count=0;
+      for(int e=0;e<g_news.count;e++)
+        {
+         if(g_news.events[e].time_utc!=cluster_utc) continue;
+         if(EEA_NewsAffects(g_news.symbols[s].currencies,g_news.events[e].currency) ||
+            EEA_NewsIndirectAffects(g_news.symbols[s].currencies,g_news.events[e].currency,g_news.events[e].sector))
+           { ArrayResize(labels,label_count+1); labels[label_count++]=g_news.events[e].currency+" "+g_news.events[e].name; }
+        }
+      string cluster=EEA_NewsClusterLabel(labels,label_count);
+      json+=(n_affected>1 ? "," : "")+"{\"symbol\":\""+EEA_JsonEscape(canonical)+"\",\"relation\":\""+
+            (direct ? "DIRECT" : "INDIRECT")+"\",\"news_state\":\""+g_news.symbols[s].state+
+            "\",\"scalp_guard_until_utc\":"+IntegerToString(cluster_utc+(long)g_news.cfg.post_min*60);
+      int atr_bars=0;
+      const double atr=EEA_NrAtrRef(broker,cluster_utc,offset,atr_bars);
+      MqlRates m1[];
+      ArraySetAsSeries(m1,false);
+      const int got=CopyRates(broker,PERIOD_M1,(datetime)(cluster_utc+offset),(datetime)(now+offset),m1);
+      if(atr>0.0 && got>0)
+        {
+         const double open=m1[0].open;
+         double hi=m1[0].high, lo=m1[0].low;
+         for(int i=1;i<got;i++) { hi=MathMax(hi,m1[i].high); lo=MathMin(lo,m1[i].low); }
+         const double point=SymbolInfoDouble(broker,SYMBOL_POINT);
+         const long spread=SymbolInfoInteger(broker,SYMBOL_SPREAD);
+         json+=",\"price\":{\"minutes\":"+IntegerToString(got)+",\"move_atr\":"+EEA_AiNum((m1[got-1].close-open)/atr,2)+
+               ",\"up_atr\":"+EEA_AiNum((hi-open)/atr,2)+",\"down_atr\":"+EEA_AiNum((open-lo)/atr,2)+
+               ",\"first_minute_atr\":"+EEA_AiNum((m1[0].close-m1[0].open)/atr,2)+
+               ",\"spread_atr\":"+EEA_AiNum(point>0.0 ? spread*point/atr : 0.0,3)+"}";
+        }
+      else
+         json+=",\"price\":null";
+      EEA_ReactionStats st;
+      if(cluster!="" && EEA_NewsReactionStatsForCluster(g_news_reaction,cluster,canonical,st))
+         json+=",\"history\":{\"n\":"+IntegerToString(st.n)+",\"median_move15_atr\":"+EEA_AiNum(st.median_move15_atr,2)+
+               ",\"p80_move60_atr\":"+EEA_AiNum(st.p80_move60_atr,2)+",\"reversal_rate\":"+EEA_AiNum(st.reversal_rate,2)+
+               ",\"median_recovery_min\":"+EEA_AiNum(st.median_recovery_min,0)+"}";
+      else
+         json+=",\"history\":{\"n\":0}";
+      int open_positions=0;
+      for(int i=0;i<g_trade_manager.count;i++)
+         if(g_trade_manager.items[i].active && g_trade_manager.items[i].intent.canonical_symbol==canonical) open_positions++;
+      json+=",\"ea_open_positions\":"+IntegerToString(open_positions)+"}";
+     }
+   json+="],\"ea_never_trades_on_this\":true}";
+   return json;
+  }
+
+// Earliest HIGH cluster released InpAiPostNewsMinutes ago (10-minute window), touching a selected
+// symbol and not flashed yet (0 when none).
+long EEA_AiFlashDue()
+  {
+   if(InpAiPostNewsMinutes<=0 || !g_news.initialized || g_news.disabled || !g_news.calendar_ok || g_news.symbol_count<=0) return 0;
+   const long now=(long)TimeGMT();
+   for(int e=0;e<g_news.count;e++)
+     {
+      const long t=g_news.events[e].time_utc;
+      if(e>0 && g_news.events[e-1].time_utc==t) continue;
+      const long from=t+(long)InpAiPostNewsMinutes*60;
+      if(now<from || now>from+600) continue;
+      if(EEA_AiFlashDone(g_ai,t)) continue;
+      for(int s=0;s<g_news.symbol_count;s++)
+        {
+         bool direct;
+         if(EEA_AiClusterTouchesSymbol(t,g_news.symbols[s].currencies,direct)) return t;
+        }
+     }
+   return 0;
+  }
+
 string EEA_AiAnalysisProvider() { return InpAiAnalysisProvider=="codex" ? "codex" : "claude"; }
 
 void EEA_AiEnqueueReport(const string type,string &reason)
@@ -902,6 +1020,13 @@ void EEA_AiEnqueueReport(const string type,string &reason)
       if(g_ai_pre_brief_time<=0) { reason="AI_PRE_BRIEF_NO_CLUSTER"; return; }
       EEA_AiEnqueue(g_ai,g_audit,type,EEA_AiAnalysisProvider(),"[\"REPORT\",\"WARN\",\"RECOMMEND_REVIEW\"]",
                     EEA_AiContextPreBrief(g_ai_pre_brief_time),reason);
+     }
+   else if(type=="NEWS_FLASH")
+     {
+      if(g_ai_flash_time<=0) { reason="AI_FLASH_NO_CLUSTER"; return; }
+      // SCALP_VIEW is the AI's opinion for the operator; the EA never acts on it.
+      EEA_AiEnqueue(g_ai,g_audit,type,EEA_AiAnalysisProvider(),"[\"REPORT\",\"WARN\",\"SCALP_VIEW\"]",
+                    EEA_AiContextFlash(g_ai_flash_time),reason);
      }
   }
 
@@ -943,6 +1068,13 @@ void EEA_AiTimer()
       EEA_AiEnqueueReport("NEWS_PRE_BRIEF",reason);
       if(reason=="AI_REQUEST_QUEUED") { EEA_AiPreBriefRemember(g_ai,g_ai_pre_brief_time); EEA_AiSaveState(g_ai); }
      }
+   // 17/10/2026: one flash per HIGH cluster InpAiPostNewsMinutes after the release, same retry rule.
+   g_ai_flash_time=EEA_AiFlashDue();
+   if(g_ai_flash_time>0)
+     {
+      EEA_AiEnqueueReport("NEWS_FLASH",reason);
+      if(reason=="AI_REQUEST_QUEUED") { EEA_AiFlashRemember(g_ai,g_ai_flash_time); EEA_AiSaveState(g_ai); }
+     }
   }
 
 void EEA_AiHandlePanelRequest()
@@ -968,7 +1100,7 @@ void EEA_PublishAiView(EEA_SymbolPanelEngineView &view)
    for(int t=0;t<EEA_AI_TYPES && t<EEA_AI_VIEW_SLOTS;t++)   // every request type has a panel slot
      {
       EEA_AiReport r=g_ai.reports[t];
-      view.ai_title[t]=(t==4 ? "Pre-news brief" : EEA_AiType(t))+(r.present ? "  "+TimeToString((datetime)(r.created_at_utc+offset),TIME_DATE|TIME_MINUTES)+
+      view.ai_title[t]=(t==4 ? "Pre-news brief" : t==5 ? "Post-news flash" : EEA_AiType(t))+(r.present ? "  "+TimeToString((datetime)(r.created_at_utc+offset),TIME_DATE|TIME_MINUTES)+
                        "  "+r.provider+(r.status=="ERROR" ? "  ERROR "+r.error : "") : "  no report yet");
       view.ai_line_count[t]=r.present ? r.line_count : 0;
       for(int i=0;i<8;i++) view.ai_lines[t*8+i]=(i<r.line_count ? r.lines[i] : "");
