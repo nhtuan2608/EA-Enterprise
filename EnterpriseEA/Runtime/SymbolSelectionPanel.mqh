@@ -413,7 +413,7 @@ string EEA_SymbolPanelUtcText(const long value)
 bool EEA_SymbolPanelIsContextOnly(const string canonical,const string broker)
   {
    string c=EEA_TrimUpper(canonical), b=EEA_TrimUpper(broker);
-   return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX.";
+   return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX." || b=="USDIND";
   }
 
 string EEA_SymbolPanelReadableUtc(const long value)
@@ -2158,7 +2158,7 @@ void EEA_SymbolPanelDashMarket(const long chart_id,EEA_ObserverRuntimeContext &c
    for(int k=0;k<total;k++)
      {
       string candidate=SymbolName(k,false);
-      if(EEA_TrimUpper(candidate)=="USDX." || EEA_TrimUpper(candidate)=="USDX")
+      if(EEA_TrimUpper(candidate)=="USDX." || EEA_TrimUpper(candidate)=="USDX" || EEA_TrimUpper(candidate)=="USDIND")
         { dxy_broker=candidate; break; }
      }
    if(dxy_broker!="" && line<EEA_PANEL_TABLE_ROWS)

@@ -221,12 +221,12 @@ int EEA_NormalizeCanonicalCsv(const string csv, string &out_canonicals[], const 
   }
 
 // Other broker names for the same instrument, tried after exact, suffix and prefix matches (rank 4).
-// 17/10/2026: WTI crude (Lirunex USOIL.r) and the S&P 500 index (Lirunex SPCUSD.r).
+// 17/10/2026: WTI crude (Lirunex USOIL.r), the S&P 500 index (Lirunex SPCUSD.r), the dollar index (Lirunex USDInd).
 int EEA_SymbolAliases(const string canonical, string &aliases[])
   {
    ArrayResize(aliases, 0);
    if(canonical == "DXY")
-     { ArrayResize(aliases, 1); aliases[0] = "USDX"; }
+     { ArrayResize(aliases, 2); aliases[0] = "USDX"; aliases[1] = "USDIND"; }
    else if(canonical == "USOUSD")
      { ArrayResize(aliases, 3); aliases[0] = "USOIL"; aliases[1] = "XTIUSD"; aliases[2] = "WTI"; }
    else if(canonical == "US500")

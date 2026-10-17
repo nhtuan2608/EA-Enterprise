@@ -75,7 +75,7 @@ def rank_candidate(canonical: str, candidate: dict) -> tuple[int, str] | None:
     if not c_upper or not c_name:
         return None
 
-    ALIASES = {"DXY": ("USDX",), "USOUSD": ("USOIL", "XTIUSD", "WTI"),
+    ALIASES = {"DXY": ("USDX", "USDIND"), "USOUSD": ("USOIL", "XTIUSD", "WTI"),
                "US500": ("SPCUSD", "SPX500", "SP500", "USA500")}
 
     tradeable = candidate.get("tradeable", True)

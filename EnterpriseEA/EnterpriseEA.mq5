@@ -1645,6 +1645,7 @@ int OnInit()
    g_live_config.filling_mode=InpLiveFillingMode;
    g_live_config.scalp_risk_with_swing_same_side=MathMax(0.0,MathMin(1.0,InpScalpRiskWithSwingSameSide));
    EEA_UsdFlowInit(g_usd_flow);
+   EEA_DxyLabelInit(g_dxy_label);
    g_s06b_require_usd_flow=InpS06BRequireUsdFlow;
    g_s06b_pyramid_live=InpS06BPyramidLive;
    g_t2_pyramid_live=InpT2PyramidLive;
