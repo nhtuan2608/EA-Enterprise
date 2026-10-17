@@ -122,6 +122,12 @@ EEA_StrategyCandidateLoadStatus EEA_StrategyCandidateStoreLoad(const string path
    int state=(int)StringToInteger(EEA_StrategyCandidateStoreField(json,"state"));
    int direction=(int)StringToInteger(EEA_StrategyCandidateStoreField(json,"direction"));
    long last_bar=StringToInteger(EEA_StrategyCandidateStoreField(json,"last_processed_bar_utc"));
+   // An engine whose symbol never delivered a bar (not offered by this broker, e.g. ETHUSD on
+   // Lirunex) is saved IDLE with no bar. That is a fresh engine, not a corrupt file: before
+   // 17/10/2026 it disabled the whole strategy runtime on the next start.
+   if(last_bar==0 && state==EEA_S02_IDLE && direction==0 &&
+      EEA_StrategyCandidateStoreField(json,"has_candidate")!="true")
+      return EEA_CANDIDATE_CHECKPOINT_MISSING;
    if(state<EEA_S02_IDLE || state>EEA_S02_EXPIRED || (direction<-1 || direction>1) || last_bar<=0)
       return EEA_CANDIDATE_CHECKPOINT_CORRUPT;
    engine.state=state;

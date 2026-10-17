@@ -33,6 +33,16 @@ class StrategyCandidateStoreTests(unittest.TestCase):
         self.assertIn("StrategyCandidateStore.mqh", runtime)
         self.assertIn("EEA_StrategyRuntimeLoadCheckpoints", shell)
 
+    def test_never_run_engine_loads_as_fresh_not_corrupt(self):
+        # ETHUSD/USOUSD T2 on a broker without those symbols saved last_processed_bar_utc=0 and the
+        # next start disabled the strategy runtime (VPS, 17/10/2026).
+        source = (ROOT / "Storage/StrategyCandidateStore.mqh").read_text(encoding="utf-8")
+        fresh = source.index("if(last_bar==0 && state==EEA_S02_IDLE && direction==0 &&")
+        self.assertLess(fresh, source.index("last_bar<=0)"))
+        self.assertIn("return EEA_CANDIDATE_CHECKPOINT_MISSING;", source[fresh:fresh + 200])
+        runtime = (ROOT / "Runtime/StrategyCandidateRuntime.mqh").read_text(encoding="utf-8")
+        self.assertIn("return status==EEA_CANDIDATE_CHECKPOINT_MISSING ||", runtime)
+
 
 if __name__ == "__main__":
     unittest.main()

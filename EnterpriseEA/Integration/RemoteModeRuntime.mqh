@@ -18,6 +18,10 @@
 
 #define EEA_REMOTE_MODE_DOCUMENT "operator-mode-v1.0.0"
 
+// Signs (seconds > 0) or revokes (seconds == 0) the live session for an applied Telegram
+// command. The EA shell passes EEA_RemoteSessionAction, which runs the panel's own checks.
+typedef bool (*EEA_RemoteSessionHandler)(const long seconds,string &reason);
+
 string EEA_RemoteModePath(const string root) { return root+"/current/operator_mode.json"; }
 string EEA_RemoteCommandDir(const string root) { return root+"/current/remote/commands"; }
 string EEA_RemoteResultDir(const string root) { return root+"/current/remote/results"; }
@@ -35,6 +39,8 @@ string EEA_RemoteModeToJson(const EEA_RemoteModeState &s,const string reason,con
       ",\"last_command_id\":\""+EEA_JsonEscape(s.last_command_id)+"\",\"pending_nonce\":\""+EEA_JsonEscape(s.pending_nonce)+
       "\",\"pending_chat_id\":\""+EEA_JsonEscape(s.pending_chat_id)+"\",\"pending_user_id\":\""+EEA_JsonEscape(s.pending_user_id)+
       "\",\"pending_expires_at_utc\":"+IntegerToString((long)s.pending_expires_at_utc)+
+      ",\"pending_action\":\""+EEA_JsonEscape(s.pending_action)+"\",\"pending_session_seconds\":"+
+      IntegerToString(s.pending_session_seconds)+
       ",\"reason\":\""+EEA_JsonEscape(reason)+"\",\"written_at_utc\":"+IntegerToString(now)+"}";
   }
 
@@ -55,6 +61,8 @@ bool EEA_RemoteModeParse(const string json,EEA_RemoteModeState &s)
    s.pending_chat_id=EEA_RiskLedgerField(json,"pending_chat_id");
    s.pending_user_id=EEA_RiskLedgerField(json,"pending_user_id");
    s.pending_expires_at_utc=(datetime)StringToInteger(EEA_RiskLedgerField(json,"pending_expires_at_utc"));
+   s.pending_action=EEA_RiskLedgerField(json,"pending_action");
+   s.pending_session_seconds=StringToInteger(EEA_RiskLedgerField(json,"pending_session_seconds"));
    if(s.account_id=="" || s.config_version=="" || s.state_version<=0) return false;
    s.initialized=true;
    return true;
@@ -144,6 +152,7 @@ bool EEA_RemoteCommandParse(const string json,EEA_RemoteCommand &c)
    c.expires_at_utc=(datetime)StringToInteger(EEA_RiskLedgerField(json,"expires_at_utc"));
    c.confirmation_nonce=EEA_RiskLedgerField(json,"confirmation_nonce");
    c.nonce_expires_at_utc=(datetime)StringToInteger(EEA_RiskLedgerField(json,"nonce_expires_at_utc"));
+   c.session_seconds=StringToInteger(EEA_RiskLedgerField(json,"session_seconds"));
    c.private_chat_attested=(EEA_RiskLedgerField(json,"private_chat_attested")=="true");
    c.sender_authenticated=(EEA_RiskLedgerField(json,"sender_authenticated")=="true");
    c.source_authenticated=(EEA_RiskLedgerField(json,"source_authenticated")=="true");
@@ -153,7 +162,7 @@ bool EEA_RemoteCommandParse(const string json,EEA_RemoteCommand &c)
 // One pass over the gateway's commands (oldest file name first). Each command gets one
 // result file; the command file is removed afterwards. Returns commands handled.
 int EEA_RemoteModeProcessInbox(EEA_RemoteModeState &s,const string root,const EEA_RemoteResumeEvidence &evidence,
-                               CAuditLog &audit,string &last_result)
+                               EEA_RemoteSessionHandler session_handler,CAuditLog &audit,string &last_result)
   {
    string name;
    long handle=FileFindFirst(EEA_RemoteCommandDir(root)+"/*.json",name);
@@ -189,6 +198,14 @@ int EEA_RemoteModeProcessInbox(EEA_RemoteModeState &s,const string root,const EE
             // Commit, then apply: a failed write keeps the old state authoritative.
             if(EEA_RemoteModeSave(next,root,d.reason_code)) { s=next; applied=true; }
             else d.reason_code="REMOTE_STATE_COMMIT_FAILED";
+           }
+         // The code is spent once committed; a failed sign or revoke is reported, never retried.
+         if(applied && (d.session_sign_seconds>0 || d.session_revoke))
+           {
+            string session_reason="";
+            if(!session_handler(d.session_revoke ? 0 : d.session_sign_seconds,session_reason))
+              { applied=false; d.status="REJECTED"; }
+            d.reason_code=(session_reason=="" ? d.reason_code : session_reason);
            }
         }
       const bool accepted=(d.status=="VALIDATED_PENDING_COMMIT" || d.status=="DUPLICATE_IGNORED");

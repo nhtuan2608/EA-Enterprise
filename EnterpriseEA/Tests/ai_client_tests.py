@@ -57,10 +57,27 @@ class AiClientTests(unittest.TestCase):
         enqueue = section(self.shell, "void EEA_AiEnqueueReport")
         self.assertIn('EEA_AiEnqueue(g_ai,g_audit,type,"codex"', enqueue)       # diagnostics go to codex
 
+    def test_post_news_flash_rule(self):  # 17/10/2026: minutes after the release, with the AI's scalp view
+        self.assertIn("EEA_HIDDEN int InpAiPostNewsMinutes       = 3;", self.shell)
+        self.assertIn('if(i==5) return "NEWS_FLASH";', self.client)
+        due = section(self.shell, "long EEA_AiFlashDue")
+        self.assertIn("InpAiPostNewsMinutes<=0", due)                                  # 0 = off
+        self.assertIn("now<from || now>from+600", due)                                 # [T+N min, T+N+10 min]
+        self.assertIn("EEA_AiFlashDone(g_ai,t)", due)                                  # once per cluster
+        timer = section(self.shell, "void EEA_AiTimer")
+        self.assertIn("EEA_AiFlashRemember(g_ai,g_ai_flash_time)", timer)
+        enqueue = section(self.shell, "void EEA_AiEnqueueReport")
+        self.assertIn('"[\\"REPORT\\",\\"WARN\\",\\"SCALP_VIEW\\"]"', enqueue)
+        context = section(self.shell, "string EEA_AiContextFlash")
+        for key in ("minutes_since_release", "move_atr", "first_minute_atr", "spread_atr", "scalp_guard_until_utc",
+                    "median_move15_atr", "ea_never_trades_on_this"):
+            self.assertIn(key, context)
+        self.assertIn('"flash_times', self.client)                                     # survives a re-attach
+
     def test_pre_news_brief_rule(self):  # REQ-007
         self.assertIn("EEA_HIDDEN int InpAiPreNewsMinutes        = 45;", self.shell)
         self.assertIn('if(i==4) return "NEWS_PRE_BRIEF";', self.client)
-        self.assertIn("#define EEA_AI_TYPES 5", self.client)
+        self.assertIn("#define EEA_AI_TYPES 6", self.client)
         due = section(self.shell, "long EEA_AiPreBriefDue")
         self.assertIn("InpAiPreNewsMinutes<=0", due)                                   # 0 = off
         self.assertIn("now<t-(long)InpAiPreNewsMinutes*60 || now>t-300", due)           # [T-N min, T-5 min]

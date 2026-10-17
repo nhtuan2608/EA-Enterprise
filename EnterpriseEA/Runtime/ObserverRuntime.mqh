@@ -55,7 +55,7 @@ bool EEA_ObserverRuntimeAuditChecked(EEA_ObserverRuntimeContext &ctx,CAuditLog &
 bool EEA_ObserverRuntimeIsContextOnly(const string canonical,const string broker)
   {
    string c=EEA_TrimUpper(canonical), b=EEA_TrimUpper(broker);
-   return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX.";
+   return c=="DXY" || c=="USDX" || b=="USDX" || b=="USDX." || b=="USDIND";
   }
 
 // SYM-02: every symbol resolves on its own. A symbol that cannot be mapped, or

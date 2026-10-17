@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": {"const": "remote-command-v1.0.0"},
     "command_id": {"type": "string", "minLength": 1},
-    "action": {"enum": ["PAUSE_ENTRIES", "REQUEST_RESUME", "CONFIRM_RESUME"]},
+    "action": {"enum": ["PAUSE_ENTRIES", "REQUEST_RESUME", "CONFIRM_RESUME", "REQUEST_SESSION_SIGN", "CONFIRM_SESSION_SIGN", "REVOKE_SESSION"]},
     "role": {"const": "OPERATOR"},
     "chat_id": {"type": "string", "minLength": 1},
     "user_id": {"type": "string", "minLength": 1},
@@ -20,12 +20,15 @@
     "expires_at_utc": {"type": "integer", "minimum": 1},
     "confirmation_nonce": {"type": "string"},
     "nonce_expires_at_utc": {"type": "integer", "minimum": 0},
+    "session_seconds": {"enum": [0, 86400, 604800]},
     "private_chat_attested": {"type": "boolean"},
     "sender_authenticated": {"type": "boolean"},
     "source_authenticated": {"type": "boolean"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "REQUEST_RESUME"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}, "nonce_expires_at_utc": {"minimum": 1}}}},
-    {"if": {"properties": {"action": {"const": "CONFIRM_RESUME"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}}}}
+    {"if": {"properties": {"action": {"const": "CONFIRM_RESUME"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}}}},
+    {"if": {"properties": {"action": {"const": "REQUEST_SESSION_SIGN"}}}, "then": {"required": ["session_seconds"], "properties": {"confirmation_nonce": {"minLength": 1}, "nonce_expires_at_utc": {"minimum": 1}, "session_seconds": {"enum": [86400, 604800]}}}},
+    {"if": {"properties": {"action": {"const": "CONFIRM_SESSION_SIGN"}}}, "then": {"properties": {"confirmation_nonce": {"minLength": 1}}}}
   ]
 }

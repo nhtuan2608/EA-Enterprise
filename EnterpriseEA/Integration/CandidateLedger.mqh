@@ -33,7 +33,7 @@ struct EEA_LedgerEntry
    bool   seen;
    bool   executed;
    string entry_kind;
-   string usd_json;     // G29: USD flow when the candidate was first seen
+   string usd_json;     // G29: USD flow when the candidate was first seen, then the G76/G77 F3 DXY label
   };
 
 struct EEA_CandidateLedger
@@ -103,6 +103,7 @@ void EEA_CandidateLedgerAdd(EEA_CandidateLedger &l,const EEA_StrategyCandidateRu
    x.zone_low=e.zone_low; x.zone_high=e.zone_high; x.signal_atr=e.signal_atr; x.key_level=e.key_level;
    x.first_seen_utc=now; x.reason=""; x.seen=false; x.executed=false; x.entry_kind="";
    x.usd_json=EEA_UsdFlowJson(g_usd_flow,e.canonical_symbol,e.direction);
+   x.usd_json+=","+EEA_DxyF3Json(g_dxy_label,e.canonical_symbol,strategy.setup[i],e.timeframe,e.direction,x.bar_time);
    l.items[l.count++]=x;
   }
 

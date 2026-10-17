@@ -25,6 +25,7 @@
 #include "../News/NewsCalendar.mqh"
 #include "../Market/SentimentRuntime.mqh"
 #include "../Market/UsdFlow.mqh"
+#include "../Market/DxyLabel.mqh"
 #include "SetupArbitration.mqh"
 
 struct EEA_ControlledLiveConfig
@@ -1194,6 +1195,8 @@ void EEA_S04ShadowOnTimer(EEA_ControlledLiveRuntimeState &state,const EEA_Strate
          ",\"sentiment\":\""+alignment.verdict+"\",\"sentiment_factor\":"+DoubleToString(alignment.factor,2)+
          ",\"news_block\":\""+news_block+"\",\"opposite_active\":"+(opposite ? "true" : "false")+
          ","+EEA_UsdFlowJson(g_usd_flow,engine.canonical_symbol,engine.direction)+
+         ","+EEA_DxyF3Json(g_dxy_label,engine.canonical_symbol,setup,engine.timeframe,engine.direction,
+                           (long)engine.candidate.triggered_at_utc)+
          ",\"plan_reason\":\""+EEA_JsonEscape(reason)+"\"}";
       EEAEvent event;
       EEAEvent_Init(event,setup+"_SHADOW_CANDIDATE",TimeGMT(),engine.canonical_symbol,candidate_id,"","SHADOW","OK");
