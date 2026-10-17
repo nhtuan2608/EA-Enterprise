@@ -75,8 +75,8 @@ def rank_candidate(canonical: str, candidate: dict) -> tuple[int, str] | None:
     if not c_upper or not c_name:
         return None
 
-    ALIASES = {"DXY": "USDX"}
-    alias_target = ALIASES.get(c_upper)
+    ALIASES = {"DXY": ("USDX",), "USOUSD": ("USOIL", "XTIUSD", "WTI"),
+               "US500": ("SPCUSD", "SPX500", "SP500", "USA500")}
 
     tradeable = candidate.get("tradeable", True)
     conversion_only = candidate.get("conversion_only", False)
@@ -88,8 +88,9 @@ def rank_candidate(canonical: str, candidate: dict) -> tuple[int, str] | None:
         return (rank_value if rank_value == 5 else 2, "CONVERSION_ONLY" if conversion_only else "DISABLED" if rank_value == 5 else "SUFFIX_TRADEABLE")
     if c_name.endswith(c_upper) and len(c_name) > len(c_upper):
         return (rank_value if rank_value == 5 else 2, "CONVERSION_ONLY" if conversion_only else "DISABLED" if rank_value == 5 else "PREFIX_TRADEABLE")
-    if alias_target and (c_name == alias_target or c_name.startswith(alias_target) or c_name.endswith(alias_target)):
-        return (rank_value if rank_value == 5 else 4, "CONVERSION_ONLY" if conversion_only else "DISABLED" if rank_value == 5 else "ALIAS_TRADEABLE")
+    for alias_target in ALIASES.get(c_upper, ()):
+        if c_name == alias_target or c_name.startswith(alias_target) or c_name.endswith(alias_target):
+            return (rank_value if rank_value == 5 else 4, "CONVERSION_ONLY" if conversion_only else "DISABLED" if rank_value == 5 else "ALIAS_TRADEABLE")
 
     return None
 

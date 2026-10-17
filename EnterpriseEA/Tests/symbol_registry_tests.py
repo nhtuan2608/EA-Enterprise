@@ -26,6 +26,20 @@ class SymbolRegistryExamples(unittest.TestCase):
         self.assertEqual(rows[1]["broker_symbol"], "XAUUSD-VIP")
         self.assertEqual(rows[2]["broker_symbol"], "USDX.")
         self.assertEqual(rows[2]["reason_code"], "UNIQUE_ALIAS_ROOT_MATCH")
+    def test_broker_aliases_for_wti_and_sp500(self):
+        # Lirunex (17/10/2026) names WTI crude USOIL.r and the S&P 500 SPCUSD.r; its swap-free twins start with "s".
+        from symbol_registry_oracle import resolve_batch
+        available = [{"name": n, "tradeable": True, "conversion_only": False}
+                     for n in ("USOIL.r", "sUSOIL.r", "SPCUSD.r", "XAUUSD.r", "sXAUUSD.r")]
+        rows = resolve_batch(["USOUSD", "US500", "XAUUSD", "ETHUSD"], available)
+        self.assertEqual([r["broker_symbol"] for r in rows[:3]], ["USOIL.r", "SPCUSD.r", "XAUUSD.r"])
+        self.assertEqual(rows[0]["reason_code"], "UNIQUE_ALIAS_ROOT_MATCH")
+        self.assertEqual(rows[3]["status"], "MISSING")                     # no ETH on this broker: stays unresolved
+        source = (ROOT / "Market/SymbolRegistry.mqh").read_text(encoding="utf-8")
+        for alias in ('"USDX"', '"USOIL"', '"XTIUSD"', '"WTI"', '"SPCUSD"', '"SPX500"', '"SP500"', '"USA500"'):
+            self.assertIn(alias, source)
+        self.assertIn("for(int a = 0; a < alias_count; a++)", source)
+
     def test_explicit_resolution_and_fail_closed_cases(self):
         for row in FIXTURE["cases"]:
             with self.subTest(name=row["name"]):

@@ -220,6 +220,20 @@ int EEA_NormalizeCanonicalCsv(const string csv, string &out_canonicals[], const 
    return count;
   }
 
+// Other broker names for the same instrument, tried after exact, suffix and prefix matches (rank 4).
+// 17/10/2026: WTI crude (Lirunex USOIL.r) and the S&P 500 index (Lirunex SPCUSD.r).
+int EEA_SymbolAliases(const string canonical, string &aliases[])
+  {
+   ArrayResize(aliases, 0);
+   if(canonical == "DXY")
+     { ArrayResize(aliases, 1); aliases[0] = "USDX"; }
+   else if(canonical == "USOUSD")
+     { ArrayResize(aliases, 3); aliases[0] = "USOIL"; aliases[1] = "XTIUSD"; aliases[2] = "WTI"; }
+   else if(canonical == "US500")
+     { ArrayResize(aliases, 4); aliases[0] = "SPCUSD"; aliases[1] = "SPX500"; aliases[2] = "SP500"; aliases[3] = "USA500"; }
+   return ArraySize(aliases);
+  }
+
 int EEA_RankSymbolCandidate(const string canonical, const EEA_SymbolDiscoveryCandidate &candidate, string &out_reason)
   {
    out_reason = "";
@@ -227,8 +241,8 @@ int EEA_RankSymbolCandidate(const string canonical, const EEA_SymbolDiscoveryCan
    string c_name  = EEA_TrimUpper(candidate.name);
    if(c_upper == "" || c_name == "") return 0;
 
-   string alias_target = "";
-   if(c_upper == "DXY") alias_target = "USDX";
+   string aliases[];
+   const int alias_count = EEA_SymbolAliases(c_upper, aliases);
 
    bool tradeable = candidate.tradeable;
    bool conversion_only = candidate.conversion_only;
@@ -270,8 +284,9 @@ int EEA_RankSymbolCandidate(const string canonical, const EEA_SymbolDiscoveryCan
       return 2;
      }
 
-   if(alias_target != "")
+   for(int a = 0; a < alias_count; a++)
      {
+      string alias_target = aliases[a];
       int alias_len = StringLen(alias_target);
       bool alias_match = false;
       if(c_name == alias_target) alias_match = true;
