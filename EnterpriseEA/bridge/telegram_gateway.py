@@ -49,6 +49,11 @@ MAX_MESSAGE = 3500              # Telegram allows 4096
 STATUS_STALE = 120              # EA snapshot older than this is reported STALE
 NEWS_LEAD = 30 * 60             # notify HIGH events this long before
 ALERT_THROTTLE = 15 * 60
+# 19/10/2026: the EA writes current/live_status.json on every 30 s timer, weekends included. A VPS
+# reboot restored an old chart profile and the EA stayed down for 22 hours without any message.
+EA_STALE_ALERT = 5 * 60          # no live_status.json write for this long: tell everyone once
+EA_STALE_REMIND = 60 * 60        # then remind this often while it stays down
+EA_STALE_RECOVERED = STATUS_STALE
 SEND_ATTEMPTS = 5
 WEEK_TIMEOUT = 240              # /week report subprocess
 WEEK_PER_10MIN = 1
@@ -64,7 +69,7 @@ DEFAULT_CONFIG = {
     "commands_per_minute": 20,
     "asks_per_hour": 6,
     "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True,
-               "pre_news": True, "post_news": True, "post_news_review": True},
+               "pre_news": True, "post_news": True, "post_news_review": True, "ea_stale": True},
     "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
     "edge_local": "08:05",      # G37: daily edge check time; a worse status is pushed to every user
 }
@@ -196,7 +201,8 @@ class Gateway:
         base = {"offset": 0, "sequence": 0, "seen_updates": [], "pending_commands": {}, "pending_asks": {},
                 "outbox": [], "audit_pos": 0, "audit_size": 0, "reports_seen": {}, "news_seen": [],
                 "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": "",
-                "pending_intents": {}, "bot_nonces": {}, "session_nonces": {}}
+                "pending_intents": {}, "bot_nonces": {}, "session_nonces": {},
+                "ea_stale_alerted_at": 0, "ea_stale_since": 0}
         loaded = read_json(self.state_path)
         if isinstance(loaded, dict):
             base.update(loaded)
@@ -1015,6 +1021,37 @@ class Gateway:
             del self.jobs[key]
 
     # -- notifications (N1) -------------------------------------------------
+    def notify_ea_stale(self):
+        """The EA stopped writing live_status.json (MT5 closed, EA removed, chart profile without it)."""
+        if not self.config["notify"].get("ea_stale", True):
+            return
+        status = read_json(self.root / "current" / "live_status.json")
+        written = int(status.get("written_at_utc", 0) or 0) if isinstance(status, dict) else 0
+        if written <= 0:
+            return                                    # never written: an EA without live status, nothing to watch
+        now_ = self.clock()
+        age = now_ - written
+        alerted = int(self.state.get("ea_stale_alerted_at", 0) or 0)
+        if age >= EA_STALE_ALERT:
+            if alerted and now_ - alerted < EA_STALE_REMIND:
+                return
+            first = not alerted
+            self.state["ea_stale_alerted_at"] = now_
+            self.state["ea_stale_since"] = written
+            since = time.strftime("%H:%M %d/%m", time.localtime(written))
+            self.broadcast(("CẢNH BÁO: " if first else "Nhắc lại: ") +
+                           f"EA không ghi trạng thái từ {since} ({age // 60} phút). EA có thể đã dừng: MT5 tắt, "
+                           "EA bị tháo khỏi chart hoặc MT5 mở profile cũ sau khi khởi động lại. EA không vào lệnh mới; "
+                           "vị thế đang mở vẫn giữ SL/TP trên sàn nhưng không được EA quản lý (dời SL, thoát lệnh). "
+                           "Kiểm tra MT5 qua VNC, kể cả xem có EA khác (tester) đang chạy thay không.")
+            self.log("EA_STALE_ALERT", age=age, first=first)
+        elif alerted and age <= EA_STALE_RECOVERED:
+            down = max(0, written - int(self.state.get("ea_stale_since", 0) or 0))
+            self.state["ea_stale_alerted_at"] = 0
+            self.state["ea_stale_since"] = 0
+            self.broadcast(f"EA đã chạy lại (trạng thái cập nhật {age}s trước, gián đoạn khoảng {down // 60} phút).")
+            self.log("EA_STALE_RECOVERED", down=down)
+
     def notify_audit(self):
         path = self.root / "logs" / "audit.jsonl"
         try:
@@ -1136,6 +1173,7 @@ class Gateway:
                                         if v.get("expires", 0) > now_}
         self.poll_jobs()
         self.notify_audit()
+        self.notify_ea_stale()
         self.notify_reports()
         self.notify_news()
         self.notify_digest()
