@@ -279,7 +279,7 @@ class NotifyTests(GatewayCase):
                                                       "findings": [{"severity": "WARN", "detail": "restart"}]})
         self.gw.run_once(poll_timeout=0)
         self.gw.run_once(poll_timeout=0)
-        reports = [x for x in self.texts() if x.startswith("Chẩn đoán EA")]
+        reports = [x for x in self.texts() if x.startswith("🩺 <b>Chẩn đoán EA</b>")]
         self.assertEqual(len(reports), 2)
         self.assertIn("mới", reports[0])
 
@@ -287,7 +287,7 @@ class NotifyTests(GatewayCase):
         self.gw.run_once(poll_timeout=0)                      # start-up pass: no reports yet
         self.write("ai/reports/NEWS_DATA_REVIEW.json", {"status": "OK", "request_id": "eea-0-9", "summary": "review"})
         self.gw.run_once(poll_timeout=0)
-        self.assertEqual(sum(t.startswith("Review dữ liệu tin") for t in self.texts()), 2)
+        self.assertEqual(sum(t.startswith("📊 <b>Review dữ liệu tin</b>") for t in self.texts()), 2)
 
 
     def test_pre_news_brief_is_forwarded_and_can_be_muted(self):  # REQ-007
@@ -296,13 +296,13 @@ class NotifyTests(GatewayCase):
                                                       "findings": [{"severity": "WARN", "detail": "XAUUSD đang mở"}]})
         self.gw.run_once(poll_timeout=0)
         self.gw.run_once(poll_timeout=0)
-        briefs = [x for x in self.texts() if x.startswith("Tóm tắt trước tin")]
+        briefs = [x for x in self.texts() if x.startswith("⏰ <b>Tóm tắt trước tin</b>")]
         self.assertEqual(len(briefs), 2)        # operator + viewer, once each
         self.assertIn("NFP sau 40 phút", briefs[0])
         self.gw.config["notify"]["pre_news"] = False
         self.write("ai/reports/NEWS_PRE_BRIEF.json", {"status": "OK", "request_id": "eea-4-2", "summary": "bị tắt"})
         self.gw.run_once(poll_timeout=0)
-        self.assertEqual(sum(t.startswith("Tóm tắt trước tin") for t in self.texts()), 2)
+        self.assertEqual(sum(t.startswith("⏰ <b>Tóm tắt trước tin</b>") for t in self.texts()), 2)
         self.assertTrue(self.gw.config["notify"]["pre_news"] is False)
 
 
