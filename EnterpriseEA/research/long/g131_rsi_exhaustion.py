@@ -9,6 +9,7 @@ d = trade direction: -1 sells a top (after overbought), +1 buys a bottom (after 
 from __future__ import annotations
 
 import itertools
+import os
 import random
 import statistics
 from pathlib import Path
@@ -18,9 +19,10 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 import os
+TF = os.environ.get("G131_TF", "H4")
+H4S = 14400 if TF == "H4" else 3600     # bar length (name kept from the H4 version)
 V = os.environ.get("G131_V", "a")          # "b" = the G131b relaxation (plan section G131b)
-REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / ("2026-10-20-g131-rsi-exhaustion-top.md" if V == "a" else f"2026-10-20-g131{V}-rsi-exhaustion-top.md")
-H4S = 14400
+REPORT = HERE.parents[1] / "docs" / "superpowers" / "reports" / ("2026-10-20-g131-rsi-exhaustion-top.md" if V == "a" else f"2026-10-20-g131{V}{'' if TF == 'H4' else '-' + TF.lower()}-rsi-exhaustion-top.md")
 COMM = 0.06
 T0 = int(pd.Timestamp("2018-03-05").timestamp())
 T_VAL = int(pd.Timestamp("2022-01-01").timestamp())
@@ -234,7 +236,7 @@ def cell(tr, p, d=None):
 
 def main():
     H = H4()
-    L = [f"# G131{'' if V == 'a' else V}: đỉnh/đáy cạn đà sau nhiều lần RSI quá mua/quá bán — kết quả", "",
+    L = [f"# G131{'' if V == 'a' else V} ({TF}): đỉnh/đáy cạn đà sau nhiều lần RSI quá mua/quá bán — kết quả", "",
          "Kế hoạch: `plans/2026-10-20-g131-rsi-exhaustion-top.md`. XAUUSD H4 (từ M30, 03/2018+). Train 03/2018–2021, validate "
          "2022–2025. 2026 không phải test sạch (ví dụ thiết kế nằm trong 01–03/2026). Chi phí khắt khe. Ô: số lệnh / R mỗi lệnh "
          "(SL trên đỉnh test lại, thoát ở EMA200 H4 hoặc RSI cực trị bên kia).", "",
