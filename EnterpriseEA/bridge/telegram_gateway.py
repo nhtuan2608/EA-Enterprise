@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot_journal  # noqa: E402  (bridge/bot_journal.py, shared with the MCP server)
 import report_layout  # noqa: E402  (19/10/2026: Telegram HTML layout of the AI reports)
 import operator_evidence  # noqa: E402  (20/10/2026: read-only evidence for free-text questions)
+import trade_alerts  # noqa: E402  (20/10/2026: bot orders and MT5 rejections on Telegram)
 
 VERSION = "telegram-gateway-v1.0.0"
 COMMAND_SCHEMA = "remote-command-v1.0.0"
@@ -74,7 +75,8 @@ DEFAULT_CONFIG = {
     "commands_per_minute": 20,
     "asks_per_hour": 6,
     "notify": {"trades": True, "alerts": True, "ai_reports": True, "news": True, "digest": True, "edge": True,
-               "pre_news": True, "post_news": True, "post_news_review": True, "ea_stale": True},
+               "pre_news": True, "post_news": True, "post_news_review": True, "ea_stale": True,
+               "bot_trades": True, "order_failures": True},
     "digest_local": "23:30",    # daily summary time, gateway machine local time (HH:MM)
     "edge_local": "08:05",      # G37: daily edge check time; a worse status is pushed to every user
 }
@@ -207,7 +209,9 @@ class Gateway:
                 "outbox": [], "audit_pos": 0, "audit_size": 0, "reports_seen": {}, "news_seen": [],
                 "alerts_at": {}, "rate": {}, "asks": {}, "edge_status": {}, "edge_day": "",
                 "pending_intents": {}, "bot_nonces": {}, "session_nonces": {},
-                "ea_stale_alerted_at": 0, "ea_stale_since": 0}
+                "ea_stale_alerted_at": 0, "ea_stale_since": 0,
+                "bot_journal_file": "", "bot_journal_pos": -1, "mt5_journal_file": "", "mt5_journal_pos": -1,
+                "order_failures_seen": {}}
         loaded = read_json(self.state_path)
         if isinstance(loaded, dict):
             base.update(loaded)
@@ -850,6 +854,12 @@ class Gateway:
                 continue
         return out
 
+    def _journal_rows(self, start: int, end: int) -> list[dict]:
+        rows = []
+        for path in sorted((self.root / "logs").glob("bots-*.jsonl"))[-2:]:
+            rows += [j for j in self._jsonl(f"logs/{path.name}") if start <= int(j.get("at_utc", 0) or 0) < end]
+        return rows
+
     def digest_text(self, start: int, end: int) -> str:
         day = time.strftime("%d/%m", time.localtime(start))
         trades = [t for t in self._jsonl("logs/trades.jsonl") if start <= int(t.get("exit_utc") or 0) < end]
@@ -873,8 +883,25 @@ class Gateway:
                 per_setup[k] = per_setup.get(k, 0) + 1
             lines.append(f"Candidate: {len(cands)} (" + ", ".join(f"{k} {n}" for k, n in sorted(per_setup.items())) + ")")
             lines.append("  Kết cục: " + ", ".join(f"{k} {n}" for k, n in sorted(by.items(), key=lambda x: -x[1])))
+            # 20/10/2026: LIVE signals that did not enter, grouped, so the operator sees why without asking.
+            missed: dict[str, int] = {}
+            for c in cands:
+                if c.get("mode") == "LIVE" and c.get("disposition") != "EXECUTED":
+                    k = f"{c.get('setup')} {c.get('symbol')} {c.get('timeframe')}: {str(c.get('reason', '')).split(':', 1)[0]}"
+                    missed[k] = missed.get(k, 0) + 1
+            if missed:
+                lines.append("Tín hiệu LIVE không vào được:")
+                lines += [f"  • {k} ×{n}" for k, n in sorted(missed.items(), key=lambda x: -x[1])[:8]]
         else:
             lines.append("Candidate: 0")
+        blocked: dict[str, int] = {}
+        for j in self._journal_rows(start, end):
+            if j.get("mode") == "LIVE" and j.get("event") in ("BLOCKED", "SKIP"):
+                k = f"{self.BOT_TITLES.get(j.get('bot'), j.get('bot'))}: {str(j.get('text', ''))[:70]}"
+                blocked[k] = blocked.get(k, 0) + 1
+        if blocked:
+            lines.append("Bot LIVE bị chặn / bỏ qua:")
+            lines += [f"  • {k} ×{n}" for k, n in sorted(blocked.items(), key=lambda x: -x[1])[:6]]
         counts: dict[str, int] = {}
         for e in self._jsonl("logs/audit.jsonl"):
             kind = e.get("event_type", "")
@@ -1041,6 +1068,54 @@ class Gateway:
             del self.jobs[key]
 
     # -- notifications (N1) -------------------------------------------------
+    def _tail(self, kind: str, path: Path, reader):
+        """New lines of `path` since the saved position; a new file (month or day) starts at 0 and
+        the very first file the gateway sees starts at its end, so old lines are never replayed."""
+        name = path.name
+        pos = int(self.state.get(f"{kind}_pos", -1))
+        if self.state.get(f"{kind}_file") != name:
+            first = not self.state.get(f"{kind}_file")
+            self.state[f"{kind}_file"] = name
+            try:
+                pos = path.stat().st_size if first else 0
+            except OSError:
+                pos = 0
+        rows, pos = reader(path, max(0, pos))
+        self.state[f"{kind}_pos"] = pos
+        return rows
+
+    def notify_bot_trades(self):
+        """LIVE bot orders from logs/bots-YYYYMM.jsonl: sent, filled, closed, failed (SHADOW stays silent)."""
+        if not self.config["notify"].get("bot_trades", True):
+            return
+        path = self.root / "logs" / f"bots-{time.strftime('%Y%m', time.gmtime(self.clock()))}.jsonl"
+        for row in self._tail("bot_journal", path, trade_alerts.tail_jsonl):
+            text = trade_alerts.bot_message(row, self.BOT_TITLES)
+            if text:
+                self.broadcast(text)
+                self.log("BOT_TRADE_SENT", bot=row.get("bot"), bot_event=row.get("event"))
+
+    def notify_order_failures(self):
+        """Rejected requests of any EA in the MT5 Journal (<terminal>/logs/YYYYMMDD.log, UTF-16)."""
+        if not self.config["notify"].get("order_failures", True):
+            return
+        if len(self.root.parents) < 3:
+            return
+        path = self.root.parents[2] / "logs" / f"{time.strftime('%Y%m%d', time.gmtime(self.clock()))}.log"
+        now_ = self.clock()
+        seen = {k: v for k, v in self.state.get("order_failures_seen", {}).items() if now_ - v < 600}
+        for line in self._tail("mt5_journal", path, trade_alerts.tail_utf16):
+            text = trade_alerts.mt5_failure_message(line)
+            if not text:
+                continue
+            key = re.sub(r"[\d.]+", "#", text)[:160]       # the same rejection repeated: once per 10 minutes
+            if key in seen:
+                continue
+            seen[key] = now_
+            self.broadcast(text)
+            self.log("ORDER_FAILURE_SENT")
+        self.state["order_failures_seen"] = seen
+
     def notify_ea_stale(self):
         """The EA stopped writing live_status.json (MT5 closed, EA removed, chart profile without it)."""
         if not self.config["notify"].get("ea_stale", True):
@@ -1188,6 +1263,8 @@ class Gateway:
         self.poll_jobs()
         self.notify_audit()
         self.notify_ea_stale()
+        self.notify_bot_trades()
+        self.notify_order_failures()
         self.notify_reports()
         self.notify_news()
         self.notify_digest()
