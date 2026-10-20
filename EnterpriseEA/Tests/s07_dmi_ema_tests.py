@@ -154,6 +154,31 @@ class PyramidTests(unittest.TestCase):
         self.assertEqual(o.add_allowed(1, True, True, 0, 1800), "S07A_TOO_CLOSE_TO_PREVIOUS_LEG")
         self.assertEqual(o.add_allowed(1, True, False, 0, 7200), "S07A_BASE_NOT_IN_PROFIT")
 
+    def test_standalone_sell_add(self):  # InpS07AsStandalone (20/10/2026)
+        sell = dict(setup="S07AS", standalone=True, timeframe="H1", ordered=True)
+        self.assertEqual(o.add_allowed(0, False, False, 0, 0, **sell), "S07AS_STANDALONE_ALLOWED")
+        self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "standalone": False}), "S07A_NO_OPEN_BASE")
+        self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "setup": "S07A"}), "S07A_NO_OPEN_BASE")
+        self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "timeframe": "M15"}), "S07AS_STANDALONE_TIMEFRAME")
+        self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "ordered": False}),
+                         "S07AS_STANDALONE_RIBBON_NOT_ORDERED")
+        self.assertEqual(o.add_allowed(1, False, False, 0, 0, **sell), "S07AS_STANDALONE_LEG_OPEN")
+        live = read("Integration/ControlledLiveRuntime.mqh")
+        gate = section(live, "bool EEA_S07EntryAllowed(")
+        for token in ('setup!="S07AS" || !g_s07as_standalone || b>=0', 'timeframe!="H1" && timeframe!="H4"',
+                      'StringFind(candidate_reason,"_RB3")<0', "EEA_S07OpenLegs(trades,canonical,direction)>0",
+                      '"S07AS_STANDALONE_ALLOWED"'):
+            self.assertIn(token, gate)
+        apply = section(live, "bool EEA_ControlledLiveApplyS07AsStandalone(")
+        self.assertIn("alignment.ok && alignment.factor<1.0", apply)
+        self.assertIn("plan.base_risk_fraction*=g_s07as_standalone_weight;", apply)
+        self.assertIn("EEA_ControlledLiveApplyS07AsStandalone(s07as_standalone,alignment,plan,reason) &&", live)
+        shell = read("EnterpriseEA.mq5")
+        self.assertIn("input bool   InpS07AsStandalone        = false;", shell)
+        self.assertIn("input double InpS07AsStandaloneRiskWeight = 0.5;", shell)
+        scan = read("Runtime/StrategyCandidateRuntime.mqh")
+        self.assertIn('if((setup=="S07" || setup=="S07S" || setup=="S07AS") && d!=0)', scan)
+
     def test_mql_gate_and_record(self):
         live = read("Integration/ControlledLiveRuntime.mqh")
         gate = section(live, "bool EEA_S07EntryAllowed(")

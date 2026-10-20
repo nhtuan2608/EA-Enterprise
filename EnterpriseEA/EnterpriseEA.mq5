@@ -91,6 +91,8 @@ enum EEA_S07ReentryModeInput { S07R_OFF=0, S07R_SHADOW=1, S07R_LIVE=2 };
 input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE; // G87 S07R: re-enter within 2h after a closed S07 base when price is back in the setup (G78: negative 2021-2023; LIVE by the user's choice, G88)
 input bool   InpS07AdxExit              = true;  // G87: S07 base legs also exit on ADX >= 50 turning down (G86 X3)
 input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>EMA55>EMA100 at the signal (1.0% of 1.5%)
+input bool   InpS07AsStandalone        = false; // S07AS sell add enters without an open S07S base: H1/H4, ordered ribbon, sentiment not against
+input double InpS07AsStandaloneRiskWeight = 0.5; // share of the base risk for such a standalone S07AS (0.5 = 0.75% of 1.5%)
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
 enum EEA_RiskBaseInput { RISK_BASE_INITIAL=0, RISK_BASE_BALANCE=1 };
 input EEA_RiskBaseInput InpRiskBase      = RISK_BASE_INITIAL; // G91: per-trade / open caps on the initial capital (no compounding) or on max(initial, equity) (compounding)
@@ -1658,6 +1660,8 @@ int OnInit()
    g_risk_weight_t2=InpRiskWeightT2;
    g_risk_weight_s07a=InpRiskWeightS07A;
    g_s07_unordered_weight=InpS07UnorderedRiskWeight;
+   g_s07as_standalone=InpS07AsStandalone;
+   g_s07as_standalone_weight=MathMax(0.0,MathMin(1.0,InpS07AsStandaloneRiskWeight));
    g_s07_adx_exit=InpS07AdxExit;
    g_s07_entry_tf=(InpS07EntryTf==S07_ENTRY_M15 ? PERIOD_M15 : PERIOD_M5);
    g_risk_compound=(InpRiskBase==RISK_BASE_BALANCE);
