@@ -95,3 +95,17 @@ Lấy biến thể có min(train, validate) cao nhất. Báo cáo mua và bán r
 ## Đầu ra
 
 `research/long/g131_rsi_exhaustion.py`, báo cáo `reports/2026-10-20-g131-rsi-exhaustion-top.md`.
+
+## G131b — nới luật cho đúng mô tả (20/10/2026, sau khi chạy bản đầu)
+
+**Vì sao nới:** bản đầu chỉ cho 0–7 lệnh mỗi kỳ, và không bắt được hai ví dụ của người dùng (29/01/2026 và 02–05/03/2026). Kiểm tra từng nến H4 của hai ví dụ (năm 2026, ngoài kỳ chọn) cho thấy 5 chỗ chặt hơn mô tả. Sửa đúng 5 chỗ, mọi thứ khác giữ nguyên:
+
+1. **Nến đảo chiều** được phép xuất hiện khi RSI **vẫn còn** ≥ 70, hoặc tới 12 nến sau nến quá mua cuối.
+2. **Nhấn chìm** = nến giảm có **thân** bao thân nến tăng trước nó; không bắt buộc đóng dưới đáy nến trước. Áp cho cả nến đảo chiều lẫn kích hoạt E1.
+3. **RSI đảo chiều** ở nến biên độ lớn = RSI **đang nằm dưới** RSI-MA ở nến đó (mua: trên); không cần cắt mới.
+4. **Test lại** = có nến hồi ≥ 38,2% biên độ nến biên độ lớn, tính từ đáy của nó (mua: từ đỉnh).
+5. **Chờ kích hoạt** tối đa 12 nến sau nến biên độ lớn (thay vì 6).
+
+Kỳ, chi phí, đối chứng, tiêu chí chọn, 18 biến thể: **không đổi**. Kết quả bản đầu vẫn để nguyên trong báo cáo.
+
+Năm 2026 vẫn chỉ để xem luật có bắt được ví dụ không. Kết quả 2018–2025 của bản đầu đã được nhìn thấy trước khi nới, nên kết quả của G131b phải đọc thận trọng.
