@@ -111,3 +111,36 @@ Biến thể đạt khi đủ cả ba:
 ## Đầu ra
 
 `research/long/g130_rsi_extreme.py`, báo cáo `reports/2026-10-20-g130-h4-rsi-extreme-scalp.md`.
+
+## Bổ sung của người dùng (20/10/2026, trước khi chạy; không có số liệu nào đã được xem)
+
+**Chế độ xu hướng H4**, tại nến tín hiệu:
+- **Giảm**: EMA21, 55, 100 đều dưới EMA200.
+- **Tăng**: cả ba đều trên EMA200.
+- Còn lại là **trung tính**.
+
+**Luật 1 — lệnh ngược xu hướng không giữ lâu.**
+- Lệnh mua khi chế độ giảm, hoặc lệnh bán khi chế độ tăng, luôn quản lý theo **M1**: chốt ở X (RSI H4 về 50 + chạm EMA), không dời SL rồi gồng.
+- Giữ tối đa 12 nến H4.
+- Lý do: giá thường quay về quét đáy (đỉnh) cũ.
+
+**Luật 2 — tín hiệu R, quay về quét đáy cũ** (mua; bán đối xứng):
+- Chế độ giảm, và trong 30 nến H4 sau một tín hiệu mua trước đó (A hoặc R) ở nến k0.
+- Gọi L0 = đáy thấp nhất của nến k0−5..k0. Giá đã quay về quét L0 (đáy ≤ L0) sau k0.
+- Rồi RSI cắt lên RSI-MA **và DMI cùng báo mua**, dù RSI không xuống lại ≤ 30.
+- Với biến thể DMI D1/D2 dùng đúng điều kiện đó; với D0, tín hiệu R vẫn bắt buộc D2 (người dùng yêu cầu cả RSI và DMI đều báo).
+- Cửa sổ vào lệnh như A.
+
+**Luật 3 — tín hiệu B, phá EMA200 rồi đi tiếp:**
+- Nến H4 thứ nhất đóng **trên** EMA200 (nến trước đóng dưới).
+- Lệnh mua được vào trong **nến H4 thứ hai** (cửa sổ 1 nến H4): E0 ở giá mở nến thứ hai; E1/E2 theo tín hiệu M15 trong nến đó.
+- Đối xứng: nến thứ nhất đóng dưới EMA200 thì bán ở nến thứ hai.
+- Sau đó chế độ đổi và phương pháp lặp lại: lệnh theo xu hướng mới quản lý theo M1/M2/M3 của biến thể.
+
+**Tín hiệu A** (quá bán / quá mua) giữ như trên.
+
+**Tổng hợp:**
+- Mỗi biến thể (27 biến thể) gồm cả ba loại tín hiệu A + R + B.
+- Báo cáo thêm theo loại tín hiệu và theo **cùng / ngược xu hướng** (chỉ mô tả).
+- Đối chứng ngẫu nhiên giữ nguyên chiều và cách quản lý của từng lệnh thật, kể cả luật 1.
+- Tiêu chí chọn và test giữ nguyên.
