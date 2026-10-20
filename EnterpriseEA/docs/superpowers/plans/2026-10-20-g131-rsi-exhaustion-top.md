@@ -1,0 +1,97 @@
+# G131: đỉnh/đáy cạn đà sau nhiều lần RSI quá mua/quá bán — kế hoạch đăng ký trước (20/10/2026)
+
+## Mô hình của người dùng (chart H4 vàng, 01–03/2026), viết cho chiều bán
+
+1. RSI H4 quá mua **nhiều lần**, có khi cả RSI-MA cũng vượt 70, nhưng giá vẫn lên.
+2. Ở đỉnh xuất hiện **nến đóng đảo chiều**, rồi **doji**.
+3. Một nến **biên độ lớn** giảm về **chạm EMA21**, RSI cũng đảo chiều.
+4. Vài nến sau giá **test lại**, rồi **đóng nến nhấn chìm giảm** hoặc **cạn volume** thì vào lệnh.
+5. **Swing** tới khi chạm **EMA200 H4** hoặc RSI **quá bán**.
+6. Không dùng DMI.
+
+Chiều mua là đối xứng: quá bán nhiều lần → đáy → nến tăng mạnh về EMA21 → test xuống → nhấn chìm tăng / cạn volume → mua, giữ tới EMA200 hoặc RSI quá mua. Cả hai chiều được báo cáo riêng.
+
+## Dữ liệu và kỳ
+
+- XAUUSD H4 dựng từ M30 theo giờ server (giờ thật từ 03/2018), gồm tick volume.
+- Chỉ báo: RSI14 (Wilder), RSI-MA = SMA14 của RSI, EMA21 và EMA200, ATR14.
+
+| Kỳ | Thời gian |
+|---|---|
+| Train | 03/2018–2021 |
+| Validate | 2022–2025 |
+| 2026 | **không phải test sạch**: các ví dụ dùng để thiết kế nằm trong 01–03/2026 |
+
+- 2026 chỉ dùng sau khi chọn, để xem luật có bắt được các ví dụ của người dùng không, và báo số liệu kèm cảnh báo.
+- **Chi phí khắt khe**: spread nến vào/ra + trượt 0,5 × spread trung vị mỗi chiều + $6/lot.
+
+## Định nghĩa (chiều bán; mua đối xứng)
+
+**Bối cảnh cạn đà**, xét trong 40 nến H4 gần nhất:
+
+| Mã | Điều kiện |
+|---|---|
+| X1 | ≥ 2 lần quá mua: số đợt RSI ≥ 70, mỗi đợt là chuỗi nến liên tiếp RSI ≥ 70 |
+| X2 | ≥ 3 lần quá mua |
+| X3 | RSI-MA đã ≥ 70 ít nhất một nến |
+
+**Hình thành đỉnh** (trong 12 nến sau nến quá mua cuối cùng):
+
+| Mã | Điều kiện |
+|---|---|
+| T1 | một **nến đóng đảo chiều**: nến giảm đóng dưới đáy nến trước, hoặc nhấn chìm giảm (thân nến giảm bao thân nến tăng trước nó) |
+| T2 | như T1, **và** có thêm một **doji** (thân ≤ 25% biên độ) trong 4 nến quanh nến đảo chiều |
+
+**Nến biên độ lớn**, trong 10 nến sau khi hình thành đỉnh:
+- biên độ ≥ 1,5 ATR14;
+- nến giảm, thân ≥ 50%;
+- đáy chạm EMA21 (đáy ≤ EMA21);
+- RSI đã cắt xuống RSI-MA ở nến này hoặc 2 nến trước.
+
+**Test lại và vào lệnh**, trong 6 nến sau nến biên độ lớn:
+- Phải có test lại: một nến có đỉnh ≥ giữa thân nến biên độ lớn.
+- Kích hoạt (ở nến test hoặc sau đó):
+
+| Mã | Kích hoạt |
+|---|---|
+| E1 | **nhấn chìm giảm**: nến giảm, thân bao thân nến tăng trước nó, đóng dưới đáy nến trước |
+| E2 | **cạn volume**: nến giảm có tick volume ≤ 0,7 × trung bình 20 nến trước |
+| E3 | E1 hoặc E2, cái nào đến trước |
+
+- Vào ở giá mở nến H4 kế.
+
+**Quản lý lệnh:**
+- SL = đỉnh cao nhất từ nến biên độ lớn tới lúc vào + 0,1 ATR.
+- **Thoát**:
+  - khi giá chạm **EMA200 H4**: chốt ở mức EMA200 của nến đó;
+  - hoặc khi RSI H4 đóng ≤ 30 (quá bán): chốt ở giá mở nến kế;
+  - hoặc chạm SL;
+  - tối đa 120 nến H4 (20 ngày).
+- **Bỏ lệnh** nếu khoảng tới EMA200 nhỏ hơn 1 lần rủi ro (không đủ chỗ swing).
+- Mỗi chiều một lệnh mỗi lúc.
+
+**Tổng biến thể**: 3 × 2 × 3 = **18**.
+
+## Đối chứng
+
+**Vào ngẫu nhiên công bằng**: mỗi lệnh thật được thay bằng một lệnh cùng chiều, cùng giờ H4 trong ngày, ở một ngày khác cùng kỳ.
+- SL cùng khoảng tính theo ATR.
+- Cùng cách thoát (EMA200 hoặc RSI cực trị hoặc SL).
+- Lặp 200 lần. p = tỷ lệ lần ngẫu nhiên ≥ thật.
+
+## Chọn
+
+Biến thể đạt khi đủ cả ba:
+1. R/lệnh (mua + bán gộp) > 0 ở **cả** train và validate;
+2. ≥ 10 lệnh mỗi kỳ (mô hình hiếm);
+3. p validate < 0,10.
+
+Lấy biến thể có min(train, validate) cao nhất. Báo cáo mua và bán riêng.
+
+**2026**: chạy biến thể được chọn (hoặc X1/T1/E3 nếu không chọn được). Liệt kê lệnh tìm được và đánh dấu những lệnh trùng ví dụ của người dùng:
+- đỉnh cuối 01/2026;
+- đỉnh đầu 03/2026.
+
+## Đầu ra
+
+`research/long/g131_rsi_exhaustion.py`, báo cáo `reports/2026-10-20-g131-rsi-exhaustion-top.md`.
