@@ -16,12 +16,13 @@ def src(rel):
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_inputs_default_off():
+def test_inputs_default_half():
     ea = src("EnterpriseEA.mq5")
-    assert re.search(r"input double InpS07D1CrossWeight\s*=\s*1\.0;", ea)
+    # user-approved 2026-10-21: deployed with the G134 research weight 0.5 (1.0 turns it off)
+    assert re.search(r"input double InpS07D1CrossWeight\s*=\s*0\.5;", ea)
     assert "g_s07_d1_cross_weight=InpS07D1CrossWeight;" in ea
     tester = src("S07Tester.mq5")
-    assert re.search(r"input double InpD1CrossWeight\s*=\s*1\.0;", tester)
+    assert re.search(r"input double InpD1CrossWeight\s*=\s*0\.5;", tester)
 
 
 def test_weight_applies_only_against_the_state_and_only_when_enabled():

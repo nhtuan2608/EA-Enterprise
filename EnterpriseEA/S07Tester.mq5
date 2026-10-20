@@ -33,7 +33,7 @@ input bool   InpAdds              = true;  // Adds (S07A / S07AS)
 input bool   InpSellLocation      = true;  // Sell bases need the L2 location (window high near the H4 EMA200)
 input bool   InpAdxExit           = true;  // Base legs exit on ADX >= 50 turning down
 input double InpUnorderedWeight   = 0.67;  // Base without EMA21>EMA55>EMA100 (mirrored for sells)
-input double InpD1CrossWeight     = 1.0;   // G134: leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off, research 0.5)
+input double InpD1CrossWeight     = 0.5;   // G134: leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off; 0.5 = research G134, user-approved 2026-10-21)
 input double InpAddWeight         = 0.67;  // Adds
 input S07T_EntryTf InpEntryTf     = S07T_ENTRY_M5; // Entry bars of the early / re-entry engines
 input double InpMaxChaseAtr       = 0.5;   // Skip when price ran more than this many ATR past the signal close

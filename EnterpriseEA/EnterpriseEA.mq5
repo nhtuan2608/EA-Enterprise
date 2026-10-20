@@ -91,7 +91,7 @@ enum EEA_S07ReentryModeInput { S07R_OFF=0, S07R_SHADOW=1, S07R_LIVE=2 };
 input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE; // G87 S07R: re-enter within 2h after a closed S07 base when price is back in the setup (G78: negative 2021-2023; LIVE by the user's choice, G88)
 input bool   InpS07AdxExit              = true;  // G87: S07 base legs also exit on ADX >= 50 turning down (G86 X3)
 input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>EMA55>EMA100 at the signal (1.0% of 1.5%)
-input double InpS07D1CrossWeight        = 1.0;   // G134: S07 leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off, research 0.5)
+input double InpS07D1CrossWeight        = 0.5;   // G134: S07 leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off; 0.5 = research G134, user-approved 2026-10-21)
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
 enum EEA_RiskBaseInput { RISK_BASE_INITIAL=0, RISK_BASE_BALANCE=1 };
 input EEA_RiskBaseInput InpRiskBase      = RISK_BASE_INITIAL; // G91: per-trade / open caps on the initial capital (no compounding) or on max(initial, equity) (compounding)
