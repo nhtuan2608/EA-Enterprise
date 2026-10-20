@@ -110,7 +110,9 @@ class BotIntentTests(BotsCase):
         self.feed(msg(1, OP, "tắt VHedge đi nhé"))
         req = self.intent_request()
         self.assertEqual((req["request_type"], req["allowed_actions"]),
-                         ("BOT_INTENT", ["BOT_ENABLE", "BOT_DISABLE", "SESSION_SIGN_24H", "SESSION_SIGN_7D", "SESSION_REVOKE"]))
+                         ("OPERATOR_CHAT", ["REPORT", "WARN", "BOT_ENABLE", "BOT_DISABLE", "SESSION_SIGN_24H",
+                                            "SESSION_SIGN_7D", "SESSION_REVOKE"]))
+        self.assertIn("signals", req["context"]["evidence"])                  # 20/10/2026: answers come from data
         self.assertEqual(req["context"]["operator_message"], "tắt VHedge đi nhé")
         self.assertEqual([b["code"] for b in req["context"]["bots"]], ["S07", "VHEDGE"])
         self.assertEqual(self.bot_commands(), [])                                # nothing until the AI answered
@@ -150,7 +152,7 @@ class BotIntentTests(BotsCase):
         self.gw.run_once(poll_timeout=0)
         self.assertIn("AI lỗi: AI_PROVIDER_TIMEOUT", self.texts()[-1])
         self.feed(msg(2, OP, "tắt s07"))
-        self.clock.t += tg.BOT_INTENT_WAIT + 1
+        self.clock.t += tg.OPERATOR_CHAT_WAIT + 1
         self.gw.run_once(poll_timeout=0)
         self.assertIn("AI chưa trả lời", self.texts()[-1])
         self.assertEqual(self.bot_commands(), [])
