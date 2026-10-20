@@ -117,3 +117,13 @@ G131b vẫn bỏ sót ví dụ 29/01/2026. Nến 29/01 16:00 có biên độ 6 A
 **Sửa duy nhất:** nến biên độ lớn = nến giảm (đóng < mở; mua: đóng > mở) có biên độ ≥ 1,5 ATR, chạm EMA21, RSI dưới RSI-MA. Không xét tỷ lệ thân.
 
 Mọi thứ khác như G131b. **Đây là lần chỉnh cuối**: kết quả G131c được báo cáo nguyên trạng, không chỉnh thêm.
+
+## G131c trên H1 (người dùng hỏi, 20/10/2026, trước khi chạy)
+
+Luật G131c **không đổi**, chỉ đổi khung sang H1 (dựng từ M30):
+- mọi số nến giữ nguyên (40 nến bối cảnh, 12 nến chờ…);
+- RSI, EMA21, EMA200, ATR tính trên H1;
+- thoát ở EMA200 H1 hoặc RSI cực trị bên kia;
+- kỳ, chi phí, đối chứng, tiêu chí chọn như trên.
+
+Chạy một lần, không chỉnh.
