@@ -46,6 +46,7 @@ MAX_REQUEST_BYTES = 50 * 1024
 MAX_STRING = 300
 MAX_DISPLAY_LINES = 8
 MAX_LINE = 110
+MAX_DETAIL = 400                # 19/10/2026: findings and proposals kept whole for Telegram; panel lines stay 110
 
 DEFAULT_CONFIG = {
     "interval_seconds": 10,
@@ -135,11 +136,16 @@ def extract_json(text: str) -> dict:
         raise BridgeError("AI_RESPONSE_NOT_JSON", str(exc)[:120])
 
 
-def clean_line(text: str) -> str:
-    """Display lines go to MT5 labels: one line, no quotes or backslashes."""
+def clean_text(text: str, limit: int) -> str:
+    """One line, no quotes or backslashes (the EA reads the report with a flat field reader)."""
     text = re.sub(r"[\r\n\t]+", " ", str(text))
     text = text.replace('"', "'").replace("\\", "/")
-    return text[:MAX_LINE]
+    return text[:limit]
+
+
+def clean_line(text: str) -> str:
+    """Display lines go to MT5 labels."""
+    return clean_text(text, MAX_LINE)
 
 
 def validate_answer(answer: dict, req: dict) -> dict:
@@ -160,7 +166,7 @@ def validate_answer(answer: dict, req: dict) -> dict:
         if severity not in ("INFO", "WARN"):
             raise BridgeError("AI_RESPONSE_SCHEMA_INVALID", "severity")
         clean_findings.append({"code": clean_line(f.get("code", ""))[:48], "severity": severity,
-                               "detail": clean_line(f.get("detail", "")),
+                               "detail": clean_text(f.get("detail", ""), MAX_DETAIL),
                                "evidence_refs": [clean_line(e)[:80] for e in f.get("evidence_refs", [])[:5]]})
     clean_recs = []
     for r in recs[:8]:
@@ -170,16 +176,16 @@ def validate_answer(answer: dict, req: dict) -> dict:
         if action not in allowed:
             raise BridgeError("AI_ACTION_NOT_ALLOWED", action[:48])
         clean_recs.append({"action": action, "target": clean_line(r.get("target", ""))[:80],
-                           "proposal": clean_line(r.get("proposal", "")),
+                           "proposal": clean_text(r.get("proposal", ""), MAX_DETAIL),
                            "reason_codes": [clean_line(c)[:40] for c in r.get("reason_codes", [])[:5]]})
     confidence = str(answer.get("confidence_label", "LOW")).upper()
     if confidence not in ("LOW", "MEDIUM", "HIGH"):
         confidence = "LOW"
     lines = [clean_line(summary)]
     for f in clean_findings:
-        lines.append(f"[{f['severity']}] {f['detail']}")
+        lines.append(clean_line(f"[{f['severity']}] {f['detail']}"))
     for r in clean_recs:
-        lines.append(f"> {r['target']}: {r['proposal']}")
+        lines.append(clean_line(f"> {r['target']}: {r['proposal']}"))
     actions = {r["action"] for r in clean_recs}
     if "REPORT" in allowed:
         actions.add("REPORT")

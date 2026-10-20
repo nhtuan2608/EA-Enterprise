@@ -21,18 +21,21 @@ class FlashForwardingTests(GatewayCase):
             "recommendations": [{"action": "SCALP_VIEW", "target": "XAUUSD", "proposal": "NÊN SCALP BÁN: -1.4 ATR"},
                                 {"action": "SCALP_VIEW", "target": "EURUSD", "proposal": "CHỜ: spread còn giãn"}]})
         self.gw.run_once(poll_timeout=0)
-        flash = [t for t in self.texts() if t.startswith("Sau tin (AI)")]
+        flash = [t for t in self.texts() if t.startswith("⚡ <b>Sau tin</b> · AI")]
         self.assertEqual(len(flash), 2)                                   # operator and viewer
-        lines = flash[0].splitlines()
-        self.assertEqual(lines[1], "Nhận định scalp (AI, EA không tự vào lệnh):")
-        self.assertEqual(lines[2:4], ["XAUUSD: NÊN SCALP BÁN: -1.4 ATR", "EURUSD: CHỜ: spread còn giãn"])
-        self.assertIn("[WARN] spread còn giãn", flash[0])
+        self.assertTrue(all(m["parse_mode"] == "HTML" for m in self.api.sent if m["text"] in flash))
+        text = flash[0]
+        scalp = text.index("🎯 <b>Nhận định scalp</b> <i>(EA không tự vào lệnh)</i>")
+        self.assertLess(scalp, text.index("📝 <b>Tóm tắt</b>"))         # the scalp view comes first
+        self.assertIn("🔴 <b>XAUUSD</b> · <b>NÊN SCALP BÁN</b>\n      <i>-1.4 ATR</i>", text)
+        self.assertIn("🟡 <b>EURUSD</b> · <b>CHỜ</b>\n      <i>spread còn giãn</i>", text)
+        self.assertIn("⚠️ <b>Cần chú ý</b>\n• spread còn giãn", text)
 
     def test_four_hour_review_is_forwarded_and_both_can_be_muted(self):
         self.gw.run_once(poll_timeout=0)
         self.write("ai/reports/NEWS_EVENT_REVIEW.json", {"status": "OK", "request_id": "eea-1-1", "summary": "đủ 240 phút"})
         self.gw.run_once(poll_timeout=0)
-        self.assertEqual(sum(t.startswith("Đánh giá sau tin (đủ 4 giờ) (AI)") for t in self.texts()), 2)
+        self.assertEqual(sum(t.startswith("🕓 <b>Đánh giá sau tin (đủ 4 giờ)</b> · AI") for t in self.texts()), 2)
         self.config["notify"].update(post_news=False, post_news_review=False)
         sent = len(self.texts())
         self.write("ai/reports/NEWS_EVENT_REVIEW.json", {"status": "OK", "request_id": "eea-1-2", "summary": "x"})

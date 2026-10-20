@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot_journal  # noqa: E402  (bridge/bot_journal.py, shared with the MCP server)
+import report_layout  # noqa: E402  (19/10/2026: Telegram HTML layout of the AI reports)
 
 VERSION = "telegram-gateway-v1.0.0"
 COMMAND_SCHEMA = "remote-command-v1.0.0"
@@ -223,13 +224,15 @@ class Gateway:
         return self.state["sequence"]
 
     # -- sending ------------------------------------------------------------
-    def send(self, chat_id: int, text: str, reply_to: int | None = None):
-        self.state["outbox"].append({"chat_id": int(chat_id), "text": clip(redact(text, self.token)),
+    def send(self, chat_id: int, text: str, reply_to: int | None = None, html: bool = False):
+        # HTML messages are built within the limit by report_layout; clipping could cut a tag.
+        text = redact(text, self.token).replace("<token>", "[token]") if html else clip(redact(text, self.token))
+        self.state["outbox"].append({"chat_id": int(chat_id), "text": text, "html": html,
                                      "reply_to": reply_to, "attempts": 0, "next_at": 0})
 
-    def broadcast(self, text: str):
+    def broadcast(self, text: str, html: bool = False):
         for chat in sorted(self.operators | self.viewers):
-            self.send(chat, text)
+            self.send(chat, text, html=html)
 
     def flush(self):
         keep = []
@@ -238,6 +241,8 @@ class Gateway:
                 keep.append(m)
                 continue
             params = {"chat_id": m["chat_id"], "text": m["text"], "disable_web_page_preview": True}
+            if m.get("html"):
+                params["parse_mode"] = "HTML"
             if m.get("reply_to"):
                 params["reply_to_message_id"] = m["reply_to"]
                 params["allow_sending_without_reply"] = True
@@ -245,6 +250,12 @@ class Gateway:
                 self.api.call("sendMessage", params, timeout=20)
                 self.log("TELEGRAM_DELIVERED", chat_id=m["chat_id"])
             except ConnectionError as exc:
+                if m.get("html") and "parse entities" in str(exc):
+                    # Telegram rejected the markup: send the same text without tags at once.
+                    m["html"], m["text"] = False, clip(report_layout.plain_text(m["text"]))
+                    self.log("HTML_REJECTED", chat_id=m["chat_id"], detail=redact(exc, self.token)[:200])
+                    keep.append(m)
+                    continue
                 m["attempts"] += 1
                 if m["attempts"] >= SEND_ATTEMPTS:
                     self.log("DELIVERY_FAILED", chat_id=m["chat_id"], detail=redact(exc, self.token)[:200])
@@ -1131,14 +1142,8 @@ class Gateway:
             flag = REPORT_FLAGS.get(kind)
             if flag and not self.config["notify"].get(flag, True):
                 continue
-            recs = rep.get("recommendations", [])
-            scalp = [f"{r.get('target')}: {r.get('proposal')}" for r in recs if r.get("action") == "SCALP_VIEW"]
-            lines = ([str(rep.get("summary", ""))] + [f"[{f.get('severity')}] {f.get('detail')}"
-                                                      for f in rep.get("findings", [])[:6]] +
-                     [f"> {r.get('target')}: {r.get('proposal')}" for r in recs[:4] if r.get("action") != "SCALP_VIEW"])
-            if scalp:   # the operator reads the scalp view first; the EA never trades on it
-                lines = ["Nhận định scalp (AI, EA không tự vào lệnh):"] + scalp + [""] + lines
-            self.broadcast(f"{title} (AI):\n" + "\n".join(lines))
+            # The scalp view comes first; the EA never trades on it (report_layout).
+            self.broadcast(report_layout.format_report(kind, title, rep, MAX_MESSAGE), html=True)
 
     def notify_news(self):
         if not self.config["notify"].get("news"):
