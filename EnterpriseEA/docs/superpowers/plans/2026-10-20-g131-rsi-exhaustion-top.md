@@ -109,3 +109,11 @@ Lấy biến thể có min(train, validate) cao nhất. Báo cáo mua và bán r
 Kỳ, chi phí, đối chứng, tiêu chí chọn, 18 biến thể: **không đổi**. Kết quả bản đầu vẫn để nguyên trong báo cáo.
 
 Năm 2026 vẫn chỉ để xem luật có bắt được ví dụ không. Kết quả 2018–2025 của bản đầu đã được nhìn thấy trước khi nới, nên kết quả của G131b phải đọc thận trọng.
+
+## G131c — chỉnh lần cuối (20/10/2026, sau G131b)
+
+G131b vẫn bỏ sót ví dụ 29/01/2026. Nến 29/01 16:00 có biên độ 6 ATR nhưng thân chỉ 39% (râu dưới dài). Điều kiện "thân ≥ 50%" là tác giả tự thêm; người dùng chỉ nói "range tăng rõ rệt".
+
+**Sửa duy nhất:** nến biên độ lớn = nến giảm (đóng < mở; mua: đóng > mở) có biên độ ≥ 1,5 ATR, chạm EMA21, RSI dưới RSI-MA. Không xét tỷ lệ thân.
+
+Mọi thứ khác như G131b. **Đây là lần chỉnh cuối**: kết quả G131c được báo cáo nguyên trạng, không chỉnh thêm.
