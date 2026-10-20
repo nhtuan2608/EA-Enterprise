@@ -11,7 +11,7 @@ import re
 import time
 
 KIND_ICON = {"EA_DIAGNOSTICS": "🩺", "NEWS_DATA_REVIEW": "📊", "NEWS_PRE_BRIEF": "⏰",
-             "NEWS_FLASH": "⚡", "NEWS_EVENT_REVIEW": "🕓"}
+             "NEWS_FLASH": "⚡", "NEWS_EVENT_REVIEW": "🕓", "OPERATOR_CHAT": "💬", "ASK_AI": "💬"}
 CONFIDENCE = {"LOW": "thấp", "MEDIUM": "trung bình", "HIGH": "cao"}
 SCALP_ICON = (("NÊN SCALP MUA", "🟢"), ("NÊN SCALP BÁN", "🔴"), ("KHÔNG NÊN", "⚪"), ("CHỜ", "🟡"))
 ACTION_LABEL = {"RECOMMEND_WINDOW_CHANGE": "đổi khoảng chặn", "RECOMMEND_REVIEW": "xem lại", "REPORT": "ghi nhận",

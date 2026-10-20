@@ -27,12 +27,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot_journal  # noqa: E402  (bridge/bot_journal.py, shared with the MCP server)
 import report_layout  # noqa: E402  (19/10/2026: Telegram HTML layout of the AI reports)
+import operator_evidence  # noqa: E402  (20/10/2026: read-only evidence for free-text questions)
 
 VERSION = "telegram-gateway-v1.0.0"
 COMMAND_SCHEMA = "remote-command-v1.0.0"
 BOT_COMMAND_SCHEMA = "bot-command-v1.0.0"     # bots host (16/10/2026): per-bot Active flags
-BOT_INTENT_DEADLINE = 120       # AI bridge deadline for a natural-language bot switch
-BOT_INTENT_WAIT = 180
+# 20/10/2026: any free-text message goes to the AI with the evidence of the last hours; the AI answers
+# the question or proposes one bot / session command (still through /confirm where it applies).
+OPERATOR_CHAT_DEADLINE = 240
+OPERATOR_CHAT_WAIT = 300
+OPERATOR_CHAT_HOURS = 24
 AI_SCHEMA = "1.0"
 COMMAND_TTL = 60                # seconds a /pause or /confirm command stays valid for the EA
 RESUME_TTL = 120                # REQUEST_RESUME command and nonce lifetime (EA max 120 s)
@@ -536,7 +540,8 @@ class Gateway:
 
     def cmd_bot_intent(self, uid: int, mid, text: str, update_id: int):
         if not self.rate_ok(uid, "ask", self.config["asks_per_hour"], 3600):
-            self.send(uid, "Đã đủ số câu hỏi AI trong 1 giờ. Dùng /bot on|off <tên> để bật/tắt bot.", mid)
+            self.send(uid, "Đã đủ số câu hỏi AI trong 1 giờ. Thử lại sau, hoặc dùng /today, /botlog, /trades, "
+                           "/bot on|off <tên>.", mid)
             return
         status = self.bots_status()
         bots = [{"code": b.get("code"), "title": b.get("title"), "active": b.get("active")}
@@ -544,17 +549,18 @@ class Gateway:
         seq = self.next_sequence()
         request_id = f"tgi-{seq:06d}-{secrets.token_hex(4)}"
         t = self.clock()
-        req = {"schema_version": AI_SCHEMA, "request_id": request_id, "request_type": "BOT_INTENT",
-               "created_at_utc": t, "deadline_utc": t + BOT_INTENT_DEADLINE, "provider": self.config["ai_provider"],
-               "allowed_actions": BOT_INTENT_ACTIONS + SESSION_INTENT_ACTIONS,
+        req = {"schema_version": AI_SCHEMA, "request_id": request_id, "request_type": "OPERATOR_CHAT",
+               "created_at_utc": t, "deadline_utc": t + OPERATOR_CHAT_DEADLINE, "provider": self.config["ai_provider"],
+               "allowed_actions": ["REPORT", "WARN"] + BOT_INTENT_ACTIONS + SESSION_INTENT_ACTIONS,
                "context": {"operator_message": text[:MAX_QUESTION], "bots": bots,
                            "live_session": self.session_text(), "source": "TELEGRAM",
-                           "telegram_update_id": update_id}}
+                           "telegram_update_id": update_id,
+                           "evidence": operator_evidence.collect(self.root, t, OPERATOR_CHAT_HOURS)}}
         write_atomic(self.root / "ai" / "requests" / f"{request_id}.json", req)
         self.state["pending_intents"][request_id] = {"chat_id": uid, "reply_to": mid, "issued": t,
                                                      "update_id": update_id}
-        self.log("QUEUED", request_id=request_id, request_type="BOT_INTENT")
-        self.send(uid, "Đang nhờ AI hiểu yêu cầu...", mid)
+        self.log("QUEUED", request_id=request_id, request_type="OPERATOR_CHAT")
+        self.send(uid, "Đang nhờ AI đọc câu hỏi và dữ liệu 24 giờ qua...", mid)
 
     def poll_intents(self):
         responses = self.root / "ai" / "responses"
@@ -577,10 +583,13 @@ class Gateway:
                 elif action == "SESSION_REVOKE":
                     self.send(p["chat_id"], "AI hiểu là: THU HỒI phiên live", p["reply_to"])
                     self.write_command("REVOKE_SESSION", p["chat_id"], p["reply_to"], p["update_id"])
-                elif not bot:
-                    self.send(p["chat_id"], "AI không thấy yêu cầu bật/tắt bot hay cấp/thu hồi phiên rõ ràng, "
-                                            "không gửi lệnh nào.\n"
-                                            f"{res.get('summary', '')}".strip(), p["reply_to"])
+                elif len(recs) > 1 or (action in BOT_INTENT_ACTIONS and not bot):
+                    self.send(p["chat_id"], "AI thấy nhiều yêu cầu cùng lúc hoặc không rõ bot nào, không gửi lệnh nào. "
+                                            "Nhắn từng yêu cầu một, hoặc dùng /bot on|off <tên>.", p["reply_to"])
+                elif not action:
+                    # A question: the AI's answer from the evidence, as a report.
+                    self.send(p["chat_id"], report_layout.format_report("OPERATOR_CHAT", "Trả lời", res, MAX_MESSAGE),
+                              p["reply_to"], html=True)
                 else:
                     on = recs[0]["action"] == "BOT_ENABLE"
                     self.send(p["chat_id"], f"AI hiểu là: {'BẬT' if on else 'TẮT'} {self.BOT_TITLES.get(bot, bot)}"
@@ -592,8 +601,9 @@ class Gateway:
                 except OSError:
                     pass
                 del self.state["pending_intents"][request_id]
-            elif self.clock() - p["issued"] > BOT_INTENT_WAIT:
-                self.send(p["chat_id"], "AI chưa trả lời (timeout). Dùng /bot on|off <tên>.", p["reply_to"])
+            elif self.clock() - p["issued"] > OPERATOR_CHAT_WAIT:
+                self.send(p["chat_id"], "AI chưa trả lời (timeout). Thử lại sau, hoặc dùng /today, /botlog, /trades.",
+                          p["reply_to"])
                 self.log("AI_TIMEOUT", request_id=request_id)
                 del self.state["pending_intents"][request_id]
 
@@ -662,7 +672,8 @@ class Gateway:
                "created_at_utc": t, "deadline_utc": t + ASK_DEADLINE, "provider": self.config["ai_provider"],
                "allowed_actions": ["REPORT", "WARN"],
                "context": {"operator_question": question[:MAX_QUESTION], "source": "TELEGRAM",
-                           "telegram_update_id": update_id, "snapshot": self.status_data()}}
+                           "telegram_update_id": update_id, "snapshot": self.status_data(),
+                           "evidence": operator_evidence.collect(self.root, t, OPERATOR_CHAT_HOURS)}}
         write_atomic(self.root / "ai" / "requests" / f"{request_id}.json", req)
         self.state["pending_asks"][request_id] = {"chat_id": uid, "reply_to": mid, "issued": t}
         self.log("QUEUED", request_id=request_id, request_type="ASK_AI")
@@ -674,15 +685,13 @@ class Gateway:
             path = responses / f"{request_id}.json"
             res = read_json(path)
             if isinstance(res, dict):
-                if res.get("status") == "OK":
-                    lines = [str(res.get("summary", ""))]
-                    lines += [f"[{f.get('severity')}] {f.get('detail')}" for f in res.get("findings", [])]
-                    lines += [f"> {r.get('target')}: {r.get('proposal')}" for r in res.get("recommendations", [])]
-                    text = "AI (chỉ để tham khảo, không phải lệnh):\n" + "\n".join(l for l in lines if l)
-                else:
-                    text = f"AI lỗi: {res.get('error', 'UNKNOWN')} {res.get('error_detail', '')}".strip()
                 # TC-TG-04: whatever the answer says, it is only text; nothing is queued for the EA.
-                self.send(p["chat_id"], text, p["reply_to"])
+                if res.get("status") == "OK":
+                    self.send(p["chat_id"], report_layout.format_report("ASK_AI", "Trả lời", res, MAX_MESSAGE),
+                              p["reply_to"], html=True)
+                else:
+                    self.send(p["chat_id"], f"AI lỗi: {res.get('error', 'UNKNOWN')} {res.get('error_detail', '')}".strip(),
+                              p["reply_to"])
                 self.log("AI_COMPLETED", request_id=request_id, status=res.get("status"))
                 try:
                     path.unlink()
