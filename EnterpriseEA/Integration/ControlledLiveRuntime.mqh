@@ -637,6 +637,9 @@ bool EEA_ControlledLiveResolveV1Plan(const EEA_StrategyCandidateRuntime &strateg
    // G87: an S07-family base without the ordered-ribbon label ("_RB3") takes the reduced weight.
    if(EEA_S07IsBaseSetup(strategy.setup[index]) && StringFind(engine.candidate.reason_code,"_RB3")<0)
       weight*=MathMax(0.0,MathMin(1.0,g_s07_unordered_weight));
+   // G133/G134: an S07-family leg against the D1 golden / death cross state takes the reduced weight.
+   if(s07 && g_s07_d1_cross_weight<1.0 && EEA_S07D1CrossState(symbol.broker_symbol)==-direction)
+      weight*=MathMax(0.0,MathMin(1.0,g_s07_d1_cross_weight));
    p.base_risk_fraction=limits.per_trade_fraction*htf*weight;
    const double capital=EEA_RiskCapitalBasis(ledger.initial_capital,observer.account.equity);   // G91
    p.per_trade_cap_money=MathMin(limits.per_trade_fraction*weight*capital,loss_room);

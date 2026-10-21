@@ -84,8 +84,22 @@ double g_risk_weight_s06b=1.0;
 double g_risk_weight_t2=1.0;
 double g_risk_weight_s07a=1.0;          // G87: S07A adds (research G86: 1.0% of the 1.5% base risk)
 double g_s07_unordered_weight=1.0;      // G87: S07 base without the ordered-ribbon label
+double g_s07_d1_cross_weight=1.0;       // G133/G134: S07 leg against the D1 SMA50/SMA200 state (1.0 = off)
+
+// G133/G134: +1 golden (SMA50 > SMA200), -1 death, 0 unknown, from the last 200 CLOSED D1 bars of the symbol.
+int EEA_S07D1CrossState(const string symbol)
+  {
+   double c[];
+   ArraySetAsSeries(c,false);
+   if(CopyClose(symbol,PERIOD_D1,1,200,c)<200) return 0;
+   double s50=0.0, s200=0.0;
+   for(int i=0;i<200;i++) { s200+=c[i]; if(i>=150) s50+=c[i]; }
+   s50/=50.0; s200/=200.0;
+   return s50>s200 ? 1 : (s50<s200 ? -1 : 0);
+  }
 // 20/10/2026 (operator request, no research behind it): an S07AS sell add may enter without an open
-// S07S base on H1/H4 with the ordered ribbon and sentiment not against, at this share of the base risk.
+// S07S base on H1/H4 with the ordered ribbon, with the D1 golden/death cross state (G134/G135: legs
+// against it lose) and sentiment not against, at this share of the base risk.
 bool   g_s07as_standalone=false;
 double g_s07as_standalone_weight=0.5;
 // G91: risk basis. false = initial capital (per-trade / open / currency caps never grow: no compounding);

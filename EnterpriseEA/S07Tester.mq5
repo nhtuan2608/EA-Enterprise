@@ -33,6 +33,7 @@ input bool   InpAdds              = true;  // Adds (S07A / S07AS)
 input bool   InpSellLocation      = true;  // Sell bases need the L2 location (window high near the H4 EMA200)
 input bool   InpAdxExit           = true;  // Base legs exit on ADX >= 50 turning down
 input double InpUnorderedWeight   = 0.67;  // Base without EMA21>EMA55>EMA100 (mirrored for sells)
+input double InpD1CrossWeight     = 0.5;   // G134: leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off; 0.5 = research G134, user-approved 2026-10-21)
 input double InpAddWeight         = 0.67;  // Adds
 input S07T_EntryTf InpEntryTf     = S07T_ENTRY_M5; // Entry bars of the early / re-entry engines
 input double InpMaxChaseAtr       = 0.5;   // Skip when price ran more than this many ATR past the signal close
@@ -105,6 +106,7 @@ datetime   g_skip_time=0;               // last signal that did not become a tra
 string     g_skip_what="", g_skip_why="";
 double     g_initial_capital=0.0;
 int        g_block_opposite=0, g_block_spread=0, g_block_news=0, g_block_sent=0, g_sent_reduced=0, g_news_be=0;
+int        g_d1_reduced=0;               // G134: legs reduced for being against the D1 golden/death cross state
 
 // --- G91 News Guard (Market/News*.mqh rules for a SWING trade on XAUUSD: currencies "USD") --------------
 long   g_news_t[];
@@ -257,6 +259,18 @@ double SentimentFactor(const int dir,const long now)
   }
 
 // Median spread of the last 288 closed M5 bars in points (EEA_MedianSpreadPoints of the live EA).
+// G134: +1 golden (SMA50 > SMA200 of the last 200 closed D1 bars), -1 death, 0 unknown.
+int D1CrossState()
+  {
+   double c[];
+   ArraySetAsSeries(c,false);
+   if(CopyClose(_Symbol,PERIOD_D1,1,200,c)<200) return 0;
+   double s50=0.0, s200=0.0;
+   for(int i=0;i<200;i++) { s200+=c[i]; if(i>=150) s50+=c[i]; }
+   s50/=50.0; s200/=200.0;
+   return s50>s200 ? 1 : (s50<s200 ? -1 : 0);
+  }
+
 double MedianSpreadPoints()
   {
    MqlRates r[];
@@ -443,6 +457,7 @@ bool TryEnter(const string setup,const string tfname,const int dir,const bool ba
      }
    const double target=price+dir*EEA_S07_TARGET_R*dist;
    double weight=(base ? (ordered ? 1.0 : InpUnorderedWeight) : InpAddWeight)*sent;
+   if(InpD1CrossWeight<1.0 && D1CrossState()==-dir) { weight*=MathMax(0.0,InpD1CrossWeight); g_d1_reduced++; }   // G134
    if(sent<1.0) g_sent_reduced++;
    const double vol=VolumeFor(dir,price,stop,weight);
    if(vol<=0.0 || g_nlegs>=S07T_MAX_LEGS) return Skip(setup+" "+tfname+" "+(dir==1 ? "MUA" : "BÁN"),vol<=0.0 ? "khối lượng dưới mức tối thiểu" : "hết chỗ lưu lệnh");
@@ -760,6 +775,7 @@ void OnDeinit(const int reason)
    if(g_too_small>0) PrintFormat("S07Tester: %d entries skipped, volume below the minimum (see the first message)",g_too_small);
    PrintFormat("S07Tester: blocked by an open opposite side %d, spread %d, news %d, sentiment %d; sentiment-reduced entries %d; news break-evens %d",
                g_block_opposite,g_block_spread,g_block_news,g_block_sent,g_sent_reduced,g_news_be);
+   if(InpD1CrossWeight<1.0) PrintFormat("S07Tester: %d legs against the D1 golden/death cross state at weight %.2f",g_d1_reduced,InpD1CrossWeight);
   }
 
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
