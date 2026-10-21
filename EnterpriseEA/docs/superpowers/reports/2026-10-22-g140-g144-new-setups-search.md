@@ -10,6 +10,7 @@ Mục tiêu người dùng đặt: thêm 1–2 setup (hoặc nâng cấp bot) c�
 | G142 | [plan](../plans/2026-10-22-g142-s07-d1-swing.md) | S07 trên nến D1, 2011–2026 | swing | **KHÔNG ĐẠT** |
 | G143 | [plan](../plans/2026-10-22-g143-session-momentum.md) | động lượng giờ đầu phiên New York / London | scalp / trong ngày | **KHÔNG ĐẠT** |
 | G144 | [plan](../plans/2026-10-22-g144-ny-momentum-holdout.md) | G143 NY, nguyên văn, trên 03/2018–07/2021 chưa nhìn | scalp / trong ngày | **KHÔNG ĐẠT** |
+| G145 | [plan](../plans/2026-10-22-g145-vhedge-silver.md) | bot VHedge G119 live, nguyên văn, trên bạc M5 | nâng cấp bot scalp | **KHÔNG ĐẠT** (vàng 2026 ngoài mẫu vẫn dương) |
 
 ## Phát hiện dữ liệu quan trọng (G140)
 
@@ -73,6 +74,24 @@ toàn lệnh mua. Lại cùng một hình ảnh: lợi thế bám theo chu kỳ 
 - p đối chứng ngoài mẫu 0,88. **KHÔNG ĐẠT.**
 - Bản M30 cho lại đúng số của G143 (M15) trên 07/2021+, nên code nhất quán. Động lượng phiên NY chỉ là hiện tượng của 2021–2023.
 - Theo năm: 2018–2020 âm, 2021–2023 dương, 2024–2026 quanh 0.
+
+## G145 — bot VHedge G119 (luật live) trên bạc M5
+
+[Kế hoạch](../plans/2026-10-22-g145-vhedge-silver.md). Script `research/long/g145_vhedge_silver.py`. Nến M5 đọc từ terminal (chỉ
+đọc), 26/05/2025 → 21/10/2026. Ngưỡng số cố định của bot (EMA bó ≤ 0,91 ATR; volume V ≥ 1,26× hoặc quay về ≥ 1,17×; stop 1,5 ATR; 5R;
+hòa vốn +1R).
+
+| | Nhóm | U/nhóm | Nửa đầu / nửa sau | Phí × 1,5 | Bỏ 2 nhóm lớn nhất | p đối chứng |
+|---|---|---|---|---|---|---|
+| **XAGUSD (quyết định)** | 212 | **−0,201** | −0,517 / +0,203 | −0,414 | −0,292 | 0,90 |
+| XAUUSD cùng khoảng (so sánh) | 182 | **+0,435** | +0,342 / +0,540 | +0,453 | +0,388 | — |
+
+**KHÔNG ĐẠT** trên bạc. Spread bạc tính theo giá lớn hơn vàng khoảng 8 lần (0,036 trên giá ~60 so với 0,27 trên giá ~4.000), nên chi
+phí ăn hết phần lợi thế. Không đề xuất chạy VHedge trên bạc.
+
+**Xác nhận cho bot đang chạy** (không phải phép thử mới): G119 được chọn trên vàng 05/2024–12/2025. Theo quý 2026 trên vàng (ngoài
+mẫu): Q1 29 / +0,434, Q2 40 / +0,379, Q3 13 / +1,403, Q4 (đến 21/10) 7 / +0,056U. Bot VHedge vàng **giữ được lợi thế ngoài mẫu
+khoảng 10 tháng**, kể cả khi bỏ 2 nhóm lớn nhất. Đây là bằng chứng tốt nhất hiện có để tiếp tục chạy nó, không phải setup mới.
 
 ## Kết luận chung
 
