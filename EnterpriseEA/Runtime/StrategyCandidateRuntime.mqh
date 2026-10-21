@@ -812,7 +812,8 @@ bool EEA_StrategyRuntimeScanS07Engine(EEA_StrategyCandidateRuntime &runtime,cons
       EEA_S02Event event;
       if(!EEA_S07ProcessClosedBar(engine,setup,bar,d,anchor,runtime.profile_config[index],event))
         { runtime.scan_reason[index]=event.reason_code; ok=false; break; }
-      if((setup=="S07" || setup=="S07S") && d!=0)
+      // S07AS carries the label too: a standalone sell add (no base open) needs the ordered ribbon.
+      if((setup=="S07" || setup=="S07S" || setup=="S07AS") && d!=0)
          EEA_S07MarkOrdered(engine,d==1 ? (e21[b]>e55[b] && e55[b]>e100[b] && rates[b].close>e21[b])
                                         : (e21[b]<e55[b] && e55[b]<e100[b] && rates[b].close<e21[b]));
       runtime.scan_reason[index]=event.reason_code;

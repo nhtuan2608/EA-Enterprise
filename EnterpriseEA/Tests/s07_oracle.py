@@ -90,12 +90,23 @@ def plan(entry, anchor, d, atr):
     return {"stop": stop, "target": entry + d * TARGET_R * dist, "risk": dist}
 
 
-def add_allowed(legs_open, base_open, base_in_profit, adds_done, seconds_since_last_leg):
-    """Mirror of EEA_S07EntryAllowed for an S07A add."""
+def add_allowed(legs_open, base_open, base_in_profit, adds_done, seconds_since_last_leg,
+                setup="S07A", standalone=False, timeframe="M15", ordered=False, d1_state=0, direction=-1):
+    """Mirror of EEA_S07EntryAllowed for an S07A / S07AS add (standalone: InpS07AsStandalone, 20/10/2026)."""
     if legs_open >= MAX_OPEN_LEGS:
         return "S07_MAX_OPEN_LEGS"
     if not base_open:
-        return "S07A_NO_OPEN_BASE"
+        if setup != "S07AS" or not standalone:
+            return "S07A_NO_OPEN_BASE"
+        if timeframe not in ("H1", "H4"):
+            return "S07AS_STANDALONE_TIMEFRAME"
+        if not ordered:
+            return "S07AS_STANDALONE_RIBBON_NOT_ORDERED"
+        if d1_state != direction:
+            return "S07AS_STANDALONE_AGAINST_D1"
+        if legs_open > 0:
+            return "S07AS_STANDALONE_LEG_OPEN"
+        return "S07AS_STANDALONE_ALLOWED"
     if adds_done >= MAX_ADDS:
         return "S07A_MAX_ADDS"
     if seconds_since_last_leg < ADD_SPACING:

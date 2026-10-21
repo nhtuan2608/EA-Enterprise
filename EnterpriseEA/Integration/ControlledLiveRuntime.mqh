@@ -1010,6 +1010,18 @@ bool EEA_ControlledLiveApplySentiment(const EEA_SentimentRuntime &sentiment,cons
    return true;
   }
 
+// InpS07AsStandalone: a standalone S07AS needs sentiment that does not reduce it, and takes
+// g_s07as_standalone_weight of the base risk. SL and TP stay the S07 rule.
+bool EEA_ControlledLiveApplyS07AsStandalone(const bool standalone,const EEA_SentAlignment &alignment,
+                                            EEA_ControlledLiveTradePlan &plan,string &reason)
+  {
+   if(!standalone) return true;
+   if(alignment.ok && alignment.factor<1.0) { reason="S07AS_STANDALONE_SENTIMENT_AGAINST"; return false; }
+   plan.base_risk_fraction*=g_s07as_standalone_weight;
+   plan.per_trade_cap_money*=g_s07as_standalone_weight;
+   return true;
+  }
+
 // D4 (G9): never two opposite EA exposures on one symbol, whichever setup came first.
 bool EEA_ControlledLiveOppositeActive(const EEA_TradeManagerRuntime &trades,const EEA_PendingRuntime &pending,
                                       const string canonical,const int direction)
@@ -1080,7 +1092,8 @@ void EEA_S07AddState(const EEA_ManagedTrade &base,int &count,long &last_utc)
 //   add S07A: an open S07 base in profit now, fewer than EEA_S07_MAX_ADDS adds for that base, at least
 //   EEA_S07_ADD_SPACING_SECONDS after the previous leg, fewer than EEA_S07_MAX_OPEN_LEGS legs open.
 bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setup,const string canonical,
-                         const string broker_symbol,const int direction,string &reason)
+                         const string broker_symbol,const int direction,const string timeframe,
+                         const string candidate_reason,string &reason)
   {
    // Bots host: S07 Inactive (panel Settings > Bots or Telegram) blocks new S07-family entries only.
    if(!EEA_BotS07EntriesAllowed()) { reason="S07_BOT_INACTIVE"; return false; }
@@ -1092,7 +1105,18 @@ bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setu
       reason="S07_BASE_ALLOWED";
       return true;
      }
-   if(b<0 || trades.items[b].position_id=="") { reason="S07A_NO_OPEN_BASE"; return false; }
+   if(b<0 || trades.items[b].position_id=="")
+     {
+      // InpS07AsStandalone: a sell add without a base, on the stricter conditions, alone on its side.
+      if(setup!="S07AS" || !g_s07as_standalone || b>=0) { reason="S07A_NO_OPEN_BASE"; return false; }
+      if(timeframe!="H1" && timeframe!="H4") { reason="S07AS_STANDALONE_TIMEFRAME"; return false; }
+      if(StringFind(candidate_reason,"_RB3")<0) { reason="S07AS_STANDALONE_RIBBON_NOT_ORDERED"; return false; }
+      // G134/G135: legs against the D1 golden / death cross state lose, so a standalone add needs it (unknown = no).
+      if(EEA_S07D1CrossState(broker_symbol)!=direction) { reason="S07AS_STANDALONE_AGAINST_D1"; return false; }
+      if(EEA_S07OpenLegs(trades,canonical,direction)>0) { reason="S07AS_STANDALONE_LEG_OPEN"; return false; }
+      reason="S07AS_STANDALONE_ALLOWED";
+      return true;
+     }
    const EEA_ManagedTrade base=trades.items[b];
    if(base.exit_request!="") { reason="S07A_BASE_EXITING"; return false; }
    int count=0; long last=0;
@@ -1284,13 +1308,16 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
       if(strategy.zone_mode &&
          EEA_ControlledLiveOppositeActive(trades,pending,strategy.engines[i].canonical_symbol,strategy.engines[i].direction))
         { state.last_reason="OPPOSITE_SETUP_ACTIVE"; continue; }
+      bool s07as_standalone=false;
       if(EEA_StrategyRuntimeIsS07(strategy.setup[i]))
         {
          // G72: S07 legs stack by their own rule (one base, up to two adds, three legs open).
          string gate;
          if(!EEA_S07EntryAllowed(trades,strategy.setup[i],strategy.engines[i].canonical_symbol,observer.broker_symbols[row],
-                                 strategy.engines[i].direction,gate))
+                                 strategy.engines[i].direction,strategy.engines[i].timeframe,
+                                 strategy.engines[i].candidate.reason_code,gate))
            { state.last_reason=gate; continue; }
+         s07as_standalone=(gate=="S07AS_STANDALONE_ALLOWED");
         }
       else if(strategy.zone_mode &&
          EEA_ControlledLiveSameSideActive(trades,pending,strategy.engines[i].canonical_symbol,
@@ -1376,6 +1403,7 @@ bool EEA_ControlledLiveOnTimer(EEA_ControlledLiveRuntimeState &state,
                        EEA_ControlledLiveApplyNewsRisk(news,strategy.engines[i].canonical_symbol,news_profile,
                                                        plan,reason) &&
                        EEA_ControlledLiveApplySentiment(sentiment,news,strategy,i,plan,alignment,reason) &&
+                       EEA_ControlledLiveApplyS07AsStandalone(s07as_standalone,alignment,plan,reason) &&
                        EEA_ControlledLiveApplyStackRisk(trades,pending,strategy,i,config.scalp_risk_with_swing_same_side,
                                                         plan,reason) &&
                        EEA_ControlledLiveBuildRiskContextPlan(config,plan,observer,strategy.engines[i],

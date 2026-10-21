@@ -97,6 +97,11 @@ int EEA_S07D1CrossState(const string symbol)
    s50/=50.0; s200/=200.0;
    return s50>s200 ? 1 : (s50<s200 ? -1 : 0);
   }
+// 20/10/2026 (operator request, no research behind it): an S07AS sell add may enter without an open
+// S07S base on H1/H4 with the ordered ribbon, with the D1 golden/death cross state (G134/G135: legs
+// against it lose) and sentiment not against, at this share of the base risk.
+bool   g_s07as_standalone=false;
+double g_s07as_standalone_weight=0.5;
 // G91: risk basis. false = initial capital (per-trade / open / currency caps never grow: no compounding);
 // true = max(initial capital, equity): the caps grow with the account (compounding). The loss floors
 // (daily, weekly, overall) stay on the initial capital either way.
