@@ -1111,6 +1111,8 @@ bool EEA_S07EntryAllowed(const EEA_TradeManagerRuntime &trades,const string setu
       if(setup!="S07AS" || !g_s07as_standalone || b>=0) { reason="S07A_NO_OPEN_BASE"; return false; }
       if(timeframe!="H1" && timeframe!="H4") { reason="S07AS_STANDALONE_TIMEFRAME"; return false; }
       if(StringFind(candidate_reason,"_RB3")<0) { reason="S07AS_STANDALONE_RIBBON_NOT_ORDERED"; return false; }
+      // G134/G135: legs against the D1 golden / death cross state lose, so a standalone add needs it (unknown = no).
+      if(EEA_S07D1CrossState(broker_symbol)!=direction) { reason="S07AS_STANDALONE_AGAINST_D1"; return false; }
       if(EEA_S07OpenLegs(trades,canonical,direction)>0) { reason="S07AS_STANDALONE_LEG_OPEN"; return false; }
       reason="S07AS_STANDALONE_ALLOWED";
       return true;

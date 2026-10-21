@@ -155,7 +155,7 @@ class PyramidTests(unittest.TestCase):
         self.assertEqual(o.add_allowed(1, True, False, 0, 7200), "S07A_BASE_NOT_IN_PROFIT")
 
     def test_standalone_sell_add(self):  # InpS07AsStandalone (20/10/2026)
-        sell = dict(setup="S07AS", standalone=True, timeframe="H1", ordered=True)
+        sell = dict(setup="S07AS", standalone=True, timeframe="H1", ordered=True, d1_state=-1, direction=-1)
         self.assertEqual(o.add_allowed(0, False, False, 0, 0, **sell), "S07AS_STANDALONE_ALLOWED")
         self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "standalone": False}), "S07A_NO_OPEN_BASE")
         self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "setup": "S07A"}), "S07A_NO_OPEN_BASE")
@@ -163,10 +163,13 @@ class PyramidTests(unittest.TestCase):
         self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "ordered": False}),
                          "S07AS_STANDALONE_RIBBON_NOT_ORDERED")
         self.assertEqual(o.add_allowed(1, False, False, 0, 0, **sell), "S07AS_STANDALONE_LEG_OPEN")
+        for d1 in (1, 0):                       # golden cross or unknown D1 state: a standalone sell waits
+            self.assertEqual(o.add_allowed(0, False, False, 0, 0, **{**sell, "d1_state": d1}), "S07AS_STANDALONE_AGAINST_D1")
         live = read("Integration/ControlledLiveRuntime.mqh")
         gate = section(live, "bool EEA_S07EntryAllowed(")
         for token in ('setup!="S07AS" || !g_s07as_standalone || b>=0', 'timeframe!="H1" && timeframe!="H4"',
                       'StringFind(candidate_reason,"_RB3")<0', "EEA_S07OpenLegs(trades,canonical,direction)>0",
+                      'EEA_S07D1CrossState(broker_symbol)!=direction', '"S07AS_STANDALONE_AGAINST_D1"',
                       '"S07AS_STANDALONE_ALLOWED"'):
             self.assertIn(token, gate)
         apply = section(live, "bool EEA_ControlledLiveApplyS07AsStandalone(")
