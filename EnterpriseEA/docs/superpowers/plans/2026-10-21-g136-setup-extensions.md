@@ -77,6 +77,30 @@ Vì vậy G136 **không dựng họ setup mới từ đầu**. Năm hướng dư
 
 Nếu không đạt: báo cáo DS như **khuyến nghị vận hành** (chuyển bán ngược D1 sang SHADOW để đỡ lỗ), không phải setup mới. Tách riêng phần S07AS đứng độc lập (`InpS07AsStandalone`, có từ 20/10, chưa có nghiên cứu): báo số lệnh và R của nó trên cùng sổ, không quyết định.
 
+### Sửa đổi P2 (21/10/2026, ghi trước khi chạy P2)
+
+**Lý do**: kiểm tra khả thi ([báo cáo sơ bộ](../reports/2026-10-21-g136-prelim-h1-vps.md)) cho thấy validate (01/2024–06/2025) **không có ngày D1 death cross nào** và test chỉ có 2 ngày. Luật đạt ở trên (dương ở train **và** validate, ≥ 60 lệnh mỗi kỳ) vì thế không bao giờ thỏa, bất kể setup tốt hay xấu. Người dùng chọn cách sửa sau; luật này **thay** phần "Đạt khi" của DX ở trên. Ô quyết định vẫn là 1.
+
+**Chia lại dữ liệu cho P2**:
+
+| Phần | Khoảng | Dùng để |
+|---|---|---|
+| chọn | mọi ngày D1 death cross từ 01/2018 đến 12/2023, gộp lại | quyết định |
+| nửa đầu / nửa sau | ngày death cross trước / từ 07/2021 | kiểm tra ổn định |
+| golden 2018–2026 | mọi ngày D1 golden cross | chỉ báo cáo (phần DX bỏ đi, căn cứ cho DS) |
+| forward | từ 26/06/2026 (death cross hiện tại) | xác nhận |
+
+**Lưu ý về forward**: kết quả lệnh bán S07 H1 từ 07/2026 (20 lệnh, −0,384R) **đã được xem** trong báo cáo sơ bộ H1. Phần 26/06–20/10/2026 vì thế không còn kín cho H1; phần forward kín bắt đầu từ **21/10/2026**. Báo cáo ghi riêng hai phần.
+
+**DX đạt khi**:
+- phần chọn: R/lệnh > 0, ≥ 60 lệnh, R/lệnh cao hơn D0 (mọi lệnh bán cùng khoảng 01/2018–12/2023);
+- cả nửa đầu và nửa sau đều không âm;
+- thắng ngẫu nhiên chỉ trong ngày death cross: p ≤ 0,005 (200 lần như quy ước chung);
+- vẫn dương khi chi phí × 1,5;
+- forward: ≥ 30 lệnh (hoặc ≥ 2 tháng) từ 26/06/2026 với R/lệnh > 0, **và** phần kín từ 21/10/2026 không âm sau ≥ 30 lệnh. Trước khi đủ forward, DX chỉ được để SHADOW.
+
+**Bản sơ bộ trên VPS** (khác nguồn dữ liệu, không dùng để quyết định): không có sổ M30 của các luật bán EA, nên chạy S07 bán của G67 (B6, E2X, TP 8) trên H1 (nén 4, nghỉ 2, giữ 120 như G135) và H4 (nén 8, nghỉ 4, giữ 240 như G81/G83), nến Lirunex từ 09/2019.
+
 ## P3. Họ VHedge sang M15 / M30 với tín hiệu morning / evening star
 
 **Nguồn**: G116–G119 (nến V quay về EMA200 khi nén, M5), G118 ứng viên A và G134 (nến V M30 +0,42U, dương 9/9 năm, chưa có nhóm forward), G86 (mô hình nến đứng riêng không đủ). Ý tưởng: đưa mô hình nến đảo chiều vào **đúng bối cảnh duy nhất từng thắng**.
