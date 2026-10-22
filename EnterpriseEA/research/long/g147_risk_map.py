@@ -24,6 +24,8 @@ PER = [("chọn", START, g.ts(2022, 1, 1)), ("validate", g.ts(2022, 1, 1), g.ts(
 SEL_YEARS = (2018, 2019, 2020, 2021)
 MIN_SHARE, MIN_DELTA = 0.05, 0.03
 RUNS = 200
+ROUND_B = len(sys.argv) > 3 and sys.argv[3] == "b"
+PVAL = 0.005 if ROUND_B else 0.01
 
 
 def period(srv):
@@ -153,7 +155,13 @@ def select_states(rows):
             deltas = np.array(deltas)
             mean = float(np.nanmean(deltas))
             kind = None
-            if share >= MIN_SHARE and np.all(np.isfinite(deltas)) and abs(mean) >= MIN_DELTA:
+            if ROUND_B:      # G147b: at most one of the 8 cells against the sign or empty
+                if share >= MIN_SHARE and abs(mean) >= MIN_DELTA:
+                    if (~(deltas < 0)).sum() <= 1:
+                        kind = "TRÁNH"
+                    elif (~(deltas > 0)).sum() <= 1:
+                        kind = "ƯU TIÊN"
+            elif share >= MIN_SHARE and np.all(np.isfinite(deltas)) and abs(mean) >= MIN_DELTA:
                 if np.all(deltas < 0):
                     kind = "TRÁNH"
                 elif np.all(deltas > 0):
@@ -263,7 +271,7 @@ def main():
     ok = (all(h[p]["tất cả"]["n"] >= 100 and h[p]["tất cả"]["mean"] > 0 for p in ("validate", "test"))
           and res["validate+test"]["mua"].get("mean", -1) > 0 and res["validate+test"]["bán"].get("mean", -1) > 0
           and res["validate+test"]["tháng không tăng"]["n"] >= 50 and res["validate+test"]["tháng không tăng"]["mean"] > 0
-          and res["p ngẫu nhiên"] <= 0.01 and res["validate+test"]["phí×1,5"]["mean"] > 0
+          and res["p ngẫu nhiên"] <= PVAL and res["validate+test"]["phí×1,5"]["mean"] > 0
           and res["cửa sổ 6 tháng tệ nhất (R)"] >= -15 and res["validate+test"]["bỏ 5 lệnh lớn nhất"]["mean"] > 0)
     res["kết luận"] = "ĐẠT" if ok else "KHÔNG ĐẠT"
     Path(sys.argv[2]).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
