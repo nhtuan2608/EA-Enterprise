@@ -73,7 +73,17 @@ def tester_positions(report):
                 d = 1 if typ.startswith("buy") else -1
                 out.append(dict(t=srv(q[0]), t_out=srv(tclose), d=d, entry=op, sl=sl, exit=cp, comment=q[ix["Comment"]] if "Comment" in ix else ""))
             return out, "positions"
-    # 2) fall back to the deals table: pair each "in" with the next "out" of the opposite type and the same volume (FIFO)
+    # 2) fall back to the deals table: the stop of each "in" deal from the Orders table (by order ticket); pair each "in" with
+    #    the "out" of the opposite type and the same volume - an out at "sl <price>" goes to the open leg with that stop, else FIFO
+    sl_of = {}
+    for k, r in enumerate(rows):
+        if r and r[0] == "Open Time" and "S / L" in r:
+            ix = {h: i for i, h in enumerate(r)}
+            for q in rows[k + 1:]:
+                if len(q) < len(r) - 1 or not re.match(r"\d{4}\.\d\d\.\d\d", q[0]):
+                    break
+                sl_of[q[ix["Order"]]] = num(q[ix["S / L"]])
+            break
     for k, r in enumerate(rows):
         if r and r[0] == "Time" and "Deal" in r and "Direction" in r:
             hdr = r; ix = {h: i for i, h in enumerate(hdr)}
@@ -84,12 +94,17 @@ def tester_positions(report):
                 dirn, typ = q[ix["Direction"]].lower(), q[ix["Type"]].lower()
                 vol, price = num(q[ix["Volume"]]), num(q[ix["Price"]])
                 if dirn == "in":
-                    opens.append(dict(t=srv(q[0]), d=1 if typ == "buy" else -1, entry=price, vol=vol, comment=q[ix["Comment"]], sl=None))
+                    opens.append(dict(t=srv(q[0]), d=1 if typ == "buy" else -1, entry=price, vol=vol, comment=q[ix["Comment"]],
+                                      sl=sl_of.get(q[ix["Order"]])))
                 elif dirn == "out":
                     d_closed = -1 if typ == "buy" else 1
-                    for o in opens:
-                        if o["d"] == d_closed and o["vol"] == vol and "exit" not in o:
-                            o.update(exit=price, t_out=srv(q[0])); break
+                    cm = q[ix["Comment"]].lower()
+                    want = num(cm.split()[1]) if cm.startswith("sl ") and len(cm.split()) > 1 else None
+                    cands = [o for o in opens if o["d"] == d_closed and o["vol"] == vol and "exit" not in o]
+                    if want is not None:
+                        cands = [o for o in cands if o["sl"] is not None and abs(o["sl"] - want) < 0.02] or cands
+                    if cands:
+                        cands[0].update(exit=price, t_out=srv(q[0]))
             return [o for o in opens if "exit" in o], "deals"
     raise SystemExit("no Positions or Deals table found in the report")
 
