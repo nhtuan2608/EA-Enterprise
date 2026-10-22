@@ -694,7 +694,7 @@ void EEA_TradeManagerUpdate(EEA_TradeManagerRuntime &rt,CAuditLog &audit,const s
                EEA_TradeManagerClose(t,audit,root,observer,position,execution_enabled,position.volume,t.exit_request,reason);
               }
             else if(!t.be_done && quote && r>0.0 && now_r>=news.cfg.be_min_r &&
-                    EEA_NewsBreakEvenDueFor(news,t.intent.canonical_symbol))
+                    EEA_NewsBreakEvenDueForSetup(news,t.intent.canonical_symbol,t.intent.setup_id))
               {
                // News Guard D2: a profitable position goes to break-even before a HIGH impact
                // event. The guard never closes a position (D5).

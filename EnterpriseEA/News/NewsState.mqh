@@ -209,6 +209,29 @@ long EEA_NewsBlockStart(const long next_event_utc,const string profile,const EEA
    return next_event_utc-(profile=="SWING" ? c.swing_block_before_min : c.scalp_block_before_min)*60;
   }
 
+// G152: the top-tier USD releases (NFP, CPI lines, Core PCE, the Fed rate decision and the FOMC press conference).
+bool EEA_NewsTopTier(const string name)
+  {
+   string n=name;
+   StringToLower(n);
+   return StringFind(n,"nonfarm payrolls")>=0 || StringFind(n,"cpi")>=0 || StringFind(n,"core pce")>=0 ||
+          StringFind(n,"fed interest rate decision")>=0 || StringFind(n,"fomc press conference")>=0;
+  }
+
+// D2 restricted to the top-tier releases (G152 "V2").
+bool EEA_NewsBreakEvenDueTopTier(const EEA_NewsEvent &events[],const int count,const string currencies,
+                                 const long now,const EEA_NewsConfig &c)
+  {
+   if(!c.enabled) return false;
+   for(int i=0;i<count;i++)
+     {
+      if(!EEA_NewsAffects(currencies,events[i].currency) || !EEA_NewsTopTier(events[i].name)) continue;
+      const long t=events[i].time_utc;
+      if(now>=t-c.be_before_min*60 && now<t+c.post_min*60) return true;
+     }
+   return false;
+  }
+
 // D2: a profitable position is moved to break-even from T-be_before until the event
 // has passed its POST_NEWS window.
 bool EEA_NewsBreakEvenDue(const EEA_NewsEvent &events[],const int count,const string currencies,

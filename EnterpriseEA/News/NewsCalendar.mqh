@@ -369,4 +369,17 @@ bool EEA_NewsBreakEvenDueFor(const EEA_NewsRuntime &rt,const string canonical)
    return EEA_NewsBreakEvenDue(rt.events,rt.count,rt.symbols[i].currencies,(long)TimeGMT(),rt.cfg);
   }
 
+// G152: News Guard break-even scope for S07 positions (InpS07NewsBreakEvenScope).
+//   0 = every event the News Guard watches (unchanged default), 1 = top-tier releases only, 2 = none.
+int g_s07_news_be_scope=0;
+
+bool EEA_NewsBreakEvenDueForSetup(const EEA_NewsRuntime &rt,const string canonical,const string setup_id)
+  {
+   if(StringFind(setup_id,"S07")!=0 || g_s07_news_be_scope==0) return EEA_NewsBreakEvenDueFor(rt,canonical);
+   if(g_s07_news_be_scope==2) return false;
+   int i=EEA_NewsSymbolIndex(rt,canonical);
+   if(i<0 || rt.disabled || !rt.initialized) return false;
+   return EEA_NewsBreakEvenDueTopTier(rt.events,rt.count,rt.symbols[i].currencies,(long)TimeGMT(),rt.cfg);
+  }
+
 #endif

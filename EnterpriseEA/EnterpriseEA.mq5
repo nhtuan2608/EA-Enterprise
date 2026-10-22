@@ -92,6 +92,8 @@ input EEA_S07ReentryModeInput InpS07ReentryMode = S07R_LIVE; // G87 S07R: re-ent
 input bool   InpS07AdxExit              = true;  // G87: S07 base legs also exit on ADX >= 50 turning down (G86 X3)
 input double InpS07UnorderedRiskWeight  = 0.67;  // G87: S07 base without EMA21>EMA55>EMA100 at the signal (1.0% of 1.5%)
 input double InpS07D1CrossWeight        = 0.5;   // G134: S07 leg against the D1 SMA50/SMA200 state (golden/death cross): weight (1.0 = off; 0.5 = research G134, user-approved 2026-10-21)
+enum EEA_S07NewsBeScope { S07_NEWS_BE_ALL=0, S07_NEWS_BE_TOP_TIER=1, S07_NEWS_BE_OFF=2 };
+input EEA_S07NewsBeScope InpS07NewsBreakEvenScope = S07_NEWS_BE_ALL; // G152: News Guard break-even for S07 legs: ALL events (unchanged), TOP_TIER only (NFP/CPI/Core PCE/Fed/FOMC), or OFF
 input bool   InpS07AsStandalone        = false; // S07AS sell add enters without an open S07S base: H1/H4, ordered ribbon, with the D1 state, sentiment not against
 input double InpS07AsStandaloneRiskWeight = 0.5; // share of the base risk for such a standalone S07AS (0.5 = 0.75% of 1.5%)
 input double InpRiskWeightS07A          = 0.67;  // G87: S07A adds (1.0% of 1.5%)
@@ -1662,6 +1664,7 @@ int OnInit()
    g_risk_weight_s07a=InpRiskWeightS07A;
    g_s07_unordered_weight=InpS07UnorderedRiskWeight;
    g_s07_d1_cross_weight=InpS07D1CrossWeight;
+   g_s07_news_be_scope=(int)InpS07NewsBreakEvenScope;
    g_s07as_standalone=InpS07AsStandalone;
    g_s07as_standalone_weight=MathMax(0.0,MathMin(1.0,InpS07AsStandaloneRiskWeight));
    g_s07_adx_exit=InpS07AdxExit;

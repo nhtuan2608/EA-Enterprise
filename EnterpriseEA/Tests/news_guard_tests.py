@@ -153,7 +153,7 @@ class NewsIntegrationTests(unittest.TestCase):
         self.assertIn("EEA_PendingObserveGuard(", apply)
         tm = read("Runtime/TradeManagerRuntime.mqh")
         self.assertIn('"NEWS_BREAK_EVEN"', tm)
-        self.assertIn("EEA_NewsBreakEvenDueFor(news,", tm)
+        self.assertIn("EEA_NewsBreakEvenDueForSetup(news,t.intent.canonical_symbol,t.intent.setup_id)", tm)
         self.assertNotIn("NEWS_CLOSE", tm)  # D5: never close because of news
 
 
@@ -189,6 +189,30 @@ class NewsIgnoreListTests(unittest.TestCase):
         cal = read("News/NewsCalendar.mqh")
         self.assertIn('"NEWS_STATE_CHANGED",s.canonical,before,s.state,', cal)
         self.assertIn("event.config_version=config_version;", cal)
+
+
+class S07NewsBreakEvenScopeTests(unittest.TestCase):
+    """G152: the S07 break-even scope input; default unchanged (every event), other setups untouched."""
+
+    def setUp(self):
+        self.cal = (ROOT / "News/NewsCalendar.mqh").read_text(encoding="utf-8-sig")
+        self.state = (ROOT / "News/NewsState.mqh").read_text(encoding="utf-8-sig")
+        self.ea = (ROOT / "EnterpriseEA.mq5").read_text(encoding="utf-8-sig")
+
+    def test_default_keeps_the_current_rule(self):
+        self.assertIn("input EEA_S07NewsBeScope InpS07NewsBreakEvenScope = S07_NEWS_BE_ALL;", self.ea)
+        self.assertIn("g_s07_news_be_scope=(int)InpS07NewsBreakEvenScope;", self.ea)
+        self.assertIn("int g_s07_news_be_scope=0;", self.cal)
+
+    def test_only_s07_setups_change(self):
+        self.assertIn('if(StringFind(setup_id,"S07")!=0 || g_s07_news_be_scope==0) return EEA_NewsBreakEvenDueFor(rt,canonical);',
+                      self.cal)
+        self.assertIn("if(g_s07_news_be_scope==2) return false;", self.cal)
+        self.assertIn("EEA_NewsBreakEvenDueTopTier(", self.cal)
+
+    def test_top_tier_list(self):
+        for k in ("nonfarm payrolls", "cpi", "core pce", "fed interest rate decision", "fomc press conference"):
+            self.assertIn(f'"{k}"', self.state)
 
 
 if __name__ == "__main__":
