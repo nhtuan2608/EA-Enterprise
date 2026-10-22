@@ -24,9 +24,15 @@ Riêng các set cho VHedge G119 (bỏ BIGV, 0,75% mỗi chân, INITIAL) có tron
 
 Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 
-## EnterpriseEA_Bots (16/10/2026)
+## EnterpriseEA_Bots (build lại 22/10/2026)
 
-`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ nhánh `feature/bots-host` sau commit `1894fa4` (có nhật ký bot `logs/bots-YYYYMM.jsonl` và nhận lệnh bật/tắt bot từ MCP, input `InpBotsMcpCommands`). Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
+`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ `main` `737a3e7`. Gồm:
+- nhật ký bot `logs/bots-YYYYMM.jsonl` và nhận lệnh bật/tắt bot từ MCP (input `InpBotsMcpCommands`);
+- **trọng số D1 × 0,5** cho lệnh S07 ngược trạng thái golden/death cross D1 (`InpS07D1CrossWeight = 0.5`, G134, kiểm lại ở G138);
+- tùy chọn S07AS độc lập (`InpS07AsStandalone`, mặc định tắt; G136 không ủng hộ bật);
+- nhãn DXY cho tín hiệu S07 vàng (chỉ ghi log).
+
+Bản 16/10 không có trọng số D1. Các preset bên dưới không ghi đè hai input này, nên dùng mặc định. Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
 
 Set nằm trong `builds/sets/`:
 
