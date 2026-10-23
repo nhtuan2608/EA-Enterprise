@@ -13,6 +13,8 @@ from pathlib import Path
 EVENTS = ("START", "SWITCH", "DECISION", "ENTRY", "ORDER", "MANAGE", "EXIT", "BLOCKED", "SKIP", "ERROR",
           "NEAR", "FILL", "CLOSE")
 BOTS = ("S07", "VHEDGE", "XRT", "CTXLIMIT")
+SHADOW_ONLY = ("SQZ", "W1")          # G153 research candidates: journal only, no Active flag (Bots/ShadowCandidates.mqh)
+JOURNAL_BOTS = BOTS + SHADOW_ONLY
 
 
 def journal_files(root: Path, since: int, until: int) -> list[Path]:
@@ -120,7 +122,7 @@ def journal_text(root: Path, hours: int, bot: str = "", now: int | None = None, 
                 "EA ghi vào logs/bots-YYYYMM.jsonl từ bản có nhật ký bot (16/10/2026).")
     s = summarize(entries)
     lines = [f"Nhật ký bot ({who}, {hours} giờ qua): {s['count']} dòng"]
-    for code in BOTS:
+    for code in JOURNAL_BOTS:
         b = s["bots"].get(code)
         if not b:
             continue

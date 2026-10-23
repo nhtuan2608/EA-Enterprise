@@ -216,7 +216,9 @@ class BotJournalTests(unittest.TestCase):
 
     def test_monthly_append_only_file(self):
         self.assertIn('StringFormat("bots-%04d%02d.jsonl",t.year,t.mon)', self.src)
-        log = body(self.src, "void EEA_BotLog(")
+        log = body(self.src, "void EEA_BotLogCode(")
+        self.assertIn('EEA_BotLogCode(bot>=0 ? EEA_BotCode(bot) : "HOST",event,mode,text,extra_json);',
+                      body(self.src, "void EEA_BotLog("))
         self.assertIn("EEA_WriteAtomicAppendText(EEA_BotJournalPath(now),line+\"\\n\");", log)
         for key in ("at_utc", "server", "bot", "event", "mode", "text", "data"):
             self.assertIn(f'\\"{key}\\":', log)
@@ -383,3 +385,69 @@ class MiniPanelTests(unittest.TestCase):
         self.assertRegex(read("Bots/VHedgeBot.mqh"), r"double\s+near_score;")
         self.assertIn("void Near(double &score,string &text)", read("Bots/XrtBot.mqh"))
         self.assertIn("void Near(double &score,string &text) const", read("Bots/CtxLimitBot.mqh"))
+
+
+class ShadowCandidatesTests(unittest.TestCase):
+    """G153 SHADOW forward: SQZ (g139_hybrid.csq) and W1 (g149_repeating.w1) behind the D1 regime gate, journal only."""
+
+    def setUp(self):
+        self.src = read("Bots/ShadowCandidates.mqh")
+
+    def test_never_trades(self):
+        for token in ("CTrade", "trade.", "OrderSend", "PositionOpen", "EEA_BotGuardCheck"):
+            self.assertNotIn(token, self.src)
+
+    def test_squeeze_rules_are_the_research_rules(self):
+        b = body(self.src, "void SqueezeBar(const double bid,const double ask)")
+        for token in ("bw[k]=4.0*MathSqrt(v/20.0);", "for(int j=q-119;j<=q;j++) if(bw[j]<=bw[q]) below++;", "const int q=i-1;",
+                      "if(!(rank<=0.2)) return;", "if(tm.hour==23 || tm.hour==0) return;",
+                      "iBarShift(sym,PERIOD_M30,sq_last_signal,false)<=11",
+                      "c[i]>hh && c[i]>r[i].open && c[i]>e200[i] && sma_side==1",
+                      "c[i]<ll && c[i]<r[i].open && c[i]<e200[i] && sma_side==-1",
+                      "const double stop=sma-d*0.1*atr;", "0.5*atr<=dist && dist<=3.0*atr", "sq.target=entry+d*3.0*dist;",
+                      "if(held>=96)", "sq.gated=(regime==d);"):
+            self.assertIn(token, b)
+        # the cooldown starts with the signal, before the one-at-a-time and the regime gate (as the research)
+        self.assertLess(b.index("sq_last_signal=r[i].time;"), b.index("if(sq.open)"))
+        self.assertLess(b.index("if(sq.open)"), b.index("sq.gated=(regime==d);"))
+
+    def test_regime_is_xauregime_r1(self):
+        b = body(self.src, "bool DayStates(int &regime,int &sma_side)")
+        self.assertIn("CopyRates(sym,PERIOD_D1,1,800,r)", b)
+        self.assertIn("if(c[i]>e[i] && e[i]>e[i-10]) regime=1;", b)
+        self.assertIn("else if(c[i]<e[i] && e[i]<e[i-10]) regime=-1;", b)
+        self.assertIn("sma_side=(s50>s200 ? 1 : (s50<s200 ? -1 : 0));", b)
+
+    def test_weekly_rules_are_the_research_rules(self):
+        b = body(self.src, "void WeeklyTick(const double bid,const double ask,const bool new_bar)")
+        for token in ("const double stop=0.5*(wk_high+wk_low);", "t.target=0.0;", "ask>=wk_high", "bid<=wk_low",
+                      "tm.day_of_week<1 || tm.day_of_week>4", "21*60+30", "wk_done[s]=true;", "t.gated=(regime==d);"):
+            self.assertIn(token, b)
+        scan = body(self.src, "void WeekScan()")
+        self.assertIn("if(m[0].open>wk_high) wk_done[0]=true;", scan)
+        self.assertIn("if(m[0].open<wk_low) wk_done[1]=true;", scan)
+        start = body(self.src, "void WeekStart(const datetime monday)")
+        self.assertIn("CopyRates(sym,PERIOD_D1,monday-7*86400,monday-1,d)", start)
+
+    def test_stop_first_and_gated_counting(self):
+        b = body(self.src, "bool StopOrTarget(")
+        self.assertLess(b.index("bid<=t.stop"), b.index("bid>=t.target"))
+        self.assertLess(b.index("ask>=t.stop"), b.index("ask<=t.target"))
+        c = body(self.src, "void Close(const int k,ShadowCandTrade &t,const double px,const string why)")
+        self.assertIn('EEA_BotLogCode(Code(k),"EXIT","SHADOW"', c)
+        self.assertIn('EEA_BotLogCode(Code(k),"MANAGE","SHADOW"', c)
+        self.assertIn('"r_ungated"', c)
+        self.assertIn("n[k]++; sum_r[k]+=r;", c)
+
+    def test_wiring_and_inputs(self):
+        host = read("Bots/BotHost.mqh")
+        self.assertIn('#include "ShadowCandidates.mqh"', host)
+        self.assertIn("g_bot_shadow.Init(shadow,g_bots_host.symbol,root);", body(host, "void EEA_BotsHostInit("))
+        self.assertIn("g_bot_shadow.OnTick();", body(host, "void EEA_BotsHostTick()"))
+        self.assertIn("g_bot_shadow.Deinit();", body(host, "void EEA_BotsHostDeinit()"))
+        self.assertIn('\\"shadow_candidates\\":"+g_bot_shadow.StatusJson()', host)
+        ea = read("EnterpriseEA.mq5")
+        self.assertIn("input bool   InpShadowSqueeze           = true;", ea)
+        self.assertIn("input bool   InpShadowWeekly            = true;", ea)
+        self.assertIn("sp.squeeze=InpShadowSqueeze; sp.weekly=InpShadowWeekly;", ea)
+        self.assertNotIn("SQZ", read("Bots/BotState.mqh"))          # outside the registry: no Active flag, state file unchanged

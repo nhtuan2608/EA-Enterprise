@@ -77,6 +77,22 @@ EA ghi mỗi sự kiện của bot thành một dòng JSON trong `MQL5\Files\Ent
 - Telegram: `/botlog` (24 giờ, mọi bot), `/botlog xrt`, `/botlog vhedge 72` (tối đa 168 giờ). Có tóm tắt theo bot: số lần vào/thoát, R của lệnh ảo, tiền của lệnh thật, các lý do bị chặn, dòng gần khớp mới nhất. Sau đó là các dòng gần nhất (không gồm NEAR).
 - Python: `bridge/bot_journal.py` (`read_journal`, `summarize`, `journal_text`). Gateway và MCP server dùng chung module này.
 
+### Ứng viên SHADOW `SQZ` và `W1` (G153b)
+
+Hai ứng viên nghiên cứu chạy bằng lệnh ảo để thu dữ liệu forward, theo kế hoạch `docs/superpowers/plans/2026-10-23-g153b-shadow-forward.md`:
+- `SQZ`: squeeze breakout M30;
+- `W1`: phá đỉnh/đáy tuần trước.
+
+Cả hai đều có cổng chế độ D1. Chúng **không đặt lệnh**, không có cờ Active, không nằm trong `/bots` và không tính vào rủi ro. Input `InpShadowSqueeze` / `InpShadowWeekly` (mặc định bật) chỉ quyết định có ghi nhật ký hay không.
+
+| event | nghĩa |
+|---|---|
+| `ENTRY` / `EXIT` (`r`) | lệnh ảo **cùng chế độ D1**, phần được tính |
+| `SKIP` / `MANAGE` (`r_ungated`) | lệnh ảo ngoài cổng chế độ: chỉ theo dõi để so sánh. Cũng dùng cho tín hiệu bị bỏ |
+| `DECISION` | W1: mức đỉnh/đáy tuần trước và chế độ D1 lúc đầu tuần |
+
+Xem bằng `/botlog sqz`, `/botlog w1`. Tổng cộng dồn cũng có trong `current/bots_status.json` (`shadow_candidates`).
+
 ## Thử trước khi chạy thật
 
 1. Build `EnterpriseEA.ex5` từ nhánh này.

@@ -26,12 +26,13 @@ Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 
 ## EnterpriseEA_Bots (build lại 23/10/2026)
 
-`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ `main` `737a3e7`. Gồm:
+`EnterpriseEA_Bots.ex5` là EnterpriseEA có lớp Bots, build từ `main` (G153b, 23/10/2026). Gồm:
 - nhật ký bot `logs/bots-YYYYMM.jsonl` và nhận lệnh bật/tắt bot từ MCP (input `InpBotsMcpCommands`);
 - **trọng số D1 × 0,5** cho lệnh S07 ngược trạng thái golden/death cross D1 (`InpS07D1CrossWeight = 0.5`, G134, kiểm lại ở G138);
 - tùy chọn S07AS độc lập (`InpS07AsStandalone`, mặc định tắt; G136 không ủng hộ bật);
 - phạm vi hòa vốn trước tin cho lệnh S07 (`InpS07NewsBreakEvenScope`: `ALL` như cũ, **mặc định** / `TOP_TIER` chỉ NFP, CPI, Core PCE, Fed, FOMC / `OFF`; G152, chờ kiểm forward G152b);
 - nhãn DXY cho tín hiệu S07 vàng (chỉ ghi log).
+- **ứng viên SHADOW `SQZ` và `W1`** (G153b): chỉ ghi lệnh ảo vào nhật ký bot, không đặt lệnh. Input `InpShadowSqueeze` / `InpShadowWeekly`, mặc định bật.
 
 Bản 16/10 không có trọng số D1. Các preset bên dưới không ghi đè hai input này, nên dùng mặc định. Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
 

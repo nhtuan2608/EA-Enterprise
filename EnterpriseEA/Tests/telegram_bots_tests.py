@@ -231,6 +231,19 @@ class BotJournalReaderTests(unittest.TestCase):
         self.assertEqual(s["bots"]["S07"]["blocked"], ["BOTS_OPEN_RISK_CAP"])
         self.assertEqual(s["bots"]["VHEDGE"]["shadow_r"], 1.5)
 
+    def test_shadow_candidates_count_gated_exits_only(self):
+        t = 1_800_000_000
+        self.line(t, "SQZ", "EXIT", "thoát (ảo)", mode="SHADOW", r=3.0)
+        self.line(t + 1, "SQZ", "MANAGE", "lệnh ngoài cổng chế độ", mode="SHADOW", r_ungated=-1.0)
+        self.line(t + 2, "W1", "EXIT", "thoát (ảo)", mode="SHADOW", r=-1.0)
+        s = self.bj.summarize(self.bj.read_journal(self.root, t - 10, t + 10))
+        self.assertEqual(s["bots"]["SQZ"]["shadow_r"], 3.0)
+        self.assertEqual(s["bots"]["W1"]["shadow_r"], -1.0)
+        text = self.bj.journal_text(self.root, 1, now=t + 5)
+        self.assertIn("SQZ: vào 0, thoát 1 | ảo +3.00R/U", text)
+        self.assertIn("W1: vào 0, thoát 1", text)
+        self.assertNotIn("SQZ", self.bj.BOTS)                    # never offered to the on/off commands
+
 
 class BotLogCommandTests(BotsCase):
     def jline(self, at, bot, event, text, **data):
@@ -257,6 +270,15 @@ class BotLogCommandTests(BotsCase):
         text = self.texts()[-1]
         self.assertIn("(XRT, 120 giờ qua): 2 dòng", text)
         self.assertIn("rất cũ", text)
+
+    def test_botlog_shadow_candidate(self):
+        t = self.clock.t
+        self.jline(t - 600, "W1", "DECISION", "tuần mới: đỉnh tuần trước")
+        self.jline(t - 300, "XRT", "DECISION", "kế hoạch ngày")
+        self.feed(msg(1, VIEWER, "/botlog w1"))
+        text = self.texts()[-1]
+        self.assertIn("(W1, 24 giờ qua): 1 dòng", text)
+        self.assertNotIn("kế hoạch ngày", text)
 
     def test_botlog_empty_and_bad_syntax(self):
         self.feed(msg(1, VIEWER, "/botlog"), msg(2, VIEWER, "/botlog foo"))

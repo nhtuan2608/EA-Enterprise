@@ -198,6 +198,8 @@ input long   InpBotXrtMagic             = 969696;
 input EEA_BotModeInput InpBotCtxLimitMode = BOT_SHADOW; // CtxLimit (MKT04 gold context forecast, plan L limits, S07 gates): OFF, SHADOW or LIVE
 input double InpBotCtxLimitRiskPct      = 0.5;     // CtxLimit: risk per trade, % of the initial capital (x 0.67 without the ordered ribbon)
 input long   InpBotCtxLimitMagic        = 717171;
+input bool   InpShadowSqueeze           = true;    // G153 SHADOW (journal only, no orders): M30 squeeze breakout in the D1 regime, code SQZ
+input bool   InpShadowWeekly            = true;    // G153 SHADOW (journal only, no orders): previous-week breakout in the D1 regime, code W1
 input double InpBotsMaxOpenRiskPct      = 12.0;    // portfolio: no bot entry when account-wide open risk would exceed this (% of initial capital)
 input double InpBotsDailyLossPct        = 6.0;     // portfolio: bots stop new entries after this loss in the server day (% of initial capital)
 input bool   InpBotsNewsGuard           = false;   // portfolio: block bot entries in the News Guard window (VHedge research had no news filter)
@@ -1188,8 +1190,10 @@ void EEA_BotsInitFromInputs()
    CtxLimitBotParams cp;
    CtxLimitBotParamsDefaults(cp);
    cp.mode=InpBotCtxLimitMode; cp.risk_percent=InpBotCtxLimitRiskPct; cp.magic=InpBotCtxLimitMagic;
+   ShadowCandParams sp;
+   sp.squeeze=InpShadowSqueeze; sp.weekly=InpShadowWeekly;
    g_bots_allow_mcp=InpBotsMcpCommands;
-   EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp,xp,cp);
+   EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp,xp,cp,sp);
   }
 
 string EEA_BotsCanonicalFor(const string broker)

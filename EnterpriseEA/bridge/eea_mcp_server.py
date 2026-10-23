@@ -134,7 +134,7 @@ class EeaMcp:
 
     # ------------------------------------------------------------------ tools
     def _tools(self) -> dict:
-        bot_prop = {"type": "string", "description": "S07 | VHEDGE | XRT | CTXLIMIT (empty = all bots)"}
+        bot_prop = {"type": "string", "description": "S07 | VHEDGE | XRT | CTXLIMIT (empty = all bots); read_bot_log also SQZ | W1 (SHADOW candidates)"}
         t = {
             "health_check": {
                 "description": "Is the EA alive and are its files where they should be? Checks every expected file "
@@ -364,8 +364,8 @@ class EeaMcp:
     def tool_bot_log(self, args) -> str:
         hours = max(1, min(744, int(args.get("hours", 24) or 24)))
         bot = str(args.get("bot", "") or "").upper()
-        if bot and bot not in BOT_CODES:
-            raise ToolError(f"bot không hợp lệ: {bot} (S07, VHEDGE, XRT, CTXLIMIT)")
+        if bot and bot not in bot_journal.JOURNAL_BOTS:
+            raise ToolError(f"bot không hợp lệ: {bot} (S07, VHEDGE, XRT, CTXLIMIT, SQZ, W1)")
         limit = max(1, min(1000, int(args.get("limit", 200) or 200)))
         now = self.now()
         entries = bot_journal.read_journal(self.root, now - hours * 3600, now + 60, bot)

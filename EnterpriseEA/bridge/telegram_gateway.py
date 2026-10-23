@@ -461,10 +461,12 @@ class Gateway:
         for tok in str(arg).split():
             if re.fullmatch(r"\d{1,3}h?", tok.lower()):
                 hours = max(1, min(168, int(tok.lower().rstrip("h"))))
+            elif tok.upper() in bot_journal.SHADOW_ONLY:
+                bot = tok.upper()
             else:
                 bot = self.resolve_bot(tok)
                 if not bot:
-                    return "Cú pháp: /botlog [s07|vhedge|xrt|ctxlimit] [số giờ, tối đa 168]"
+                    return "Cú pháp: /botlog [s07|vhedge|xrt|ctxlimit|sqz|w1] [số giờ, tối đa 168]"
         try:
             return bot_journal.journal_text(self.root, hours, bot, now=self.clock())
         except Exception as exc:  # a report must never stop the gateway

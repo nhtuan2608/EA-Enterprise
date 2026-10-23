@@ -25,14 +25,20 @@ string EEA_BotJournalPath(const datetime utc)
   }
 
 // extra_json: the inside of the "data" object, e.g. "\"entry\":4100.5,\"sl\":4090.1" ("" = empty).
-void EEA_BotLog(const int bot,const string event,const string mode,const string text,const string extra_json="")
+// code: a registry bot code, "HOST", or a SHADOW research candidate outside the registry (SQZ, W1).
+void EEA_BotLogCode(const string code,const string event,const string mode,const string text,const string extra_json="")
   {
    if(g_bot_journal_root=="") return;
    const datetime now=TimeGMT();
    const string line="{\"at_utc\":"+IntegerToString((long)now)+",\"server\":\""+TimeToString(TimeTradeServer(),TIME_DATE|TIME_MINUTES)+
-      "\",\"bot\":\""+(bot>=0 ? EEA_BotCode(bot) : "HOST")+"\",\"event\":\""+event+"\",\"mode\":\""+EEA_JsonEscape(mode)+
+      "\",\"bot\":\""+code+"\",\"event\":\""+event+"\",\"mode\":\""+EEA_JsonEscape(mode)+
       "\",\"text\":\""+EEA_JsonEscape(text)+"\",\"data\":{"+extra_json+"}}";
    EEA_WriteAtomicAppendText(EEA_BotJournalPath(now),line+"\n");
+  }
+
+void EEA_BotLog(const int bot,const string event,const string mode,const string text,const string extra_json="")
+  {
+   EEA_BotLogCode(bot>=0 ? EEA_BotCode(bot) : "HOST",event,mode,text,extra_json);
   }
 
 // A blocked entry: one line per new reason; the same reason again is not repeated.

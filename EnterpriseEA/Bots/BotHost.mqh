@@ -21,6 +21,7 @@
 #include "VHedgeBot.mqh"
 #include "XrtBot.mqh"
 #include "CtxLimitBot.mqh"
+#include "ShadowCandidates.mqh"
 
 #define EEA_BOT_COMMAND_VERSION "bot-command-v1.0.0"
 #define EEA_BOTS_STATUS_DOCUMENT "bots-status-v1.0.0"
@@ -52,6 +53,7 @@ ulong        g_bot_deal_seen=0;            // journal: highest deal ticket alrea
 CVHedgeBot   g_bot_vhedge;
 CXrtBot      g_bot_xrt;
 CCtxLimitBot g_bot_ctx;
+CShadowCandidates g_bot_shadow;           // G153 SHADOW candidates (SQZ, W1): journal only, outside the registry
 
 void EEA_BotsHostDefaults(EEA_BotsHost &h)
   {
@@ -185,7 +187,7 @@ void EEA_BotNear(const int id,double &score,string &text)
 // ------------------------------------------------------------------------------------------------------ lifecycle
 void EEA_BotsHostInit(const string root,const string symbol,const bool &defaults[],const EEA_BotModeInput &modes[],
                       const long &magics[],const VHedgeBotParams &vhedge,const XrtBotParams &xrt,
-                      const CtxLimitBotParams &ctx)
+                      const CtxLimitBotParams &ctx,const ShadowCandParams &shadow)
   {
    EEA_BotsHostDefaults(g_bots_host);
    EEA_BotsStateDefaults(g_bots_state);
@@ -199,6 +201,7 @@ void EEA_BotsHostInit(const string root,const string symbol,const bool &defaults
    g_bot_vhedge.Init(vhedge,g_bots_host.symbol,root);
    g_bot_xrt.Init(xrt,g_bots_host.symbol,root);
    g_bot_ctx.Init(ctx,g_bots_host.symbol,root);
+   g_bot_shadow.Init(shadow,g_bots_host.symbol,root);
    g_bots_host.initialized=true;
    g_bot_journal_root=root;
    for(int i=0;i<EEA_BOT_COUNT;i++) g_bot_journal_block[i]="";
@@ -274,6 +277,7 @@ void EEA_BotsHostDeinit()
    g_bot_vhedge.Deinit();
    g_bot_xrt.Deinit();
    g_bot_ctx.Deinit();
+   g_bot_shadow.Deinit();
   }
 
 // Every tick: bot management and new-bar signals. Never runs before the state was loaded.
@@ -284,6 +288,7 @@ void EEA_BotsHostTick()
    g_bot_vhedge.OnTick();
    g_bot_xrt.OnTick();
    g_bot_ctx.OnTick();
+   g_bot_shadow.OnTick();
   }
 
 // ------------------------------------------------------------------------------------------------------ remote
@@ -467,7 +472,7 @@ string EEA_BotsStatusJson()
       "\",\"symbol\":\""+EEA_JsonEscape(g_bots_host.symbol)+"\",\"pending_bot\":\""+
       (g_bots_state.pending_bot>=0 ? EEA_BotCode(g_bots_state.pending_bot) : "")+"\",\"pending_expires_at_utc\":"+
       IntegerToString(g_bots_state.pending_expires_at_utc)+",\"last_command\":\""+EEA_JsonEscape(g_bots_host.last_command)+
-      "\",\"guard\":"+guard+",\"bots\":["+bots+"],\"written_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
+      "\",\"guard\":"+guard+",\"bots\":["+bots+"],\"shadow_candidates\":"+g_bot_shadow.StatusJson()+",\"written_at_utc\":"+IntegerToString((long)TimeGMT())+"}";
   }
 
 // Every timer: load the flags once the account is known and run the Telegram commands.
