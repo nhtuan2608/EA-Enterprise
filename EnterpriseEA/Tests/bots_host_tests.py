@@ -394,7 +394,7 @@ class ShadowCandidatesTests(unittest.TestCase):
         self.src = read("Bots/ShadowCandidates.mqh")
 
     def test_never_trades(self):
-        for token in ("CTrade", "trade.", "OrderSend", "PositionOpen", "EEA_BotGuardCheck"):
+        for token in ("CTrade", "trade.Buy", "trade.Sell", "OrderSend", "PositionOpen", "EEA_BotGuardCheck"):
             self.assertNotIn(token, self.src)
 
     def test_squeeze_rules_are_the_research_rules(self):
@@ -405,7 +405,7 @@ class ShadowCandidatesTests(unittest.TestCase):
                       "c[i]>hh && c[i]>r[i].open && c[i]>e200[i] && sma_side==1",
                       "c[i]<ll && c[i]<r[i].open && c[i]<e200[i] && sma_side==-1",
                       "const double stop=sma-d*0.1*atr;", "0.5*atr<=dist && dist<=3.0*atr", "sq.target=entry+d*3.0*dist;",
-                      "if(held>=96)", "sq.gated=(regime==d);"):
+                      "sq.gated=(regime==d);"):
             self.assertIn(token, b)
         # the cooldown starts with the signal, before the one-at-a-time and the regime gate (as the research)
         self.assertLess(b.index("sq_last_signal=r[i].time;"), b.index("if(sq.open)"))
@@ -428,6 +428,27 @@ class ShadowCandidatesTests(unittest.TestCase):
         self.assertIn("if(m[0].open<wk_low) wk_done[1]=true;", scan)
         start = body(self.src, "void WeekStart(const datetime monday)")
         self.assertIn("CopyRates(sym,PERIOD_D1,monday-7*86400,monday-1,d)", start)
+
+    def test_closed_bars_are_replayed(self):
+        """Exits the ticks could not see (EA off, gaps) are replayed bar by bar as gp.run_trade."""
+        b = body(self.src, "bool CatchUp(const int k,ShadowCandTrade &t,const bool skip_entry_bar,const int max_bars)")
+        for token in ("CopyRates(sym,PERIOD_M30,e_bar,cur-1,m)", "if(m[j].time>=cur) break;",
+                      "entry_bar ? t.stop : MathMin(t.stop,m[j].open)", "entry_bar ? t.stop : MathMax(t.stop,m[j].open+sp)",
+                      "m[j].high+sp>=t.stop", "m[j].low+sp<=t.target", "if(max_bars>0 && j>=max_bars-1)",
+                      "t.dir==1 ? m[j].close : m[j].close+sp"):
+            self.assertIn(token, b)
+        self.assertLess(b.index("m[j].low<=t.stop"), b.index("m[j].high>=t.target"))
+        tick = body(self.src, "void OnTick()")
+        self.assertIn("CatchUp(0,sq,false,96);", tick)
+        self.assertLess(tick.index("CatchUp(0,sq,false,96);"), tick.index("if(!first) SqueezeBar(bid,ask);"))
+        self.assertNotIn("held", body(self.src, "void SqueezeBar(const double bid,const double ask)"))
+        week = body(self.src, "void WeeklyTick(const double bid,const double ask,const bool new_bar)")
+        self.assertIn("if(new_bar && CatchUp(1,wk[s],true,0)) continue;", week)
+        self.assertIn('if(friday_out) FridayExit(s,bid,ask,"cuối tuần");', week)
+        fri = body(self.src, "void FridayExit(const int s,const double bid,const double ask,const string fallback)")
+        self.assertIn("iBarShift(sym,PERIOD_M30,wk_week+4*86400+21*3600,true)", fri)
+        start = body(self.src, "void WeekStart(const datetime monday)")
+        self.assertLess(start.index("FridayExit("), start.index("wk_week=monday;"))   # the old week's Friday
 
     def test_stop_first_and_gated_counting(self):
         b = body(self.src, "bool StopOrTarget(")

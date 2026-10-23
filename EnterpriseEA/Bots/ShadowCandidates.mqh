@@ -173,22 +173,59 @@ public:
       Save();
      }
 
-   // Stop first when both are touched (as gp.run_trade). Tick prices, then the extremes of the closed M30 bar as
-   // a backstop for a gap or an EA restart.
-   bool StopOrTarget(const int k,ShadowCandTrade &t,const double bid,const double ask,const double bar_hi,const double bar_lo,
-                     const double spread)
+   // Tick prices; stop first when both are touched (as gp.run_trade).
+   bool StopOrTarget(const int k,ShadowCandTrade &t,const double bid,const double ask)
      {
       if(!t.open) return false;
       const bool has_tp=(t.target>0.0);
       if(t.dir==1)
         {
-         if(bid<=t.stop || (bar_lo>0.0 && bar_lo<=t.stop)) { Close(k,t,MathMin(t.stop,bid),"stop"); return true; }
-         if(has_tp && (bid>=t.target || (bar_hi>0.0 && bar_hi>=t.target))) { Close(k,t,t.target,"target 3R"); return true; }
+         if(bid<=t.stop) { Close(k,t,bid,"stop"); return true; }
+         if(has_tp && bid>=t.target) { Close(k,t,t.target,"target 3R"); return true; }
         }
       else
         {
-         if(ask>=t.stop || (bar_hi>0.0 && bar_hi+spread>=t.stop)) { Close(k,t,MathMax(t.stop,ask),"stop"); return true; }
-         if(has_tp && (ask<=t.target || (bar_lo>0.0 && bar_lo+spread<=t.target))) { Close(k,t,t.target,"target 3R"); return true; }
+         if(ask>=t.stop) { Close(k,t,ask,"stop"); return true; }
+         if(has_tp && ask<=t.target) { Close(k,t,t.target,"target 3R"); return true; }
+        }
+      return false;
+     }
+
+   // Every new M30 bar, the first one after a start included: the closed bars since the entry, oldest first, as
+   // gp.run_trade - stop before target, a bar that opens beyond the level fills at its open, and (max_bars > 0) the
+   // close of the last allowed bar. Ticks catch most exits first; this replays what they could not see (EA off, gaps).
+   // skip_entry_bar: the entry was inside that bar (W1), so its extremes may be older than the trade.
+   bool CatchUp(const int k,ShadowCandTrade &t,const bool skip_entry_bar,const int max_bars)
+     {
+      if(!t.open) return false;
+      const datetime e_bar=(datetime)((long)t.opened/1800*1800);
+      const datetime cur=iTime(sym,PERIOD_M30,0);
+      if(cur==0 || cur<=e_bar) return false;
+      MqlRates m[];
+      ArraySetAsSeries(m,false);
+      const int mc=CopyRates(sym,PERIOD_M30,e_bar,cur-1,m);
+      if(mc<=0) return false;
+      const double pt=SymbolInfoDouble(sym,SYMBOL_POINT);
+      const bool has_tp=(t.target>0.0);
+      for(int j=0;j<mc;j++)
+        {
+         if(m[j].time>=cur) break;
+         const bool entry_bar=(m[j].time<=e_bar);
+         if(entry_bar && skip_entry_bar) continue;
+         const double sp=m[j].spread*pt;
+         const string when=" (nến "+TimeToString(m[j].time,TIME_DATE|TIME_MINUTES)+")";
+         if(t.dir==1)
+           {
+            if(m[j].low<=t.stop) { Close(k,t,entry_bar ? t.stop : MathMin(t.stop,m[j].open),"stop"+when); return true; }
+            if(has_tp && m[j].high>=t.target) { Close(k,t,entry_bar ? t.target : MathMax(t.target,m[j].open),"target 3R"+when); return true; }
+           }
+         else
+           {
+            if(m[j].high+sp>=t.stop) { Close(k,t,entry_bar ? t.stop : MathMax(t.stop,m[j].open+sp),"stop"+when); return true; }
+            if(has_tp && m[j].low+sp<=t.target) { Close(k,t,entry_bar ? t.target : MathMin(t.target,m[j].open+sp),"target 3R"+when); return true; }
+           }
+         if(max_bars>0 && j>=max_bars-1)
+           { Close(k,t,t.dir==1 ? m[j].close : m[j].close+sp,IntegerToString(max_bars)+" nến"+when); return true; }
         }
       return false;
      }
@@ -201,16 +238,6 @@ public:
       const int cnt=CopyRates(sym,PERIOD_M30,1,1500,r);     // r[cnt-1] = the bar that just closed (i)
       if(cnt<400) return;
       const int i=cnt-1;
-      const double spread=ask-bid;
-      // open trade: backstop on the closed bar, then the 96-bar time exit
-      if(sq.open && r[i].time>=sq.opened)
-        {
-         if(!StopOrTarget(0,sq,bid,ask,r[i].high,r[i].low,spread))
-           {
-            const int held=iBarShift(sym,PERIOD_M30,sq.opened,false);   // bars from the entry bar to the forming bar
-            if(held>=96) Close(0,sq,sq.dir==1 ? bid : ask,"96 nến");
-           }
-        }
       double c[];
       ArrayResize(c,cnt);
       for(int k=0;k<cnt;k++) c[k]=r[k].close;
@@ -289,10 +316,27 @@ public:
       return (datetime)((long)(t/86400)*86400-(long)back*86400);
      }
 
+   // The research exit: the close of the Friday 21:00 server bar of the trade's week (21:30). When that bar is not
+   // there (holiday, no history) the current price, labelled `fallback`.
+   void FridayExit(const int s,const double bid,const double ask,const string fallback)
+     {
+      const int fb=iBarShift(sym,PERIOD_M30,wk_week+4*86400+21*3600,true);
+      if(fb>=1)
+        {
+         const double c=iClose(sym,PERIOD_M30,fb);
+         Close(1,wk[s],s==0 ? c : c+iSpread(sym,PERIOD_M30,fb)*SymbolInfoDouble(sym,SYMBOL_POINT),"thứ Sáu 21:30");
+        }
+      else Close(1,wk[s],s==0 ? bid : ask,fallback);
+     }
+
    // New server week: the levels of last week (its D1 bars); an open trade of the old week is closed.
    void WeekStart(const datetime monday)
      {
-      for(int s=0;s<2;s++) if(wk[s].open) Close(1,wk[s],s==0 ? SymbolInfoDouble(sym,SYMBOL_BID) : SymbolInfoDouble(sym,SYMBOL_ASK),"tuần mới");
+      for(int s=0;s<2;s++)
+        {
+         if(!wk[s].open || CatchUp(1,wk[s],true,0)) continue;
+         FridayExit(s,SymbolInfoDouble(sym,SYMBOL_BID),SymbolInfoDouble(sym,SYMBOL_ASK),"tuần mới");
+        }
       wk_week=monday; wk_done[0]=false; wk_done[1]=false; wk_high=0.0; wk_low=0.0;
       MqlRates d[];
       ArraySetAsSeries(d,false);
@@ -347,14 +391,12 @@ public:
       if(wk_week==0 || wk_high<=0.0) return;
       if(!wk_scanned) WeekScan();
       const bool friday_out=(tm.day_of_week==5 && tm.hour*60+tm.min>=21*60+30) || tm.day_of_week==6 || tm.day_of_week==0;
-      double bh=0.0, bl=0.0;
-      if(new_bar) { bh=iHigh(sym,PERIOD_M30,1); bl=iLow(sym,PERIOD_M30,1); }
       for(int s=0;s<2;s++)
         {
          if(!wk[s].open) continue;
-         const bool just=(new_bar && iTime(sym,PERIOD_M30,1)<wk[s].opened);
-         if(StopOrTarget(1,wk[s],bid,ask,just ? 0.0 : bh,just ? 0.0 : bl,ask-bid)) continue;
-         if(friday_out) Close(1,wk[s],s==0 ? bid : ask,"thứ Sáu 21:30");
+         if(new_bar && CatchUp(1,wk[s],true,0)) continue;
+         if(StopOrTarget(1,wk[s],bid,ask)) continue;
+         if(friday_out) FridayExit(s,bid,ask,"cuối tuần");
         }
       if(!wk_scanned || tm.day_of_week<1 || tm.day_of_week>4) return;   // entries Monday..Thursday, after the scan
       for(int s=0;s<2;s++)
@@ -390,13 +432,17 @@ public:
       if(bid<=0.0 || ask<=0.0) return;
       const datetime m30=iTime(sym,PERIOD_M30,0);
       const bool new_bar=(m30!=0 && m30!=last_m30);
-      if(p.squeeze && !new_bar) StopOrTarget(0,sq,bid,ask,0.0,0.0,ask-bid);
       if(new_bar)
         {
          const bool first=(last_m30==0);
          last_m30=m30;
-         if(p.squeeze && !first) SqueezeBar(bid,ask);       // the bar seen at the start may still be loading
+         if(p.squeeze)
+           {
+            CatchUp(0,sq,false,96);                         // stop / 3R / 96 bars over the closed bars since the entry
+            if(!first) SqueezeBar(bid,ask);                 // the bar seen at the start may still be loading
+           }
         }
+      if(p.squeeze) StopOrTarget(0,sq,bid,ask);
       if(p.weekly) WeeklyTick(bid,ask,new_bar);
      }
 
