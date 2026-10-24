@@ -209,6 +209,28 @@ Bộ kiểm tra loại câu trả lời khi:
 2. **Mô hình cho từng vai và ngân sách API** mỗi tháng.
 3. **Phạm vi:** chỉ demo, hay cả VPS cent; chỉ XAUUSD trước, hay cả BTC.
 
+### Quyết định của người dùng (25/10/2026)
+
+| Câu hỏi | Quyết định |
+|---|---|
+| Nguồn tin bằng chữ | **Làm sau.** Ghi lại yêu cầu (bên dưới); đến khi có nguồn, agent 2 chỉ dùng lịch và con số |
+| Ngân sách API | **Dưới 20 lần gọi mô hình mỗi ngày** cho toàn hệ thống. Một cuộc họp đầy đủ khoảng 5–6 lần gọi, nên tối đa khoảng 3 cuộc họp mỗi ngày; làn nhanh và người kể tính chung vào hạn mức này |
+| Phạm vi | **Demo và VPS cent**; **vàng trước**, thị trường khác sau |
+
+**Yêu cầu cho nguồn tin, khi làm:**
+- tiêu đề và tóm tắt tin có dấu thời gian UTC;
+- nguồn ổn định, có lưu trữ để đối chiếu;
+- lọc theo USD, vàng, Fed, địa chính trị;
+- người dùng duyệt nguồn trước khi nối.
+
+Nếu cần dữ liệu ngoài MT5 thì phải ghi rõ trong kế hoạch.
+
+**Hệ quả của hạn mức 20 lần / ngày:**
+- bộ điều phối giữ một bộ đếm ngày;
+- khi gần hết hạn mức chỉ họp cho bất thường và tin lớn;
+- nếu hết hạn mức thì quay về luật và mỏ neo (an toàn, như khi AI lỗi);
+- Q4 mỗi giờ luôn do agent 1 trả lời, không tốn lượt gọi.
+
 ## 7. Bước tiếp theo (3b)
 
 - Giao thức 2 vòng chạy được (điều phối Python gọi Claude API).
