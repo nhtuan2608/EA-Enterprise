@@ -59,6 +59,7 @@ AI **bắt đầu ước lượng từ đây**, rồi mới điều chỉnh theo
 | B7 | **Đỉnh/đáy ngày trước không cho biết hướng** | Phá 27 % ≈ bật 26–28 %. Giá đóng cửa ngày trước giữ giá kém hơn mức giả 15–34 điểm %. 2024–25 đáy giữ nhiều hơn, đỉnh bị phá nhiều hơn (có thể do chu kỳ tăng) | G95 F6, G109 | vừa |
 | B8 | **Phá giả hay đi tiếp, tính từ giá hiện tại, gần như tung đồng xu** | ± 1 ATR M30 trong 4 giờ sau khi phá mức: đi tiếp khoảng 51 % (45–54 % theo năm, 48–55 % theo loại mức). Không trường bối cảnh giá nào đoán tốt hơn (AUC 0,50–0,52). AUC 0,70 của G110 / G156b là **hình học** của định nghĩa "giữ được mức" (nến đóng càng xa mức càng dễ "giữ") | G156a2, G156b, G110 | cao |
 | B21 | Lệnh S07 **đang lời** đi tiếp +1R trước khi lùi 1R: **61 %** (54–69 % theo năm) | Là lợi thế xu hướng của S07, không phải bối cảnh; chia theo R đang có và D1 không cải thiện chắc chắn | G156a2 | vừa |
+| B22 | Cú phá mức trên **BTC H1** đi tiếp khoảng **54 %** (52–59 % mọi năm 2019–2026); FX H1 khoảng 49–51 % | Thiên hướng động lượng nhẹ của BTC; bối cảnh không cải thiện; sau phí ≈ 0, không trade đứng riêng | G157 | vừa |
 | B10 | Phiên Mỹ đẩy tiếp thì hôm sau phá cực trị hôm nay cùng chiều **56–68 %**; phiên Mỹ đảo mạnh thì chỉ 0–30 % | Phần lớn là cơ học (giá đã xa cực trị) | G126 | vừa |
 | B13 | **Lần phá EMA200 H4 đầu tiên thường bị kéo ngược** | Vào ở nến thứ hai: −0,13 đến −0,54R | G130 | vừa |
 | B14 | Trong chu kỳ tăng, "đỉnh cạn đà sau nhiều lần RSI quá mua" **phần lớn chỉ là nhịp nghỉ** | Bán đỉnh 2022–25: −0,05 đến −0,77R | G131c | cao |
@@ -106,7 +107,7 @@ Nếu lập luận của AI dựa vào một trong các ý dưới đây, câu t
 | C15 | Scalp ghép luật tự động | Lãi chỉ do ăn theo xu hướng D1; âm trên BTC và bạc | G154 |
 | C16 | Setup FX (USD dẫn, sức mạnh tiền tệ, động lượng rổ) | Không đạt | FX01–FX03, G90–G93, G124 |
 | C17 | Quẻ Kinh Dịch, gieo ngẫu nhiên | Tương đương lệnh vào ngẫu nhiên | G155 (lý do) |
-| C18 | Tình huống có tên để đoán hướng: trước / sau tin, tin ra chưa mở phiên Mỹ, quét rồi rút (cùng hay ngược D1), giá chạy volume giảm, vàng và USD cùng chiều, phản ứng ngược kỳ vọng tin, đồng thuận 4 khung, key level hợp lưu, key level test nhiều lần, phá + retest giữ | 48–54 % đi theo, chênh với đối chứng ≤ 3 điểm, mọi CI chứa 0. Chỉ dùng để **cảnh báo / giải thích**. "Quét rồi rút đúng hướng D1" còn hơi kém hơn chỉ theo D1 | G156c |
+| C18 | Tình huống có tên để đoán hướng: trước / sau tin, tin ra chưa mở phiên Mỹ, quét rồi rút (cùng hay ngược D1), giá chạy volume giảm, vàng và USD cùng chiều, phản ứng ngược kỳ vọng tin, đồng thuận 4 khung, key level hợp lưu, key level test nhiều lần, phá + retest giữ | 48–54 % đi theo, chênh với đối chứng ≤ 3 điểm, mọi CI chứa 0. Chỉ dùng để **cảnh báo / giải thích**. "Quét rồi rút đúng hướng D1" còn hơi kém hơn chỉ theo D1, cùng dấu ở 4 / 5 thị trường (vàng, GBPUSD, USDJPY, BTC). FX và BTC cũng không có tình huống nào trade được | G156c, G157 |
 
 ## Phần D. Logic các bot (trạng thái 24/10/2026, demo 1223006)
 

@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 SELECT, CHECK, AFTER = [2020, 2021, 2022, 2023], [2024, 2025, 2026], "sau"
 CHECK_END = pd.Timestamp("2026-07-01").timestamp()
 K_SHRINK, BOOT, SEED = 50, 1000, 156
+CI_ALPHA = 0.05            # two-sided level of the week-block intervals (G157 sets 0.05 / 4)
 DIRECTIONAL = ["chế độ D1", "SMA50/200 D1", "h4_side", "dải EMA xếp", "di_gap", "cách VWAP/atr", "cách biên Á trên/atr",
                "cách biên Á dưới/atr", "cách PDH/atr", "cách PDL/atr", "cách PWH/atr", "cách PWL/atr", "EMA200 D1 /atr",
                "lợi nhuận 4 nến/atr", "lợi nhuận 16 nến/atr"]
@@ -121,7 +122,7 @@ def week_boot(df, f, rng):
         pick = rng.choice(len(keys), len(keys))
         idx = [i for k in pick for i in blocks[keys[k]]]
         out.append(f(idx))
-    return [round(float(np.percentile(out, 2.5)), 4), round(float(np.percentile(out, 97.5)), 4)]
+    return [round(float(np.percentile(out, 50 * CI_ALPHA)), 4), round(float(np.percentile(out, 100 - 50 * CI_ALPHA)), 4)]
 
 
 def evaluate_class(df, y, preds, rng):
