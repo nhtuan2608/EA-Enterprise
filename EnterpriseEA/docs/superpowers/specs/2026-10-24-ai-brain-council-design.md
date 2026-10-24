@@ -111,6 +111,60 @@ JSON cố định, đi qua bộ kiểm tra giống cách Ching-Oracle kiểm AI:
 
 Sai khuôn thì bỏ, và ghi vào nhật ký.
 
+### 4.4 Quản lý lệnh: kế hoạch có điều kiện + làn nhanh
+
+Hội đồng họp mất khoảng **30–90 giây**, còn quản lý lệnh khi giá giật cần phản ứng trong mili giây. Vì vậy **AI không quản lý lệnh trực
+tiếp: AI viết sẵn kế hoạch có điều kiện, EA thực thi ngay khi điều kiện xảy ra.**
+
+| Tốc độ | Ai làm | Làm gì |
+|---|---|---|
+| Mili giây (mỗi tick) | EA, luật cố định | SL/TP, kill switch, và **thực thi kế hoạch có điều kiện** đang hiệu lực |
+| Vài giây | **Làn nhanh**: một agent mô hình nhỏ | Chỉ cho tình huống khẩn chưa có trong kế hoạch (gap lớn, tin bất ngờ, spread nổ); chỉ được "giảm rủi ro / tạm dừng", thời hạn ngắn. Hội đồng xét lại sau |
+| Phút | Hội đồng đầy đủ | Đầu mỗi giờ và khi có sự kiện: viết lại kế hoạch cho giờ tới, xét lại các phản ứng nhanh |
+
+Ví dụ một kế hoạch (EA đọc được):
+
+```
+Lệnh #123 (S07 mua), hiệu lực tới 15:00:
+  NẾU nến M5 đóng lại trong biên Á            → giảm 50% khối lượng
+  NẾU giá chạy thêm ≥ 1 ATR theo chiều lệnh   → giữ nguyên, không chốt sớm
+  NẾU spread > 3 lần trung vị trước tin       → không bồi
+  còn lại                                     → S07 quản lý như thường
+Lý do: B2, A8, A14 · tự hết hạn lúc 15:00 hoặc khi lệnh đóng
+```
+
+Giới hạn:
+1. **Menu hành động cố định**: giảm khối lượng, dời SL về phía an toàn hơn (không bao giờ nới ra), chốt một phần, chặn bồi, giữ nguyên.
+2. Điều kiện chỉ dùng đại lượng EA tự đo được: giá đóng so với mức, số ATR, spread, thời gian tới tin.
+3. Có thời hạn. Hết hạn, lỗi hoặc thiếu kế hoạch thì quay về luật gốc của bot.
+4. Dữ liệu cũ cảnh báo quản lý "thông minh" từng làm hại S07:
+   - G135: cách thoát hiện tại gần tối ưu;
+   - G70: dời về hòa vốn làm kém đi;
+   - G152: hòa vốn trước tin chỉ tốt khi đi ngang.
+
+   Vì vậy ở giai đoạn A, kế hoạch quản lý **chỉ chạy ảo**: EA ghi "nếu làm theo kế hoạch thì lệnh kết thúc ra sao", so với cách bot tự
+   quản lý.
+
+### 4.5 Vào sớm hơn setup (chỉ đo, không làm thật)
+
+G73 đã test vào lệnh sớm hơn S07:
+- vào giữa nến chỉ sớm khoảng 15 phút, giá tốt hơn +0,02R;
+- lệnh chờ đặt trước xác nhận thì dính nhiều phá giả (+0,36R so với +0,50R, DD p90 19 % so với 11 %).
+
+Cho hội đồng kích hoạt sớm còn trái nguyên tắc quyền một chiều. Vì vậy:
+- **Giai đoạn A**: khi S07 mới đủ 4/5 điều kiện, hội đồng trả lời "xác suất S07 vào lệnh trong 2 giờ tới, và nếu vào thì có lãi không".
+  EA ghi một **lệnh sớm ảo** khi hội đồng đồng ý với xác suất cao.
+- So với lệnh S07 thật:
+  - giá vào sớm tốt hơn bao nhiêu R;
+  - bao nhiêu lần S07 không bao giờ xác nhận;
+  - tổng lợi có lớn hơn tổng thiệt không.
+- Chỉ khi forward tốt rõ mới bàn **luật vào sớm có giới hạn**:
+  - rủi ro nhỏ (ví dụ × 0,5);
+  - S07 phải xác nhận trong N nến, không thì tự thoát;
+  - khi xác nhận thì nâng lên rủi ro bình thường.
+
+  Luật vẫn quyết cuối cùng.
+
 ## 5. Đánh giá
 
 Mọi agent trả lời **bằng xác suất cho cùng câu hỏi**. Sau 4 giờ (hoặc khi lệnh đóng), hệ thống tự gán đáp án và chấm.
