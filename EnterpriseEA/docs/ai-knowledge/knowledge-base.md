@@ -106,6 +106,7 @@ Nếu lập luận của AI dựa vào một trong các ý dưới đây, câu t
 | C15 | Scalp ghép luật tự động | Lãi chỉ do ăn theo xu hướng D1; âm trên BTC và bạc | G154 |
 | C16 | Setup FX (USD dẫn, sức mạnh tiền tệ, động lượng rổ) | Không đạt | FX01–FX03, G90–G93, G124 |
 | C17 | Quẻ Kinh Dịch, gieo ngẫu nhiên | Tương đương lệnh vào ngẫu nhiên | G155 (lý do) |
+| C18 | Tình huống có tên để đoán hướng: trước / sau tin, tin ra chưa mở phiên Mỹ, quét rồi rút (cùng hay ngược D1), giá chạy volume giảm, vàng và USD cùng chiều, phản ứng ngược kỳ vọng tin, đồng thuận 4 khung, key level hợp lưu, key level test nhiều lần, phá + retest giữ | 48–54 % đi theo, chênh với đối chứng ≤ 3 điểm, mọi CI chứa 0. Chỉ dùng để **cảnh báo / giải thích**. "Quét rồi rút đúng hướng D1" còn hơi kém hơn chỉ theo D1 | G156c |
 
 ## Phần D. Logic các bot (trạng thái 24/10/2026, demo 1223006)
 
