@@ -1,7 +1,9 @@
 """G156b: quantitative anchor per question (M0 base rate, M1 shrunk strata table, M2 logistic / linear, M3 shallow LightGBM),
 walk-forward by year, Brier skill vs M0 with week-block bootstrap; Q2 scored by R. Plan: docs/superpowers/plans/2026-10-24-g156b-anchor.md.
 
-Usage: g156b_anchor.py <g156a results dir> <out dir>
+Usage: g156b_anchor.py <g156a results dir> <out dir> [--repose]
+  --repose (G156a2): only Q1 and Q4 with the symmetric first-passage labels; Q1 drops LƯỠNG LỰ / CẢ HAI, Q4 keeps every open leg and
+  drops ĐÓNG TRƯỚC / CẢ HAI.
 """
 import json
 import sys
@@ -218,13 +220,14 @@ def main():
     src, out = Path(sys.argv[1]), Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(SEED)
+    repose = "--repose" in sys.argv
     summary = {}
-    for q in ("Q1", "Q2", "Q3", "Q4"):
+    for q in (("Q1", "Q4") if repose else ("Q1", "Q2", "Q3", "Q4")):
         df = pd.read_csv(src / f"{q}.csv", encoding="utf-8")
         if q == "Q1":
-            df = df[df["đáp án"] != "LƯỠNG LỰ"]
+            df = df[~df["đáp án"].isin(["LƯỠNG LỰ", "CẢ HAI"])]
         if q == "Q4":
-            df = df[df["đang lời"]]
+            df = df[~df["đáp án"].isin(["ĐÓNG TRƯỚC", "CẢ HAI"])] if repose else df[df["đang lời"]]
         df = df.reset_index(drop=True)
         df, X, y, strata = prepare(df, q)
         regression = q == "Q2"
