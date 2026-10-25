@@ -1,0 +1,13 @@
+{
+ "S07": {
+  "n": 1208,
+  "mu": 0.2619,
+  "sigma": 1.5706,
+  "p_win": 0.3121,
+  "risk_percent": 1.5,
+  "source": "G89 M30 book, all legs, weighted R (w x D1 0.5), 05/2018-06/2026"
+ },
+ "VHEDGE": null,
+ "CTXLIMIT": null,
+ "XRT": null
+}

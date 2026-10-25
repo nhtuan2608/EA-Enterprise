@@ -38,12 +38,21 @@ def now() -> float:
 def services(root: Path, config_path: str) -> list[dict]:
     py = sys.executable
     q = str(root)
-    return [
+    out = [
         {"name": "ai_bridge", "script": "ai_bridge.py", "args": [py, str(HERE / "ai_bridge.py"), "--queue-root", q, "--loop"]},
         {"name": "telegram", "script": "telegram_gateway.py",
          "args": [py, str(HERE / "telegram_gateway.py"), "--queue-root", q, "--config", config_path, "--loop"]},
         {"name": "soak", "script": "soak_monitor.py", "args": [py, str(HERE / "soak_monitor.py"), "--queue-root", q, "--loop"]},
     ]
+    # AI council (step 3b-1, phase A: log only), only when telegram.json has "council": {"enabled": true}
+    try:
+        council = (json.loads(Path(config_path).read_text(encoding="utf-8")).get("council") or {})
+    except (OSError, ValueError):
+        council = {}
+    if council.get("enabled") is True:
+        out.append({"name": "council", "script": "council.py",
+                    "args": [py, str(HERE / "council.py"), "--queue-root", q, "--config", config_path, "--loop"]})
+    return out
 
 
 def redact(text: str, token: str) -> str:
