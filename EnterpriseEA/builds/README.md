@@ -33,6 +33,7 @@ Trên VPS, chép các file này vào `/opt/qtl/data/mt5/terminal/MQL5/Presets/`.
 - phạm vi hòa vốn trước tin cho lệnh S07 (`InpS07NewsBreakEvenScope`: `ALL` như cũ, **mặc định** / `TOP_TIER` chỉ NFP, CPI, Core PCE, Fed, FOMC / `OFF`; G152, chờ kiểm forward G152b);
 - nhãn DXY cho tín hiệu S07 vàng (chỉ ghi log).
 - **ứng viên SHADOW `SQZ` và `W1`** (G153b): chỉ ghi lệnh ảo vào nhật ký bot, không đặt lệnh. Input `InpShadowSqueeze` / `InpShadowWeekly`, mặc định bật.
+- **gói bối cảnh cho hội đồng AI** (bước 3b-2): mỗi nến M30 mới đóng ghi `current/council/context.json` (1.000 nến M30, 250 H4, 300 D1, bid / ask). Chỉ đọc giá. Input `InpCouncilContext`, mặc định bật.
 
 Bản 16/10 không có trọng số D1. Các preset bên dưới không ghi đè hai input này, nên dùng mặc định. Một EA chạy cả 4 chiến lược: S07, VHedge G119, XauRegime và CtxLimit. Nó thay cho 4 bản tester.
 

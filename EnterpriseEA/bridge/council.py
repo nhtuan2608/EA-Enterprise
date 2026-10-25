@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import ai_bridge  # noqa: E402  (same provider call: claude CLI, empty working directory, no tools)
+import council_market as cm  # noqa: E402
 import council_prompts as cp  # noqa: E402
 import council_rules as cr  # noqa: E402
 
@@ -156,6 +157,10 @@ class Council:
             "giam_sat": {"dau_van_tay": self.prints, "cusum": self.state.get("cusum", {})},
             "mo_neo": cr.ANCHOR,
         }
+        doc = cm.load(self.root)
+        if doc:
+            mk = cm.analyse(doc, now)
+            ctx["gia"] = {"the_trang_thai": mk["gia"], "tinh_huong": mk["tinh_huong"], "tuoi_file_giay": mk["tuoi_giay"]}
         return ctx
 
     # ------------------------------------------------------------------------------------------------------ triggers
@@ -186,6 +191,10 @@ class Council:
         if orp is not None and mx and float(orp) >= self.cfg["open_risk_share"] * float(mx):
             out.append({"loai": "thuc_thi", "khoa": f"risk:{time.strftime('%Y%m%d%H', time.gmtime(now))}",
                         "mo_ta": f"rủi ro mở {orp} % / trần {mx} %"})
+        doc = cm.load(self.root)
+        if doc:
+            for a in cm.analyse(doc, now)["bat_thuong"]:
+                out.append({"loai": "thuc_thi", "khoa": a["khoa"], "mo_ta": a["mo_ta"]})
         # 2. USD HIGH news within the window while XAUUSD is exposed or a bot is close to a signal
         exposed = any((b.get("open") or 0) > 0 for b in blist) or any(
             b.get("active") and (b.get("near") or 0) >= self.cfg["near_threshold"] for b in blist)

@@ -18,7 +18,7 @@ ROLES = {
         "mo_ta": "Agent thực thi và bất thường: diễn giải cảnh báo kỹ thuật (lỗi lệnh, EA không cập nhật, lỗ trong ngày, rủi ro mở), "
                  "nguyên nhân có thể, kéo dài bao lâu, bot nào bị ảnh hưởng.",
         "ma": {"A12", "A13", "E5"},
-        "du_lieu": ["thoi_gian", "kich_hoat", "thuc_thi", "tai_khoan", "bot"],
+        "du_lieu": ["thoi_gian", "kich_hoat", "thuc_thi", "tai_khoan", "bot", "gia"],
         "model": "sonnet",
     },
     "giam_sat_bot": {
@@ -33,7 +33,7 @@ ROLES = {
                  "đi tiếp; lọc S07 bằng thông tin giá — G156b; áp luật 'đừng làm' của lệnh ngẫu nhiên cho bot — C11; vào sớm). "
                  "Với lệnh mới: đề xuất kế hoạch quản lý có điều kiện tối giản, mặc định để luật bot tự quản.",
         "ma": {"B21", "C11", "C18", "A8", "A15"},
-        "du_lieu": ["thoi_gian", "kich_hoat", "bot", "mo_neo", "y_kien"],
+        "du_lieu": ["thoi_gian", "kich_hoat", "bot", "mo_neo", "gia", "y_kien"],
         "model": "sonnet",
     },
     "phan_bien": {
@@ -41,7 +41,7 @@ ROLES = {
                  "không; lý do có thuộc phần C (đã thất bại) không; có rơi vào giới hạn E không; có dùng tình huống có tên để đoán "
                  "hướng không (C18). Ghi các bác bỏ vào 'bac_bo'.",
         "ma": None,                                      # every C and E row
-        "du_lieu": ["kich_hoat", "mo_neo", "y_kien"],
+        "du_lieu": ["kich_hoat", "mo_neo", "gia", "y_kien"],
         "model": "sonnet",
     },
     "tham_phan": {
@@ -49,7 +49,7 @@ ROLES = {
                  "biện; KHÔNG đưa lý do mới; bất đồng mạnh thì hạ mức tự tin và mặc định 'giu_nguyen' (luật bot quyết). Xác suất về "
                  "hướng không được lệch mỏ neo quá 5 điểm. Ghi ý kiến thiểu số. Viết 'tom_tat_vi' (tiếng Việt, ≤ 3 câu) cho người dùng.",
         "ma": "all",
-        "du_lieu": ["thoi_gian", "kich_hoat", "tai_khoan", "bot", "tin", "thuc_thi", "giam_sat", "mo_neo", "y_kien"],
+        "du_lieu": ["thoi_gian", "kich_hoat", "tai_khoan", "bot", "tin", "thuc_thi", "giam_sat", "mo_neo", "gia", "y_kien"],
         "model": "opus",
     },
 }

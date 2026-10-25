@@ -53,6 +53,7 @@
 #include "Runtime/AiBridgeClient.mqh"
 #include "Runtime/CommandQueue.mqh"
 #include "Bots/BotHost.mqh"
+#include "Runtime/CouncilContext.mqh"
 
 input bool   InpObserverOnly           = true;
 input bool   InpExecutionEnabled       = false;
@@ -205,6 +206,7 @@ input double InpBotsDailyLossPct        = 6.0;     // portfolio: bots stop new e
 input bool   InpBotsNewsGuard           = false;   // portfolio: block bot entries in the News Guard window (VHedge research had no news filter)
 input bool   InpBotsRequireLiveSession  = true;    // portfolio: bot entries need the signed live session, as S07
 input bool   InpBotsMcpCommands         = true;    // accept bot on/off from the MCP server (bridge/eea_mcp_server.py --allow-control)
+input bool   InpCouncilContext          = true;    // AI council 3b-2: write current/council/context.json (closed M30/H4/D1 bars) each new M30 bar; read-only
 
 CEAConfig g_config;
 CSharedState g_state;
@@ -1193,6 +1195,7 @@ void EEA_BotsInitFromInputs()
    ShadowCandParams sp;
    sp.squeeze=InpShadowSqueeze; sp.weekly=InpShadowWeekly;
    g_bots_allow_mcp=InpBotsMcpCommands;
+   g_council_context_enabled=InpCouncilContext;
    EEA_BotsHostInit(g_config.data_root,InpBotsSymbol,defaults,modes,magics,vp,xp,cp,sp);
   }
 
@@ -2006,6 +2009,8 @@ void OnTimer()
           EEA_BotsWriteStatus();
          }
        if(InpBotsEnabled) EEA_BotsPublishPanel();
+       // AI council (phase A): market context for bridge/council.py, once per closed M30 bar.
+       if(g_runtime.initialized) EEA_CouncilContextTimer(g_config.data_root,InpBotsSymbol);
        // Every timer, also when the strategy branch below is off: /status and the soak see why.
        EEA_WriteLiveStatus();
        if(InpStrategyRuntimeEnabled && g_runtime.status.runtime_state=="OBSERVING" &&
