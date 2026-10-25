@@ -43,6 +43,35 @@ giao dịch** và chạy theo luật cứng.
 7. BÁO CÁO   người kể (agent 8) tóm tắt trong báo cáo thứ Bảy: giả thuyết mới, đang theo dõi, đã chấm
 ```
 
+### 3.1 Nhịp chạy (người dùng đồng ý 25/10/2026)
+
+| Nhịp | Việc | AI? |
+|---|---|---|
+| Liên tục / hằng ngày | Ghi sự kiện forward của giả thuyết đang theo dõi; kiểm tra sức khỏe (giả thuyết ghi đúng không, dữ liệu có lỗi không) | không |
+| Hằng tuần (cuối tuần) | AI đề xuất tối đa 3 giả thuyết, máy lọc, khóa | có, 3–5 lượt |
+| Khi đủ mẫu, hoặc tới mốc kiểm giữa kỳ đã khai | Chấm theo tiêu chí đã khóa | không |
+| Hằng tháng | Tổng kết sổ cái trong báo cáo thứ Bảy đầu tháng | có, 1 lượt (người kể) |
+
+**Không đề xuất hằng ngày:**
+- dữ liệu một ngày quá ít (S07 khoảng 1–2 lệnh gốc / tuần);
+- đề xuất càng nhiều thì ngưỡng của sổ cái càng khắt khe (giả thuyết thứ 100 cần α khoảng 0,000003);
+- tránh tranh lượt AI với hội đồng giao dịch.
+
+**Không chấm hằng ngày.** Nhìn kết quả mỗi ngày rồi dừng khi "trông đạt" làm tăng khả năng đạt nhờ may. Giả thuyết được khai **tối đa
+2 mốc kiểm giữa kỳ** (ví dụ 1/3 và 2/3 cỡ mẫu). Mức α_k của giả thuyết được chia cho các mốc theo kiểu O'Brien–Fleming, khắt khe ở mốc
+sớm:
+
+| Mốc | Phần của α_k |
+|---|---|
+| 1/3 cỡ mẫu | 1 % |
+| 2/3 cỡ mẫu | 19 % |
+| đủ cỡ mẫu | 80 % |
+
+Ngoài các mốc đã khai, script không cho xem kết quả.
+
+**Ngoại lệ:** sự kiện lớn bất thường (thị trường sập, broker đổi điều kiện, chế độ D1 đảo mạnh) cho phép đề xuất ngoài lịch tuần. Lượt đó
+vẫn tính vào sổ cái.
+
 ## 4. Khuôn một giả thuyết
 
 ```json
