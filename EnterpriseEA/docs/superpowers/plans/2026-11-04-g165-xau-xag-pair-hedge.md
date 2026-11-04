@@ -90,3 +90,46 @@ Không bồi, không đảo chân. Một bot đơn giản trước.
   - một rổ mẫu tính tay khớp với engine.
 
 Không chỉnh luật sau khi chạy. Sổ cái: 8 cấu hình, đánh dấu "thăm dò".
+
+## Sửa đổi trước khi chạy (04/11/2026, chưa có kết quả nào)
+
+Người dùng đưa thêm dữ liệu `D:\Work\Project Research\Ingest-data\ingest-20261104` và yêu cầu gộp vào luồng test. Kết quả kiểm khớp
+(`research/long/ingest_merge.py`, `results/g165/ingest_validation.json`):
+
+- **XAU ingest = MT5:** chênh giá đóng TB 0,014 %, tương quan lợi suất ngày 0,997.
+- **XAG ingest không phải giá spot MT5:**
+  - nến ghi 04:00 UTC; giá đóng khớp nhất với giá MT5 lúc **18:00 UTC** cùng ngày, lệch trung vị 0,25 %;
+  - nhiều khả năng là giá settlement hợp đồng tương lai.
+  - Dùng được cho tín hiệu: z-score theo trung bình trượt khử phần lệch basis biến đổi chậm. Nhưng đây là nguồn khác MT5, ghi rõ trong báo cáo.
+
+Vì vậy G165 chuyển từ **H1 2,6 năm** sang **D1, 06/2016 → 11/2026 (~10 năm)**.
+
+**Dữ liệu D1, mọi giá lấy tại 18:00 UTC mỗi ngày giao dịch:**
+- **XAG:**
+  - 06/2016 → 25/06/2026: ingest;
+  - sau đó: MT5 H1 (đóng của nến 17:00 UTC).
+- **XAU:**
+  - từ 19/03/2018: MT5 H1 (đóng của nến 17:00 UTC). Giờ server = UTC + 3 trong mùa DST Mỹ, UTC + 2 ngoài mùa;
+  - **trước 19/03/2018:** chỉ có D1 MT5. Dùng giá đóng D1 server, nên **hai chân lệch giờ khoảng 3–4 tiếng**. Đánh dấu và báo cáo riêng.
+- **Vào / thoát:** ở giá của lần lấy mẫu kế tiếp (18:00 UTC ngày sau), cả hai chân cùng thời điểm.
+- **Chi phí:**
+  - spread trung vị MT5 của từng mã (XAU 0,28 USD, XAG 0,031 USD);
+  - trượt giá 0,5 × spread mỗi chân, mỗi chiều;
+  - phí 6 USD / lot mỗi chân;
+  - **swap thật hiện tại** của broker (XAU mua −74,18 / bán +28,54 USD / lot / đêm; XAG mua −47 / bán +23,2 USD / lot / đêm), × 3 đêm thứ Tư.
+  - Swap của 2016–2021 (lãi suất thấp) có thể khác. Đây là giả định thận trọng.
+
+**Tham số chuyển sang D1:**
+- N ∈ {10; 20} ngày;
+- M2: β hồi quy trên 120 ngày trước;
+- hết giờ: 10 ngày giao dịch.
+
+**Kỳ:**
+- chọn 07/2016 → 2021;
+- kiểm 2022 → 11/2026.
+
+Các luật khác giữ nguyên: k, SL tổng ± 2 ĐLC, chốt khi z về 0, đối chứng, 6 điều kiện.
+
+**Thêm báo cáo (không phải tiêu chí):**
+- kết quả 02/2024 → 11/2026 khi **cả hai chân đều là MT5 spot** (H1 lúc 18:00 UTC), để đo ảnh hưởng của nguồn XAG khác;
+- kết quả riêng đoạn trước / sau 19/03/2018.
