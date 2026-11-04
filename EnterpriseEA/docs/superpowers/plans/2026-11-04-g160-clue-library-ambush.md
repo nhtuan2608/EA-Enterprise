@@ -88,6 +88,76 @@ Một manh mối không đoán được hướng **vẫn có thể** giảm sụ
 | F1 | **DXY phân kỳ**: vàng tạo đáy mới mà DXY không tạo đỉnh mới (G77 F3: nhãn chất lượng tốt cho S07) |
 | F2 | US10Y đổi chiều cùng lúc (dữ liệu H1 có từ 2024) |
 
+### G. Đường trung bình và dải EMA (bổ sung 04/11)
+
+| Mã | Manh mối | Đã biết |
+|---|---|---|
+| G1 | **Dải EMA mở rộng**: EMA21–55–100 xếp thứ tự và khoảng cách EMA21–EMA100 tăng 3 nến liên tiếp (xu hướng đang tăng tốc) | G81 / G82: dải xếp thứ tự là nhãn chất lượng cho S07 (p 0,10) |
+| G2 | **Dải EMA co lại / xoắn**: khoảng cách EMA21–EMA200 < 1 ATR (nén) | G119: EMA bó + volume giúp VHedge |
+| G3 | **Hồi về EMA trong xu hướng** (EMA21 / 55 H1, H4) | G74: gần như mọi lệnh S07 chạm lại EMA21 |
+| G4 | **Cắt EMA khung lớn** (EMA50 / 200 H4, golden / death cross D1) | G133: D1 cross có ích cho S07 |
+
+### H. Quá mua / quá bán, dao động
+
+| Mã | Manh mối | Đã biết |
+|---|---|---|
+| H1 | **RSI14** ra khỏi 30 / 70 (H1, H4) | G130 / G131: âm khi đánh ngược trend |
+| H2 | **Stochastic 14-3-3** cắt trong vùng 20 / 80 | chưa test |
+| H3 | **CCI20** vượt ± 200 rồi quay lại | chưa test |
+| H4 | **Williams %R** cực trị, cùng chiều D1 (quá bán trong xu hướng tăng = mua pullback) | chưa test |
+| H5 | **MACD** phân kỳ histogram | chưa test |
+
+### I. Cấu trúc sóng và mô hình hình học
+
+Dùng **ZigZag** với ngưỡng k × ATR H4 (k ∈ {2; 3}) làm khung chung cho cả nhóm.
+
+| Mã | Manh mối | Định nghĩa bằng luật | Đã biết |
+|---|---|---|---|
+| I1 | **Elliott — vào sóng 5** | 5 điểm ZigZag thỏa luật Elliott: sóng 2 không về quá gốc sóng 1; sóng 3 không ngắn nhất; sóng 4 không chồng vào vùng sóng 1. Vào khi sóng 4 kết thúc (đảo ZigZag) | chưa test |
+| I2 | **Elliott — sau ABC** | sau 5 sóng, chỉnh A-B-C với C ≈ 1–1,618 × A. Vào theo chiều xu hướng gốc ở cuối C | chưa test |
+| I3 | **Harmonic** (Gartley, Bat, Butterfly, Crab) | 5 điểm X-A-B-C-D đúng tỷ lệ Fibonacci chuẩn của từng mẫu, sai số ± 5 %. Vào ở D | chưa test |
+| I4 | **Dow**: đỉnh / đáy cao dần (thấp dần) trên H4 | 2 đỉnh và 2 đáy liên tiếp cùng chiều | gần với chế độ D1 |
+| I5 | **Wyckoff spring / upthrust** sau biên tích lũy | biên ≥ 20 nến H1; râu xuyên đáy biên rồi đóng lại vào trong, volume cao | G139 A2: không đạt (entry thường) |
+| I6 | **Tam giác / nêm / cờ** | 2 đường xu hướng hội tụ qua ≥ 4 điểm ZigZag | G139 A4: không đạt (entry thường) |
+| I7 | **Hai đỉnh / hai đáy, vai-đầu-vai** | ZigZag; đỉnh 2 cách đỉnh 1 ≤ 0,2 ATR; vào khi phá đường cổ | G137: không đạt (entry thường) |
+
+### J. Chỉ báo xu hướng / kênh khác
+
+| Mã | Manh mối | Đã biết |
+|---|---|---|
+| J1 | **Ichimoku**: Tenkan cắt Kijun trên mây; phá mây (H4) | chưa test |
+| J2 | **Donchian 20 / 55** (kiểu Turtle) | T2 gần giống, có lợi thế trên hàng hóa (G41) |
+| J3 | **Keltner + Bollinger squeeze** | SQZ đang chạy ảo (G153b) |
+| J4 | **Pivot point ngày** (cổ điển P, S1–S3, R1–R3) làm mức phản ứng | chưa test |
+| J5 | **Heikin Ashi** đổi màu sau ≥ 5 nến cùng màu (H4) | chưa test |
+| J6 | **Dải VWAP ± 2σ** ngày / tuần | B3: giá xa VWAP hay chạy tiếp |
+| J7 | **Parabolic SAR** đảo chiều cùng chiều D1 | chưa test |
+
+### K. Nhận diện đi ngang (sideway) — bật / tắt cơ chế bồi lệnh
+
+Lưới bồi lệnh **kiếm tiền khi giá đi ngang và cháy khi giá chạy một chiều** (G158). Vì vậy biết chế độ **đi ngang hay xu hướng** có thể quan
+trọng hơn chọn entry. Nhóm K dùng làm **cổng cho cả cơ chế**, không chỉ làm entry:
+
+| Mã | Nhận diện đi ngang | Đã biết |
+|---|---|---|
+| K1 | ADX14 H4 < 20 và độ rộng Bollinger H4 ở phân vị < 30 % | G83: phân biệt mở biên / đi ngang ở tín hiệu S07 không đạt |
+| K2 | **Efficiency ratio** (Kaufman) 20 ngày < 0,3: giá đi nhiều nhưng đi được ít | G124: ER không giúp breakout FX |
+| K3 | Giá cắt qua EMA50 H4 ≥ 4 lần trong 10 ngày | chưa test |
+| K4 | Biên 10 ngày < 1,5 × ADR20 (nén nhiều ngày) | chưa test |
+| K5 | **Hurst exponent** (R/S, 100 nến H4) < 0,45: dao động quay về | chưa test |
+
+Cách dùng trong G160c / G159:
+- **chỉ mở rổ bồi lệnh khi K = đi ngang**;
+- khi đang có rổ mà K chuyển sang xu hướng ngược rổ, thì **ngừng bồi và hedge** (H1 / H2 G159).
+
+Đối chứng: cùng cơ chế, bật / tắt ngẫu nhiên với cùng tỷ lệ thời gian.
+
+**Hệ quả cho thống kê:** thư viện tăng từ 25 lên khoảng 50 manh mối. Ngưỡng Bonferroni của vòng sàng G160a siết theo đó. Vì vậy G160a xếp ưu
+tiên:
+1. nhóm **K** (cổng đi ngang), vì gắn trực tiếp với nguyên nhân cháy của G158;
+2. các manh mối **chưa test** (H2–H5, I1–I3, J1, J4, J5, J7, K3–K5);
+3. các manh mối đã test ở vai trò khác, giờ chỉ đo ở vai trò **chỗ dừng / chỗ bồi**.
+
 ## 2. Phục kích trước (đặt lệnh chờ ở chỗ thanh khoản)
 
 Mỗi đầu phiên (01:00, 08:00, 15:00 server), dựng **bản đồ thanh khoản** từ B1–B4. Với mỗi mức trong ± 1,5 ADR20 quanh giá:
