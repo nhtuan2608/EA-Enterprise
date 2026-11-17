@@ -149,3 +149,41 @@ Không đặc điểm nào xuất hiện ở gần 100 % tín hiệu. Đây là 
 - ngày được tự sửa khi tiêu đề ngày bị sót;
 - giờ gửi tin không phải giờ khớp lệnh thật;
 - tin "đã TP" do nhóm tự báo không được dùng.
+
+## 8. Bổ sung: 7 chart setup LFX (04–17/11/2026, XAUUSD M30 OANDA)
+
+Script `research/long/g167_lfx/charts7.py`. Giá OANDA lệch MT5 −1,6 … +3,5 USD; các mức đã quy đổi sang giá MT5 trước khi mô phỏng (M1, cùng nến chạm SL
+và TP thì tính SL trước).
+
+| Kèo | Lệnh chờ | Cách giá lúc gửi | SL (ATR H1) | Vùng trùng swing H1 cũ | Khớp | Kết quả |
+|---|---|---|---|---|---|---|
+| 1a sell 3965 | sell limit | 2,2 ATR H1 | 0,8 | có (3970–3976) | sau 2,8 h | **SL** sau 6 phút (−1 R) |
+| 1b buy 3896 | buy limit | 2,3 | 1,2 | có (3895) | không khớp trong 72 h | — |
+| 2 buy 4078–4099 | buy limit | 1,7 | 1,5 | có (4083) | sau 9,1 h | **SL** sau 10,8 h (−1 R) |
+| 3 buy 4028–4036 | buy limit | 0,5 | 0,8 | có (4025–4034) | sau 1,4 h | **TP1 + TP2 + TP3** (+1,62 R chia đều) |
+| 4 sell 4120–4127 | sell limit | 0,8 | 1,3 | biên range (thấy trên chart) | sau 2,5 h | **TP1 + TP2** (+1,41 R) |
+| 6 sell 4067–4073 | sell limit | 1,6 | 1,3 | có (4066–4071) | không khớp | — |
+| 5 sell 3924–3930 | sell limit | 1,0 | 1,2 | có (3925) | không khớp | — |
+| 7 sell 3888–3896 | sell limit | 1,3 | 1,15 | có (3888–3895) | sau 11,7 h (22:42 hôm nay) | **TP1 + TP2**, TP3 còn mở (≥ +0,52 R) |
+
+**Tổng 8 kèo:** 5 khớp. 2 SL, 3 thắng. Tổng ≈ +1,5 R (chia đều TP, chưa tính TP3 của kèo 7). Mẫu quá nhỏ để kết luận.
+
+**Phương pháp đọc từ 7 chart:**
+- **Entry:** lệnh **chờ đặt sẵn** (limit) tại **vùng hỗ trợ / kháng cự cũ**, cách giá 0,5–2,3 ATR H1. 7 / 8 vùng trùng đỉnh / đáy swing H1 trong 10 ngày; thường
+  là mức vừa bị phá rồi chờ test lại (S/R flip).
+- **Không chờ nến xác nhận.** Nến xác nhận M5 / M15 xuất hiện 18–65 phút sau khớp ở cả kèo thắng lẫn kèo thua, nên không phân biệt được.
+- **SL:** phía sau vùng, **~1,15–1,5 ATR H1** (≈ 1,6–2 ATR M30, 18–28 USD); hai kèo SL ngắn 0,8 ATR.
+- **TP:** TP1 gần (0,45–1,1 R, thường là giá lúc gửi hoặc swing gần); TP2 1,1–2,2 R; TP3 1,6–2,4 R ở vùng S/R đối diện.
+- **Đa khung:**
+  - **kèo sell** (1a, 4, 5, 6, 7): D1 dưới EMA50 cả 5 / 5, H4 dưới EMA50 4 / 5. Vào khi M15 / M30 đang hồi lên (RSI M15 51–69). Tức là **bán nhịp hồi vào kháng cự
+    trong xu hướng giảm D1 / H4**.
+  - **kèo buy** (2, 3): H4 trên EMA50, mua nhịp hồi sau một đợt tăng mạnh.
+  - Kèo 1b là kèo buy trong range, ngược D1.
+- **Thời gian:** gửi 09:00–12:41 giờ VN (phiên Á). Lệnh khớp trong phiên Âu / Mỹ (12:22–22:42).
+
+**So với phương pháp đã test:**
+- Gần **G160b "phục kích ở bản đồ thanh khoản"** (chưa chạy).
+- Khác G163 Z2: Z2 vào khi nến chạm mức + đóng xác nhận, không đặt limit ở mức vừa bị phá.
+
+**Đề xuất:** kiểm định đăng ký trước luật "S/R flip limit theo chiều D1" trên 2018–2026. Luật gồm: limit ở swing H1 vừa bị phá, SL 1,3 ATR H1, TP 1 R / 2 R / vùng
+đối diện, hết hạn 24 h. Đối chứng là limit ở mức giả cùng khoảng cách.
