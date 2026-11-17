@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 E = json.load(open("evaluated.json", encoding="utf-8"))
-SYM = {"XAUUSD": "XAUUSD-VIP", "XAGUSD": "XAGUSD-VIP", "USOUSD": "USOUSD-VIP"}
+SYM = {"XAUUSD": "XAUUSD-VIP", "XAGUSD": "XAGUSD-VIP", "USOUSD": "USOUSD-VIP", "BTCUSD": "BTCUSD-VIP", "EURUSD": "EURUSD-VIP"}
 
 
 def ema(x, n):

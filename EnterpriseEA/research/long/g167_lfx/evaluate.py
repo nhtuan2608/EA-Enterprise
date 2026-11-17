@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 YEAR = 2026
-SYM = {"XAUUSD": "XAUUSD-VIP", "XAGUSD": "XAGUSD-VIP", "USOUSD": "USOUSD-VIP"}
+SYM = {"XAUUSD": "XAUUSD-VIP", "XAGUSD": "XAGUSD-VIP", "USOUSD": "USOUSD-VIP", "BTCUSD": "BTCUSD-VIP", "EURUSD": "EURUSD-VIP"}
 
 
 def load(sym):
@@ -187,6 +187,36 @@ def simulate(sym, side, entry, sl, tps, t0, kind, zone=None, order="now"):
     return res
 
 
+def h1_atr(sym, ts):
+    d = pd.read_csv(f"{SYM[sym]}_H1.csv") if sym not in _H1 else _H1[sym]
+    _H1[sym] = d
+    h, l, c = d["high"].to_numpy(), d["low"].to_numpy(), d["close"].to_numpy()
+    pc = np.r_[c[0], c[:-1]]
+    a = pd.Series(np.maximum(h - l, np.maximum(abs(h - pc), abs(l - pc)))).ewm(alpha=1 / 14, adjust=False).mean().to_numpy()
+    k = int(np.searchsorted(d["time"].to_numpy(), ts, side="right")) - 2
+    return float(a[max(k, 0)])
+
+
+_H1 = {}
+
+
+def target_of(s):
+    if s["kind"] == "bot":
+        return s.get("entry"), s.get("entry")
+    z = [float(v) for v in (s.get("zone") or []) if v not in (None, "")]
+    return (min(z), max(z)) if z else (None, None)
+
+
+def dist(sym, ts, s):
+    p = price_at(sym, ts)
+    lo, hi = target_of(s)
+    if p is None or lo is None:
+        return None, p
+    lo, hi = expand(lo, p), expand(hi, p)
+    lo, hi = min(lo, hi), max(lo, hi)
+    return (0.0 if lo <= p <= hi else min(abs(p - lo), abs(p - hi)) / p), p
+
+
 out = []
 for s in S:
     ts = srv_ts(s)
@@ -195,12 +225,23 @@ for s in S:
     sym = s.get("sym", "XAUUSD")
     if sym not in DATA:
         continue
+    # date fix: an OCR-missed date header leaves the previous date; try the same clock time 0..4 days later
+    best_k, best_d = 0, None
+    for kday in range(0, 5):
+        dd, p = dist(sym, ts + kday * 86400, s)
+        if dd is None:
+            continue
+        if best_d is None or dd < best_d - 0.002:
+            best_k, best_d = kday, dd
+    ts += best_k * 86400
     ref = price_at(sym, ts)
     if ref is None:
         continue
     r = {k: s.get(k) for k in ("kind", "date", "time", "sym", "tf", "side", "status", "score", "order")}
     r["t_srv"] = ts
     r["price_at_msg"] = ref
+    r["date_shift_days"] = best_k
+    r["gap_to_zone_pct"] = round(best_d * 100, 3) if best_d is not None else None
     if s["kind"] == "bot":
         if not (s.get("entry") and s.get("sl") and s.get("tps")):
             continue
@@ -215,11 +256,14 @@ for s in S:
         hi = expand(float(hi), lo) if hi not in (None, "") else lo
         sl = expand(s.get("sl"), ref) if s.get("sl") else None
         tps = [expand(v, ref) for v in s.get("tps", []) if v and v < 100000]
-        if sl is None:
-            r.update(zone=[lo, hi], note="no SL parsed")
-            out.append(r)
-            continue
         d = 1 if s["side"] == "buy" else -1
+        if sl is None:
+            a = h1_atr(sym, ts)
+            edge = max(lo, hi) if d == -1 else min(lo, hi)
+            sl = edge - d * a
+            r["sl_assumed"] = True
+            if not tps:
+                tps = [edge + d * m * a for m in (0.9, 2.0, 3.0)]
         tps = [t for t in tps if d * (t - lo) > 0]
         tps = sorted(set(tps), key=lambda v: d * (v - lo))
         r.update(zone=[lo, hi], sl=sl, tps=tps)
